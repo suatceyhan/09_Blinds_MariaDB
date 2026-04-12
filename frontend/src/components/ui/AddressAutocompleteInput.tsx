@@ -1,7 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Loader2, Search } from 'lucide-react'
 import { fetchPhotonAddressSuggestions } from '@/lib/photonAddressSuggest'
-import { ADDRESS_FORMAT_PLACEHOLDER } from '@/components/ui/AddressMapLink'
 
 /** Avoid re-querying Photon after a full line is chosen or pasted (still editable if shortened). */
 function likelyCompleteAddressLine(s: string): boolean {
@@ -23,6 +22,8 @@ type AddressAutocompleteInputProps = {
   inputClassName?: string
   placeholder?: string
   minQueryLength?: number
+  /** Active company ISO country (Photon `countrycode`); omit or null = worldwide. */
+  countryCode?: string | null
 }
 
 /**
@@ -36,8 +37,9 @@ export function AddressAutocompleteInput({
   hintId,
   className = '',
   inputClassName = '',
-  placeholder = ADDRESS_FORMAT_PLACEHOLDER,
+  placeholder = '',
   minQueryLength = 3,
+  countryCode = null,
 }: Readonly<AddressAutocompleteInputProps>) {
   const genId = useId()
   const inputId = idProp ?? `addr-ac-${genId}`
@@ -62,7 +64,7 @@ export function AddressAutocompleteInput({
       setLoading(true)
       void (async () => {
         try {
-          const lines = await fetchPhotonAddressSuggestions(q, ac.signal)
+          const lines = await fetchPhotonAddressSuggestions(q, ac.signal, { countryCode })
           if (!ac.signal.aborted) {
             setItems(lines)
             setOpen(lines.length > 0)
@@ -82,7 +84,7 @@ export function AddressAutocompleteInput({
       ac.abort()
       window.clearTimeout(timer)
     }
-  }, [value, minQueryLength])
+  }, [value, minQueryLength, countryCode])
 
   useEffect(() => {
     if (!open) return

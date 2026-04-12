@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Building2, ExternalLink } from 'lucide-react'
-import { useAuthSession } from '@/app/authSession'
+import { REFRESH_SESSION_EVENT, useAuthSession } from '@/app/authSession'
 import { AddressAutocompleteInput } from '@/components/ui/AddressAutocompleteInput'
 import { ADDRESS_FORMAT_HINT } from '@/components/ui/AddressMapLink'
+import { ADDRESS_COUNTRY_OPTIONS } from '@/lib/addressCountryOptions'
 import { getJson, patchJson } from '@/lib/api'
 import { mapsLinkForCompany } from '@/lib/googleMaps'
 
@@ -13,6 +14,7 @@ type CompanyOut = {
   website: string | null
   email: string | null
   address: string | null
+  country_code?: string | null
   maps_url: string | null
   tax_rate_percent?: string | number | null
 }
@@ -33,6 +35,7 @@ export function SettingsCompanyInfoPage() {
   const [email, setEmail] = useState('')
   const [website, setWebsite] = useState('')
   const [address, setAddress] = useState('')
+  const [countryCode, setCountryCode] = useState('')
   const [taxRatePercent, setTaxRatePercent] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -55,6 +58,7 @@ export function SettingsCompanyInfoPage() {
       setEmail(c.email ?? '')
       setWebsite(c.website ?? '')
       setAddress(c.address ?? '')
+      setCountryCode((c.country_code ?? '').trim().toUpperCase())
       const tr = c.tax_rate_percent
       setTaxRatePercent(
         tr === null || tr === undefined || tr === '' ? '' : typeof tr === 'number' ? String(tr) : String(tr),
@@ -95,6 +99,11 @@ export function SettingsCompanyInfoPage() {
       if (web !== (row.website ?? null)) body.website = web
       const adr = address.trim() || null
       if (adr !== (row.address ?? null)) body.address = adr
+      const cc = countryCode.trim().toUpperCase()
+      const ccNorm = cc.length === 2 && /^[A-Z]{2}$/.test(cc) ? cc : null
+      const prevCc = (row.country_code ?? '').trim().toUpperCase() || null
+      const nextCc = ccNorm
+      if (nextCc !== prevCc) body.country_code = nextCc
       const trTrim = taxRatePercent.trim()
       const prevRaw = row.tax_rate_percent
       const prevNum =
@@ -134,6 +143,8 @@ export function SettingsCompanyInfoPage() {
       setEmail(updated.email ?? '')
       setWebsite(updated.website ?? '')
       setAddress(updated.address ?? '')
+      setCountryCode((updated.country_code ?? '').trim().toUpperCase())
+      globalThis.dispatchEvent(new Event(REFRESH_SESSION_EVENT))
       const utr = updated.tax_rate_percent
       setTaxRatePercent(
         utr === null || utr === undefined || utr === '' ? '' : typeof utr === 'number' ? String(utr) : String(utr),
@@ -230,6 +241,24 @@ export function SettingsCompanyInfoPage() {
                     />
                   </label>
                   <label className="block text-sm font-medium text-slate-700">
+                    Country (address suggestions)
+                    <select
+                      value={countryCode}
+                      onChange={(e) => setCountryCode(e.target.value.toUpperCase())}
+                      disabled={!canEdit}
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 disabled:bg-slate-50"
+                    >
+                      {ADDRESS_COUNTRY_OPTIONS.map((o) => (
+                        <option key={o.code || '_any'} value={o.code}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="mt-1 block text-xs font-normal text-slate-500">
+                      Limits Photon address autocomplete to this country for your team. “Any country” disables the filter.
+                    </span>
+                  </label>
+                  <label className="block text-sm font-medium text-slate-700">
                     Address
                     <div className="mt-1">
                       <AddressAutocompleteInput
@@ -238,6 +267,7 @@ export function SettingsCompanyInfoPage() {
                         disabled={!canEdit}
                         hintId="settings-company-address-hint"
                         inputClassName="text-slate-900 shadow-sm"
+                        countryCode={countryCode.trim() || null}
                       />
                     </div>
                     <span id="settings-company-address-hint" className="mt-1 block text-xs font-normal text-slate-500">

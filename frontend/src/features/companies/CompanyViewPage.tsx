@@ -23,6 +23,7 @@ type CompanyRow = {
   website: string | null
   email: string | null
   address?: string | null
+  country_code?: string | null
   maps_url?: string | null
   owner_user_id?: string | null
   owner?: CompanyOwner | null
@@ -151,9 +152,16 @@ export function CompanyViewPage() {
                 <MapPin className="h-3.5 w-3.5" strokeWidth={2} />
                 Address
               </div>
-              <div className="mt-2 inline-flex max-w-full items-start gap-2">
-                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" strokeWidth={2} aria-hidden />
-                <AddressMapLink address={row.address} mapsUrl={row.maps_url} lineClamp={false} />
+              <div className="mt-2 space-y-1">
+                {row.country_code?.trim() ? (
+                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                    Address search country: {row.country_code.trim().toUpperCase()}
+                  </p>
+                ) : null}
+                <div className="inline-flex max-w-full items-start gap-2">
+                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" strokeWidth={2} aria-hidden />
+                  <AddressMapLink address={row.address} mapsUrl={row.maps_url} lineClamp={false} />
+                </div>
               </div>
             </div>
             <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:col-span-2">

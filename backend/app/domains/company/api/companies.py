@@ -4,7 +4,7 @@ from urllib.parse import quote_plus
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
@@ -48,6 +48,7 @@ class CompanyOut(BaseModel):
     website: str | None
     email: str | None
     address: str | None = None
+    country_code: str | None = None
     maps_url: str | None = None
     owner_user_id: UUID | None = None
     owner: CompanyOwnerRef | None = None
@@ -56,13 +57,26 @@ class CompanyOut(BaseModel):
     is_deleted: bool = False
 
 
+def _normalize_country_code(v: str | None) -> str | None:
+    if not v or not str(v).strip():
+        return None
+    s = str(v).strip().upper()
+    return s if len(s) == 2 and s.isalpha() else None
+
+
 class CompanyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=500)
     phone: str | None = Field(None, max_length=64)
     website: str | None = Field(None, max_length=500)
     email: str | None = Field(None, max_length=320)
     address: str | None = Field(None, max_length=2000)
+    country_code: str | None = Field(None, max_length=2)
     owner_user_id: UUID | None = None
+
+    @field_validator("country_code", mode="before")
+    @classmethod
+    def _cc_create(cls, v):
+        return _normalize_country_code(v)
 
 
 class CompanyPatch(BaseModel):
@@ -74,8 +88,14 @@ class CompanyPatch(BaseModel):
     website: str | None = Field(None, max_length=500)
     email: str | None = Field(None, max_length=320)
     address: str | None = Field(None, max_length=2000)
+    country_code: str | None = Field(None, max_length=2)
     owner_user_id: UUID | None = None
     tax_rate_percent: Decimal | None = Field(None, ge=0, le=100)
+
+    @field_validator("country_code", mode="before")
+    @classmethod
+    def _cc_patch(cls, v):
+        return _normalize_country_code(v)
 
 
 def _normalize_optional_str(v: str | None, max_len: int) -> str | None:
@@ -129,6 +149,9 @@ def _to_company_out(row: Companies) -> CompanyOut:
         website=row.website,
         email=row.email,
         address=row.address,
+        country_code=_normalize_country_code(
+            str(row.country_code).strip() if getattr(row, "country_code", None) is not None else None
+        ),
         maps_url=row.maps_url,
         owner_user_id=row.owner_user_id,
         owner=owner,
@@ -242,12 +265,14 @@ def create_company(
     if dup:
         raise HTTPException(status_code=409, detail="A company with this name already exists.")
     addr = _normalize_optional_str(body.address, 2000)
+    cc = _normalize_country_code(body.country_code)
     row = Companies(
         name=body.name.strip(),
         phone=(body.phone.strip() if body.phone and body.phone.strip() else None),
         website=(body.website.strip() if body.website and body.website.strip() else None),
         email=(body.email.strip() if body.email and body.email.strip() else None),
         address=addr,
+        country_code=cc,
         maps_url=_maps_url_from_address(addr),
         owner_user_id=None,
         is_deleted=False,
@@ -302,7 +327,7 @@ def patch_company(
         raw = {
             k: v
             for k, v in raw.items()
-            if k in ("name", "phone", "email", "website", "address", "tax_rate_percent")
+            if k in ("name", "phone", "email", "website", "address", "country_code", "tax_rate_percent")
         }
         owner_key_in_payload = False
 
@@ -362,6 +387,9 @@ def patch_company(
     if "address" in raw:
         row.address = _normalize_optional_str(raw.get("address"), 2000)
         row.maps_url = _maps_url_from_address(row.address)
+
+    if "country_code" in raw:
+        row.country_code = _normalize_country_code(raw.get("country_code"))
 
     if "tax_rate_percent" in raw:
         tr = raw.get("tax_rate_percent")

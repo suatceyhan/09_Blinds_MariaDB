@@ -41,6 +41,7 @@ class UserResponse(BaseModel):
     company_name: Optional[str] = None
     active_company_id: Optional[UUID] = None
     active_company_name: Optional[str] = None
+    active_company_country_code: Optional[str] = None
     companies: List[CompanyRef] = Field(default_factory=list)
     photo_url: Optional[str] = None
 

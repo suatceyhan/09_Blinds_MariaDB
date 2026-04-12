@@ -299,13 +299,18 @@ def get_me(
 
     company_id = current_user.company_id
     company_name = None
+    company_country_code: Optional[str] = None
     if company_id:
         co = db.query(Companies).filter(Companies.id == company_id, Companies.is_deleted.is_(False)).first()
         if co:
             company_name = co.name
+            raw_cc = getattr(co, "country_code", None)
+            if isinstance(raw_cc, str) and len(raw_cc.strip()) == 2 and raw_cc.strip().isalpha():
+                company_country_code = raw_cc.strip().upper()
 
     active_company_id: Optional[UUID] = None
     active_company_name: Optional[str] = None
+    active_company_country_code: Optional[str] = None
     if token:
         tp = decode_token(
             token,
@@ -325,11 +330,15 @@ def get_me(
                     if aco:
                         active_company_id = aid
                         active_company_name = aco.name
+                        acc = getattr(aco, "country_code", None)
+                        if isinstance(acc, str) and len(acc.strip()) == 2 and acc.strip().isalpha():
+                            active_company_country_code = acc.strip().upper()
             except ValueError:
                 pass
     if active_company_id is None:
         active_company_id = company_id
         active_company_name = company_name
+        active_company_country_code = company_country_code
 
     companies_me = [{"id": cid, "name": cname} for cid, cname in list_user_companies_for_me(db, current_user.id)]
 
@@ -349,6 +358,7 @@ def get_me(
         "company_name": company_name,
         "active_company_id": active_company_id,
         "active_company_name": active_company_name,
+        "active_company_country_code": active_company_country_code,
         "companies": companies_me,
         "photo_url": current_user.photo_url,
     }

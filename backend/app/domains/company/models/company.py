@@ -14,6 +14,7 @@ class Companies(Base):
     website = Column(String, nullable=True)
     email = Column(String, nullable=True)
     address = Column(String(2000), nullable=True)
+    country_code = Column(String(2), nullable=True)
     maps_url = Column(String(2000), nullable=True)
     owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     logo_url = Column(String(500), nullable=True)

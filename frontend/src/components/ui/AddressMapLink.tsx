@@ -1,8 +1,5 @@
 import { mapsLinkForCompany } from '@/lib/googleMaps'
 
-/** Example for placeholders (Google Maps single-line style). */
-export const ADDRESS_FORMAT_PLACEHOLDER = '492 Huntingwood Dr, Scarborough, ON M1W 1G4'
-
 /** Short hint under address fields (English UI). */
 export const ADDRESS_FORMAT_HINT =
   'Type at least 3 characters for address suggestions (OpenStreetMap), or enter one line yourself: street, city, province/state, postal code.'

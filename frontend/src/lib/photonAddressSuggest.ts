@@ -35,15 +35,28 @@ export function formatAddressLineFromPhotonProperties(pr: PhotonFeaturePropertie
   return parts.join(', ')
 }
 
+export type PhotonSuggestOptions = {
+  limit?: number
+  /** ISO 3166-1 alpha-2; passed to Photon as `countrycode` when set. */
+  countryCode?: string | null
+}
+
 export async function fetchPhotonAddressSuggestions(
   query: string,
   signal: AbortSignal,
-  limit = 10,
+  options?: PhotonSuggestOptions,
 ): Promise<string[]> {
   const q = query.trim()
   if (q.length < 3) return []
 
-  const url = `${PHOTON_URL}?${new URLSearchParams({ q, limit: String(Math.min(15, Math.max(1, limit))), lang: 'en' })}`
+  const limit = Math.min(15, Math.max(1, options?.limit ?? 10))
+  const params = new URLSearchParams({ q, limit: String(limit), lang: 'en' })
+  const cc = (options?.countryCode ?? '').trim().toUpperCase()
+  if (/^[A-Z]{2}$/.test(cc)) {
+    params.set('countrycode', cc)
+  }
+
+  const url = `${PHOTON_URL}?${params}`
   const res = await fetch(url, { signal, headers: { Accept: 'application/json' } })
   if (!res.ok) return []
 

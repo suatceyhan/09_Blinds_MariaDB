@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Building2, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { AddressAutocompleteInput } from '@/components/ui/AddressAutocompleteInput'
 import { ADDRESS_FORMAT_HINT, AddressMapLink } from '@/components/ui/AddressMapLink'
+import { ADDRESS_COUNTRY_OPTIONS } from '@/lib/addressCountryOptions'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
 import { useAuthSession } from '@/app/authSession'
@@ -21,6 +22,7 @@ type CompanyRow = {
   website: string | null
   email: string | null
   address?: string | null
+  country_code?: string | null
   maps_url?: string | null
   owner_user_id?: string | null
   owner?: CompanyOwner | null
@@ -70,6 +72,7 @@ export function CompaniesPage() {
   const [email, setEmail] = useState('')
   const [website, setWebsite] = useState('')
   const [address, setAddress] = useState('')
+  const [createCountryCode, setCreateCountryCode] = useState('')
   const [ownerUserId, setOwnerUserId] = useState('')
   const [createLogoFile, setCreateLogoFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
@@ -83,6 +86,7 @@ export function CompaniesPage() {
   const [editEmail, setEditEmail] = useState('')
   const [editWebsite, setEditWebsite] = useState('')
   const [editAddress, setEditAddress] = useState('')
+  const [editCountryCode, setEditCountryCode] = useState('')
   const [editOwnerUserId, setEditOwnerUserId] = useState('')
   const [editLogoFile, setEditLogoFile] = useState<File | null>(null)
   const [logoBusy, setLogoBusy] = useState(false)
@@ -157,6 +161,7 @@ export function CompaniesPage() {
     setEditEmail(r.email ?? '')
     setEditWebsite(r.website ?? '')
     setEditAddress(r.address ?? '')
+    setEditCountryCode((r.country_code ?? '').trim().toUpperCase())
     setEditOwnerUserId(r.owner_user_id ?? '')
     setEditLogoFile(null)
     setErr(null)
@@ -178,6 +183,7 @@ export function CompaniesPage() {
         email: editEmail.trim() || null,
         website: editWebsite.trim() || null,
         address: editAddress.trim() || null,
+        country_code: editCountryCode.trim() ? editCountryCode.trim().toUpperCase() : null,
         owner_user_id: editOwnerUserId.trim() ? editOwnerUserId.trim() : null,
       })
       closeEdit()
@@ -201,6 +207,7 @@ export function CompaniesPage() {
         email: email.trim() || null,
         website: website.trim() || null,
         address: address.trim() || null,
+        country_code: createCountryCode.trim() ? createCountryCode.trim().toUpperCase() : null,
         owner_user_id: ownerUserId.trim() || null,
       })
       if (createLogoFile) {
@@ -213,6 +220,7 @@ export function CompaniesPage() {
       setEmail('')
       setWebsite('')
       setAddress('')
+      setCreateCountryCode(me?.active_company_country_code ?? '')
       setOwnerUserId('')
       setCreateLogoFile(null)
       await reloadRows()
@@ -377,11 +385,29 @@ export function CompaniesPage() {
                 />
               </label>
               <label className="block text-sm text-slate-700 sm:col-span-2">
+                <span className="mb-1 block font-medium">Country (address suggestions)</span>
+                <select
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                  value={editCountryCode}
+                  onChange={(e) => setEditCountryCode(e.target.value.toUpperCase())}
+                >
+                  {ADDRESS_COUNTRY_OPTIONS.map((o) => (
+                    <option key={o.code || '_any'} value={o.code}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-xs text-slate-500">
+                  Photon search is limited to this country when set. “Any country” shows worldwide results.
+                </span>
+              </label>
+              <label className="block text-sm text-slate-700 sm:col-span-2">
                 <span className="mb-1 block font-medium">Address</span>
                 <AddressAutocompleteInput
                   value={editAddress}
                   onChange={setEditAddress}
                   hintId="companies-edit-address-hint"
+                  countryCode={editCountryCode.trim() || null}
                 />
                 <span id="companies-edit-address-hint" className="mt-1 block text-xs text-slate-500">
                   {ADDRESS_FORMAT_HINT} After save, a Google Maps link can be derived from this line.
@@ -482,7 +508,10 @@ export function CompaniesPage() {
           <div className="ml-auto flex shrink-0 items-center sm:pt-1">
             <button
               type="button"
-              onClick={() => setShowCreateForm(true)}
+              onClick={() => {
+                setCreateCountryCode((me?.active_company_country_code ?? '').trim().toUpperCase())
+                setShowCreateForm(true)
+              }}
               className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700"
             >
               Create company
@@ -541,11 +570,29 @@ export function CompaniesPage() {
               />
             </label>
             <label className="block text-sm text-slate-700 sm:col-span-2">
+              <span className="mb-1 block font-medium">Country (address suggestions)</span>
+              <select
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                value={createCountryCode}
+                onChange={(e) => setCreateCountryCode(e.target.value.toUpperCase())}
+              >
+                {ADDRESS_COUNTRY_OPTIONS.map((o) => (
+                  <option key={o.code || '_any'} value={o.code}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block text-xs text-slate-500">
+                Defaults from your active company. Photon search respects this country when set.
+              </span>
+            </label>
+            <label className="block text-sm text-slate-700 sm:col-span-2">
               <span className="mb-1 block font-medium">Address (optional)</span>
               <AddressAutocompleteInput
                 value={address}
                 onChange={setAddress}
                 hintId="companies-new-address-hint"
+                countryCode={createCountryCode.trim() || null}
               />
               <span id="companies-new-address-hint" className="mt-1 block text-xs text-slate-500">
                 {ADDRESS_FORMAT_HINT} After create, a Google Maps link can be derived from this line.
