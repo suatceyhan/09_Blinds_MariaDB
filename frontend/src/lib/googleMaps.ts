@@ -1,4 +1,4 @@
-/** Google Maps “search by address” (backend ile aynı desen). */
+/** Google Maps search-by-address URL (same pattern as backend). Used by `AddressMapLink` in the UI. */
 export function googleMapsSearchUrlFromAddress(address: string): string {
   const q = address.trim()
   if (!q) return ''

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Mail, Phone, UserRound } from 'lucide-react'
+import { AddressMapLink } from '@/components/ui/AddressMapLink'
 import { getJson } from '@/lib/api'
 
 type CustomerOut = {
@@ -127,7 +128,9 @@ export function CustomerViewPage() {
             </div>
             <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:col-span-2">
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Address</div>
-              <p className="mt-2 text-sm text-slate-700">{row.address || '—'}</p>
+              <div className="mt-2 text-sm text-slate-700">
+                <AddressMapLink address={row.address} lineClamp={false} />
+              </div>
             </div>
           </div>
 

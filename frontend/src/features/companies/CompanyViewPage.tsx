@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Building2, Globe, Mail, MapPin, Phone, User } from 'lucide-react'
+import { AddressMapLink } from '@/components/ui/AddressMapLink'
 import { useAuthSession } from '@/app/authSession'
 import { getJson } from '@/lib/api'
-import { mapsLinkForCompany } from '@/lib/googleMaps'
 
 function isSuperadminRoles(roles: string[] | undefined): boolean {
   return roles?.some((r) => r.toLowerCase() === 'superadmin') ?? false
@@ -70,8 +70,6 @@ export function CompanyViewPage() {
 
   const websiteHref =
     row?.website && row.website.startsWith('http') ? row.website : row?.website ? `https://${row.website}` : null
-
-  const mapsHref = row ? mapsLinkForCompany(row.address, row.maps_url) : null
 
   const canViewUserDir = Boolean(me?.permissions.includes('users.directory.view'))
 
@@ -153,23 +151,9 @@ export function CompanyViewPage() {
                 <MapPin className="h-3.5 w-3.5" strokeWidth={2} />
                 Address
               </div>
-              <div className="mt-2">
-                {row.address?.trim() && mapsHref ? (
-                  <a
-                    href={mapsHref}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex max-w-full items-start gap-2 whitespace-pre-wrap break-words text-sm font-medium text-teal-700 hover:text-teal-800 hover:underline"
-                    title="Open in Google Maps"
-                  >
-                    <MapPin className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} />
-                    <span>{row.address}</span>
-                  </a>
-                ) : row.address?.trim() ? (
-                  <p className="whitespace-pre-wrap text-sm font-medium text-slate-900">{row.address}</p>
-                ) : (
-                  <p className="text-sm text-slate-500">—</p>
-                )}
+              <div className="mt-2 inline-flex max-w-full items-start gap-2">
+                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" strokeWidth={2} aria-hidden />
+                <AddressMapLink address={row.address} mapsUrl={row.maps_url} lineClamp={false} />
               </div>
             </div>
             <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:col-span-2">

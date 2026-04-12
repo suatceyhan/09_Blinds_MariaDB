@@ -9,6 +9,8 @@ import {
   joinScheduledWall,
   snapWallToQuarterMinutes,
 } from '@/lib/visitSchedule'
+import { AddressAutocompleteInput } from '@/components/ui/AddressAutocompleteInput'
+import { ADDRESS_FORMAT_HINT } from '@/components/ui/AddressMapLink'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { VisitStartQuarterPicker } from '@/components/ui/VisitStartQuarterPicker'
 
@@ -490,15 +492,18 @@ export function EstimateEditPage() {
           </div>
 
           <label className="block text-sm font-medium text-slate-700">
-            Calendar location (optional)
-            <textarea
-              rows={2}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-              value={visitAddress}
-              disabled={formDisabled}
-              onChange={(e) => setVisitAddress(e.target.value)}
-              placeholder="Overrides default; leave blank-related text as needed"
-            />
+            Visit address (optional)
+            <div className="mt-1">
+              <AddressAutocompleteInput
+                value={visitAddress}
+                onChange={setVisitAddress}
+                disabled={formDisabled}
+                hintId="estimate-edit-visit-address-hint"
+              />
+            </div>
+            <span id="estimate-edit-visit-address-hint" className="mt-1 block text-xs font-normal text-slate-500">
+              Overrides the customer default for this visit. {ADDRESS_FORMAT_HINT}
+            </span>
           </label>
 
           <fieldset className="rounded-xl border border-slate-200 p-3" disabled={formDisabled}>

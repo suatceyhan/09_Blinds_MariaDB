@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Building2, ExternalLink } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
+import { AddressAutocompleteInput } from '@/components/ui/AddressAutocompleteInput'
+import { ADDRESS_FORMAT_HINT } from '@/components/ui/AddressMapLink'
 import { getJson, patchJson } from '@/lib/api'
 import { mapsLinkForCompany } from '@/lib/googleMaps'
 
@@ -229,13 +231,18 @@ export function SettingsCompanyInfoPage() {
                   </label>
                   <label className="block text-sm font-medium text-slate-700">
                     Address
-                    <textarea
-                      value={address}
-                      onChange={(e) => setAddress(e.target.value)}
-                      disabled={!canEdit}
-                      rows={3}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 disabled:bg-slate-50"
-                    />
+                    <div className="mt-1">
+                      <AddressAutocompleteInput
+                        value={address}
+                        onChange={setAddress}
+                        disabled={!canEdit}
+                        hintId="settings-company-address-hint"
+                        inputClassName="text-slate-900 shadow-sm"
+                      />
+                    </div>
+                    <span id="settings-company-address-hint" className="mt-1 block text-xs font-normal text-slate-500">
+                      {ADDRESS_FORMAT_HINT} After save, the preview link below uses this text (or your stored Maps URL).
+                    </span>
                   </label>
                   {mapsHref ? (
                     <p className="text-sm">

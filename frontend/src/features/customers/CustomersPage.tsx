@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Pencil, RotateCcw, Trash2, UserRound } from 'lucide-react'
+import { AddressAutocompleteInput } from '@/components/ui/AddressAutocompleteInput'
+import { ADDRESS_FORMAT_HINT, AddressMapLink } from '@/components/ui/AddressMapLink'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { useAuthSession } from '@/app/authSession'
 import { deleteJson, getJson, patchJson, postJson } from '@/lib/api'
@@ -263,11 +265,14 @@ export function CustomersPage() {
               </label>
               <label className="block text-sm text-slate-700 sm:col-span-2">
                 <span className="mb-1 block font-medium">Address</span>
-                <textarea
-                  className="min-h-20 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                <AddressAutocompleteInput
                   value={editAddress}
-                  onChange={(e) => setEditAddress(e.target.value)}
+                  onChange={setEditAddress}
+                  hintId="customers-edit-address-hint"
                 />
+                <span id="customers-edit-address-hint" className="mt-1 block text-xs text-slate-500">
+                  {ADDRESS_FORMAT_HINT}
+                </span>
               </label>
             </div>
             <div className="mt-4 flex justify-end gap-2">
@@ -359,11 +364,14 @@ export function CustomersPage() {
             </label>
             <label className="block text-sm text-slate-700 sm:col-span-2">
               <span className="mb-1 block font-medium">Address</span>
-              <textarea
-                className="min-h-20 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+              <AddressAutocompleteInput
                 value={address}
-                onChange={(e) => setAddress(e.target.value)}
+                onChange={setAddress}
+                hintId="customers-new-address-hint"
               />
+              <span id="customers-new-address-hint" className="mt-1 block text-xs text-slate-500">
+                {ADDRESS_FORMAT_HINT}
+              </span>
             </label>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
@@ -443,7 +451,9 @@ export function CustomersPage() {
                     </td>
                     <td className="px-2 py-3 text-slate-600 sm:px-4">{r.phone || '—'}</td>
                     <td className="px-2 py-3 text-slate-600 sm:px-4">{r.email || '—'}</td>
-                    <td className="px-2 py-3 text-slate-600 sm:px-4">{r.address || '—'}</td>
+                    <td className="px-2 py-3 text-slate-600 sm:px-4">
+                      <AddressMapLink address={r.address} muted={!r.active} />
+                    </td>
                     <td className="px-2 py-3 sm:px-4">
                       {r.active ? (
                         <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-900">

@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Building2, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { AddressAutocompleteInput } from '@/components/ui/AddressAutocompleteInput'
+import { ADDRESS_FORMAT_HINT, AddressMapLink } from '@/components/ui/AddressMapLink'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
 import { useAuthSession } from '@/app/authSession'
 import { deleteJson, getJson, patchJson, postJson, postMultipartJson } from '@/lib/api'
-import { mapsLinkForCompany } from '@/lib/googleMaps'
-
 type CompanyOwner = {
   id: string
   email: string
@@ -378,15 +378,13 @@ export function CompaniesPage() {
               </label>
               <label className="block text-sm text-slate-700 sm:col-span-2">
                 <span className="mb-1 block font-medium">Address</span>
-                <textarea
-                  rows={2}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                <AddressAutocompleteInput
                   value={editAddress}
-                  onChange={(e) => setEditAddress(e.target.value)}
-                  placeholder="Street, city…"
+                  onChange={setEditAddress}
+                  hintId="companies-edit-address-hint"
                 />
-                <span className="mt-1 block text-xs text-slate-500">
-                  Kaydettiğinizde Google Maps bağlantısı bu adresten otomatik oluşturulur.
+                <span id="companies-edit-address-hint" className="mt-1 block text-xs text-slate-500">
+                  {ADDRESS_FORMAT_HINT} After save, a Google Maps link can be derived from this line.
                 </span>
               </label>
               <label className="block text-sm text-slate-700 sm:col-span-2">
@@ -544,15 +542,13 @@ export function CompaniesPage() {
             </label>
             <label className="block text-sm text-slate-700 sm:col-span-2">
               <span className="mb-1 block font-medium">Address (optional)</span>
-              <textarea
-                rows={2}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+              <AddressAutocompleteInput
                 value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="Street, city…"
+                onChange={setAddress}
+                hintId="companies-new-address-hint"
               />
-              <span className="mt-1 block text-xs text-slate-500">
-                Kayıt sonrası Google Maps bağlantısı bu adresten otomatik oluşturulur.
+              <span id="companies-new-address-hint" className="mt-1 block text-xs text-slate-500">
+                {ADDRESS_FORMAT_HINT} After create, a Google Maps link can be derived from this line.
               </span>
             </label>
             <label className="block text-sm text-slate-700 sm:col-span-2">
@@ -725,25 +721,7 @@ export function CompaniesPage() {
                       )}
                     </td>
                     <td className={`px-2 py-3 align-top sm:px-4 ${inactive ? 'text-slate-500' : 'text-slate-600'}`}>
-                      {(() => {
-                        const mapHref = mapsLinkForCompany(r.address, r.maps_url)
-                        if (r.address && mapHref) {
-                          return (
-                            <a
-                              href={mapHref}
-                              target="_blank"
-                              rel="noreferrer"
-                              className={`line-clamp-3 break-words text-sm font-medium underline-offset-2 hover:underline ${
-                                inactive ? 'text-slate-600' : 'text-teal-700 hover:text-teal-800'
-                              }`}
-                              title="Google Maps’te aç"
-                            >
-                              {r.address}
-                            </a>
-                          )
-                        }
-                        return <span className="line-clamp-3 break-words">{r.address ?? '—'}</span>
-                      })()}
+                      <AddressMapLink address={r.address} mapsUrl={r.maps_url} muted={inactive} />
                     </td>
                     <td
                       className={`align-top px-2 py-3 sm:px-4 ${

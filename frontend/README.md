@@ -27,6 +27,7 @@ Tarayıcı: [http://127.0.0.1:5173](http://127.0.0.1:5173)
 ## UI conventions (this template)
 
 - **English** end-user copy: menus (`appPages.ts`), auth, dashboard, settings, reports, layout.
+- **Addresses:** single-line fields use **`AddressAutocompleteInput`** (`src/components/ui/AddressAutocompleteInput.tsx`): after **3+ characters**, debounced suggestions from **Photon / OpenStreetMap** (`src/lib/photonAddressSuggest.ts`, public `photon.komoot.io` — needs browser network access). Pick a row or keep typing manually. Hint + example placeholder in forms; **lists and detail views** use **`AddressMapLink`** → **Google Maps** in a new tab (`src/lib/googleMaps.ts`). Not Canada Post / AddressComplete; accuracy varies by region.
 - **Confirmations:** centered `ConfirmModal` (`src/components/ui/ConfirmModal.tsx`) for discard / remove / deactivate flows — not `window.confirm`.
 - **Soft-deleted rows:** Roles, User roles, **Estimates** ve **Orders** listelerinde **Show deleted** (`ShowDeletedToggle`); estimates için **Restore** (`POST /estimates/:id/restore`, `include_deleted=true` list parametresi). Orders için: `DELETE /orders/{id}` soft delete, listede `GET /orders?include_deleted=true`, restore: `POST /orders/{id}/restore`.
 - **Kayıt (DWP TM hizası):** `/register` her zaman **Employee** ve **Company** kartlarını gösterir. Sunucu anında kayda izin veriyorsa (`PUBLIC_REGISTRATION_ENABLED=true`) üçüncü kart **Instant signup** → `/register/direct`. Başvurular `/verify-email?token=…&type=employee|company`. Superadmin **Settings → Pending applications**.

@@ -4,6 +4,7 @@ import { ArrowLeft, CalendarDays, ShoppingBag } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
 import { formatVisitDateTimeList } from '@/lib/formatVisitDisplay'
 import { getJson, postJson } from '@/lib/api'
+import { AddressMapLink } from '@/components/ui/AddressMapLink'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 
 type BlindsRef = { id: string; name: string; window_count?: number | null }
@@ -212,7 +213,9 @@ export function EstimateViewPage() {
             </div>
             <div className="sm:col-span-2">
               <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Address</dt>
-              <dd className="mt-1 text-slate-800">{row.customer_address?.trim() || '—'}</dd>
+              <dd className="mt-1 text-slate-800">
+                <AddressMapLink address={row.customer_address} lineClamp={false} />
+              </dd>
             </div>
             <div className="sm:col-span-2">
               <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Blinds types</dt>
@@ -258,7 +261,9 @@ export function EstimateViewPage() {
             {row.visit_address?.trim() ? (
               <div className="sm:col-span-2">
                 <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Visit address</dt>
-                <dd className="mt-1 text-slate-800">{row.visit_address}</dd>
+                <dd className="mt-1 text-slate-800">
+                  <AddressMapLink address={row.visit_address} lineClamp={false} />
+                </dd>
               </div>
             ) : null}
             {row.visit_notes?.trim() ? (

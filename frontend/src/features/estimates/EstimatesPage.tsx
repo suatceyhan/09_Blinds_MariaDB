@@ -10,6 +10,7 @@ import {
   snapWallToQuarterMinutes,
 } from '@/lib/visitSchedule'
 import { formatVisitDateTimeList } from '@/lib/formatVisitDisplay'
+import { AddressMapLink } from '@/components/ui/AddressMapLink'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { VisitStartQuarterPicker } from '@/components/ui/VisitStartQuarterPicker'
 import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
@@ -843,11 +844,7 @@ export function EstimatesPage() {
                     </Link>
                   </td>
                   <td className="max-w-[14rem] align-top px-2 py-3 text-slate-600 sm:px-4">
-                    {r.customer_address?.trim() ? (
-                      <span className="line-clamp-3 text-sm">{r.customer_address}</span>
-                    ) : (
-                      <span className="text-slate-400">—</span>
-                    )}
+                    <AddressMapLink address={r.customer_address} />
                   </td>
                   <td className="align-top px-2 py-3 sm:px-4">
                     <TypesAndWindowsCell lines={r.blinds_types} />
