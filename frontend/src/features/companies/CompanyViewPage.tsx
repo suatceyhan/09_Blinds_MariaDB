@@ -24,6 +24,7 @@ type CompanyRow = {
   email: string | null
   address?: string | null
   country_code?: string | null
+  region_code?: string | null
   maps_url?: string | null
   owner_user_id?: string | null
   owner?: CompanyOwner | null
@@ -156,6 +157,9 @@ export function CompanyViewPage() {
                 {row.country_code?.trim() ? (
                   <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
                     Address search country: {row.country_code.trim().toUpperCase()}
+                    {row.region_code?.trim()
+                      ? ` — state/province: ${row.region_code.trim().toUpperCase()}`
+                      : ''}
                   </p>
                 ) : null}
                 <div className="inline-flex max-w-full items-start gap-2">

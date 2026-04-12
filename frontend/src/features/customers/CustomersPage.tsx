@@ -270,6 +270,7 @@ export function CustomersPage() {
                   onChange={setEditAddress}
                   hintId="customers-edit-address-hint"
                   countryCode={me?.active_company_country_code ?? null}
+                  regionCode={me?.active_company_region_code ?? null}
                 />
                 <span id="customers-edit-address-hint" className="mt-1 block text-xs text-slate-500">
                   {ADDRESS_FORMAT_HINT}
@@ -370,6 +371,7 @@ export function CustomersPage() {
                 onChange={setAddress}
                 hintId="customers-new-address-hint"
                 countryCode={me?.active_company_country_code ?? null}
+                regionCode={me?.active_company_region_code ?? null}
               />
               <span id="customers-new-address-hint" className="mt-1 block text-xs text-slate-500">
                 {ADDRESS_FORMAT_HINT}

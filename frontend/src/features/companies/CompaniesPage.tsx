@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { Building2, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { AddressAutocompleteInput } from '@/components/ui/AddressAutocompleteInput'
 import { ADDRESS_FORMAT_HINT, AddressMapLink } from '@/components/ui/AddressMapLink'
-import { ADDRESS_COUNTRY_OPTIONS } from '@/lib/addressCountryOptions'
+import { companyCountrySelectOptions } from '@/lib/addressCountryOptions'
+import { listCompanySubnationals } from '@/lib/companyRegions'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
 import { useAuthSession } from '@/app/authSession'
@@ -23,6 +24,7 @@ type CompanyRow = {
   email: string | null
   address?: string | null
   country_code?: string | null
+  region_code?: string | null
   maps_url?: string | null
   owner_user_id?: string | null
   owner?: CompanyOwner | null
@@ -73,6 +75,7 @@ export function CompaniesPage() {
   const [website, setWebsite] = useState('')
   const [address, setAddress] = useState('')
   const [createCountryCode, setCreateCountryCode] = useState('')
+  const [createRegionCode, setCreateRegionCode] = useState('')
   const [ownerUserId, setOwnerUserId] = useState('')
   const [createLogoFile, setCreateLogoFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
@@ -87,6 +90,7 @@ export function CompaniesPage() {
   const [editWebsite, setEditWebsite] = useState('')
   const [editAddress, setEditAddress] = useState('')
   const [editCountryCode, setEditCountryCode] = useState('')
+  const [editRegionCode, setEditRegionCode] = useState('')
   const [editOwnerUserId, setEditOwnerUserId] = useState('')
   const [editLogoFile, setEditLogoFile] = useState<File | null>(null)
   const [logoBusy, setLogoBusy] = useState(false)
@@ -162,6 +166,7 @@ export function CompaniesPage() {
     setEditWebsite(r.website ?? '')
     setEditAddress(r.address ?? '')
     setEditCountryCode((r.country_code ?? '').trim().toUpperCase())
+    setEditRegionCode((r.region_code ?? '').trim().toUpperCase())
     setEditOwnerUserId(r.owner_user_id ?? '')
     setEditLogoFile(null)
     setErr(null)
@@ -177,13 +182,19 @@ export function CompaniesPage() {
     setEditSaving(true)
     setErr(null)
     try {
+      const cc = editCountryCode.trim() ? editCountryCode.trim().toUpperCase() : null
+      let region: string | null = null
+      if (cc === 'CA' || cc === 'US') {
+        region = editRegionCode.trim() ? editRegionCode.trim().toUpperCase() : null
+      }
       await patchJson<CompanyRow>(`/companies/${editing.id}`, {
         name: editName.trim(),
         phone: editPhone.trim() || null,
         email: editEmail.trim() || null,
         website: editWebsite.trim() || null,
         address: editAddress.trim() || null,
-        country_code: editCountryCode.trim() ? editCountryCode.trim().toUpperCase() : null,
+        country_code: cc,
+        region_code: region,
         owner_user_id: editOwnerUserId.trim() ? editOwnerUserId.trim() : null,
       })
       closeEdit()
@@ -201,13 +212,19 @@ export function CompaniesPage() {
     setSaving(true)
     setErr(null)
     try {
+      const cc = createCountryCode.trim() ? createCountryCode.trim().toUpperCase() : null
+      let region: string | null = null
+      if (cc === 'CA' || cc === 'US') {
+        region = createRegionCode.trim() ? createRegionCode.trim().toUpperCase() : null
+      }
       const created = await postJson<CompanyRow>('/companies', {
         name: name.trim(),
         phone: phone.trim() || null,
         email: email.trim() || null,
         website: website.trim() || null,
         address: address.trim() || null,
-        country_code: createCountryCode.trim() ? createCountryCode.trim().toUpperCase() : null,
+        country_code: cc,
+        region_code: region,
         owner_user_id: ownerUserId.trim() || null,
       })
       if (createLogoFile) {
@@ -220,7 +237,8 @@ export function CompaniesPage() {
       setEmail('')
       setWebsite('')
       setAddress('')
-      setCreateCountryCode(me?.active_company_country_code ?? '')
+      setCreateCountryCode((me?.active_company_country_code ?? '').trim().toUpperCase())
+      setCreateRegionCode((me?.active_company_region_code ?? '').trim().toUpperCase())
       setOwnerUserId('')
       setCreateLogoFile(null)
       await reloadRows()
@@ -389,18 +407,40 @@ export function CompaniesPage() {
                 <select
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
                   value={editCountryCode}
-                  onChange={(e) => setEditCountryCode(e.target.value.toUpperCase())}
+                  onChange={(e) => {
+                    const v = e.target.value.toUpperCase()
+                    setEditCountryCode(v)
+                    if (v !== 'CA' && v !== 'US') setEditRegionCode('')
+                  }}
                 >
-                  {ADDRESS_COUNTRY_OPTIONS.map((o) => (
+                  {companyCountrySelectOptions(editing.country_code).map((o) => (
                     <option key={o.code || '_any'} value={o.code}>
                       {o.label}
                     </option>
                   ))}
                 </select>
                 <span className="mt-1 block text-xs text-slate-500">
-                  Photon search is limited to this country when set. “Any country” shows worldwide results.
+                  Photon search is limited to this country when set. “Any country” shows worldwide results. For Canada or
+                  the United States, set state/province for local-first suggestions.
                 </span>
               </label>
+              {(editCountryCode === 'CA' || editCountryCode === 'US') && (
+                <label className="block text-sm text-slate-700 sm:col-span-2">
+                  <span className="mb-1 block font-medium">State / province</span>
+                  <select
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                    value={editRegionCode}
+                    onChange={(e) => setEditRegionCode(e.target.value.toUpperCase())}
+                  >
+                    <option value="">Not specified</option>
+                    {listCompanySubnationals(editCountryCode).map((r) => (
+                      <option key={r.code} value={r.code}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label className="block text-sm text-slate-700 sm:col-span-2">
                 <span className="mb-1 block font-medium">Address</span>
                 <AddressAutocompleteInput
@@ -408,6 +448,11 @@ export function CompaniesPage() {
                   onChange={setEditAddress}
                   hintId="companies-edit-address-hint"
                   countryCode={editCountryCode.trim() || null}
+                  regionCode={
+                    (editCountryCode === 'CA' || editCountryCode === 'US') && editRegionCode.trim()
+                      ? editRegionCode.trim().toUpperCase()
+                      : null
+                  }
                 />
                 <span id="companies-edit-address-hint" className="mt-1 block text-xs text-slate-500">
                   {ADDRESS_FORMAT_HINT} After save, a Google Maps link can be derived from this line.
@@ -510,6 +555,7 @@ export function CompaniesPage() {
               type="button"
               onClick={() => {
                 setCreateCountryCode((me?.active_company_country_code ?? '').trim().toUpperCase())
+                setCreateRegionCode((me?.active_company_region_code ?? '').trim().toUpperCase())
                 setShowCreateForm(true)
               }}
               className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700"
@@ -574,18 +620,40 @@ export function CompaniesPage() {
               <select
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
                 value={createCountryCode}
-                onChange={(e) => setCreateCountryCode(e.target.value.toUpperCase())}
+                onChange={(e) => {
+                  const v = e.target.value.toUpperCase()
+                  setCreateCountryCode(v)
+                  if (v !== 'CA' && v !== 'US') setCreateRegionCode('')
+                }}
               >
-                {ADDRESS_COUNTRY_OPTIONS.map((o) => (
+                {companyCountrySelectOptions(undefined).map((o) => (
                   <option key={o.code || '_any'} value={o.code}>
                     {o.label}
                   </option>
                 ))}
               </select>
               <span className="mt-1 block text-xs text-slate-500">
-                Defaults from your active company. Photon search respects this country when set.
+                Defaults from your active company. For Canada or the United States, set state/province for local-first
+                suggestions.
               </span>
             </label>
+            {(createCountryCode === 'CA' || createCountryCode === 'US') && (
+              <label className="block text-sm text-slate-700 sm:col-span-2">
+                <span className="mb-1 block font-medium">State / province</span>
+                <select
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                  value={createRegionCode}
+                  onChange={(e) => setCreateRegionCode(e.target.value.toUpperCase())}
+                >
+                  <option value="">Not specified</option>
+                  {listCompanySubnationals(createCountryCode).map((r) => (
+                    <option key={r.code} value={r.code}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label className="block text-sm text-slate-700 sm:col-span-2">
               <span className="mb-1 block font-medium">Address (optional)</span>
               <AddressAutocompleteInput
@@ -593,6 +661,11 @@ export function CompaniesPage() {
                 onChange={setAddress}
                 hintId="companies-new-address-hint"
                 countryCode={createCountryCode.trim() || null}
+                regionCode={
+                  (createCountryCode === 'CA' || createCountryCode === 'US') && createRegionCode.trim()
+                    ? createRegionCode.trim().toUpperCase()
+                    : null
+                }
               />
               <span id="companies-new-address-hint" className="mt-1 block text-xs text-slate-500">
                 {ADDRESS_FORMAT_HINT} After create, a Google Maps link can be derived from this line.

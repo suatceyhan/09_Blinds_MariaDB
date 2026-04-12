@@ -500,6 +500,7 @@ export function EstimateEditPage() {
                 disabled={formDisabled}
                 hintId="estimate-edit-visit-address-hint"
                 countryCode={me?.active_company_country_code ?? null}
+                regionCode={me?.active_company_region_code ?? null}
               />
             </div>
             <span id="estimate-edit-visit-address-hint" className="mt-1 block text-xs font-normal text-slate-500">

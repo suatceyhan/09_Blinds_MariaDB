@@ -24,6 +24,8 @@ type AddressAutocompleteInputProps = {
   minQueryLength?: number
   /** Active company ISO country (Photon `countrycode`); omit or null = worldwide. */
   countryCode?: string | null
+  /** CA/US province or state code — biases Photon and ranks local subdivision first. */
+  regionCode?: string | null
 }
 
 /**
@@ -40,6 +42,7 @@ export function AddressAutocompleteInput({
   placeholder = '',
   minQueryLength = 3,
   countryCode = null,
+  regionCode = null,
 }: Readonly<AddressAutocompleteInputProps>) {
   const genId = useId()
   const inputId = idProp ?? `addr-ac-${genId}`
@@ -64,7 +67,7 @@ export function AddressAutocompleteInput({
       setLoading(true)
       void (async () => {
         try {
-          const lines = await fetchPhotonAddressSuggestions(q, ac.signal, { countryCode })
+          const lines = await fetchPhotonAddressSuggestions(q, ac.signal, { countryCode, regionCode })
           if (!ac.signal.aborted) {
             setItems(lines)
             setOpen(lines.length > 0)
@@ -84,7 +87,7 @@ export function AddressAutocompleteInput({
       ac.abort()
       window.clearTimeout(timer)
     }
-  }, [value, minQueryLength, countryCode])
+  }, [value, minQueryLength, countryCode, regionCode])
 
   useEffect(() => {
     if (!open) return

@@ -3,7 +3,8 @@ import { Building2, ExternalLink } from 'lucide-react'
 import { REFRESH_SESSION_EVENT, useAuthSession } from '@/app/authSession'
 import { AddressAutocompleteInput } from '@/components/ui/AddressAutocompleteInput'
 import { ADDRESS_FORMAT_HINT } from '@/components/ui/AddressMapLink'
-import { ADDRESS_COUNTRY_OPTIONS } from '@/lib/addressCountryOptions'
+import { companyCountrySelectOptions } from '@/lib/addressCountryOptions'
+import { listCompanySubnationals } from '@/lib/companyRegions'
 import { getJson, patchJson } from '@/lib/api'
 import { mapsLinkForCompany } from '@/lib/googleMaps'
 
@@ -15,6 +16,7 @@ type CompanyOut = {
   email: string | null
   address: string | null
   country_code?: string | null
+  region_code?: string | null
   maps_url: string | null
   tax_rate_percent?: string | number | null
 }
@@ -36,6 +38,7 @@ export function SettingsCompanyInfoPage() {
   const [website, setWebsite] = useState('')
   const [address, setAddress] = useState('')
   const [countryCode, setCountryCode] = useState('')
+  const [regionCode, setRegionCode] = useState('')
   const [taxRatePercent, setTaxRatePercent] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -59,6 +62,7 @@ export function SettingsCompanyInfoPage() {
       setWebsite(c.website ?? '')
       setAddress(c.address ?? '')
       setCountryCode((c.country_code ?? '').trim().toUpperCase())
+      setRegionCode((c.region_code ?? '').trim().toUpperCase())
       const tr = c.tax_rate_percent
       setTaxRatePercent(
         tr === null || tr === undefined || tr === '' ? '' : typeof tr === 'number' ? String(tr) : String(tr),
@@ -74,6 +78,8 @@ export function SettingsCompanyInfoPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  const countrySelectOptions = useMemo(() => companyCountrySelectOptions(row?.country_code), [row?.country_code])
 
   const mapsHref = useMemo(() => {
     if (!address.trim()) return null
@@ -104,6 +110,12 @@ export function SettingsCompanyInfoPage() {
       const prevCc = (row.country_code ?? '').trim().toUpperCase() || null
       const nextCc = ccNorm
       if (nextCc !== prevCc) body.country_code = nextCc
+      const prevReg = (row.region_code ?? '').trim().toUpperCase() || null
+      let nextReg: string | null = null
+      if (nextCc === 'CA' || nextCc === 'US') {
+        nextReg = regionCode.trim().toUpperCase() || null
+      }
+      if (nextReg !== prevReg) body.region_code = nextReg
       const trTrim = taxRatePercent.trim()
       const prevRaw = row.tax_rate_percent
       const prevNum =
@@ -144,6 +156,7 @@ export function SettingsCompanyInfoPage() {
       setWebsite(updated.website ?? '')
       setAddress(updated.address ?? '')
       setCountryCode((updated.country_code ?? '').trim().toUpperCase())
+      setRegionCode((updated.region_code ?? '').trim().toUpperCase())
       globalThis.dispatchEvent(new Event(REFRESH_SESSION_EVENT))
       const utr = updated.tax_rate_percent
       setTaxRatePercent(
@@ -244,20 +257,46 @@ export function SettingsCompanyInfoPage() {
                     Country (address suggestions)
                     <select
                       value={countryCode}
-                      onChange={(e) => setCountryCode(e.target.value.toUpperCase())}
+                      onChange={(e) => {
+                        const v = e.target.value.toUpperCase()
+                        setCountryCode(v)
+                        if (v !== 'CA' && v !== 'US') setRegionCode('')
+                      }}
                       disabled={!canEdit}
                       className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 disabled:bg-slate-50"
                     >
-                      {ADDRESS_COUNTRY_OPTIONS.map((o) => (
+                      {countrySelectOptions.map((o) => (
                         <option key={o.code || '_any'} value={o.code}>
                           {o.label}
                         </option>
                       ))}
                     </select>
                     <span className="mt-1 block text-xs font-normal text-slate-500">
-                      Limits Photon address autocomplete to this country for your team. “Any country” disables the filter.
+                      Limits Photon address autocomplete for your team. “Any country” disables the country filter. Canada
+                      and the United States can also set a province or state below for tighter, local-first suggestions.
                     </span>
                   </label>
+                  {(countryCode === 'CA' || countryCode === 'US') && (
+                    <label className="block text-sm font-medium text-slate-700">
+                      State / province
+                      <select
+                        value={regionCode}
+                        onChange={(e) => setRegionCode(e.target.value.toUpperCase())}
+                        disabled={!canEdit}
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 disabled:bg-slate-50"
+                      >
+                        <option value="">Not specified</option>
+                        {listCompanySubnationals(countryCode).map((r) => (
+                          <option key={r.code} value={r.code}>
+                            {r.label}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="mt-1 block text-xs font-normal text-slate-500">
+                        When set, address suggestions are biased toward this subdivision (OpenStreetMap / Photon).
+                      </span>
+                    </label>
+                  )}
                   <label className="block text-sm font-medium text-slate-700">
                     Address
                     <div className="mt-1">
@@ -268,6 +307,11 @@ export function SettingsCompanyInfoPage() {
                         hintId="settings-company-address-hint"
                         inputClassName="text-slate-900 shadow-sm"
                         countryCode={countryCode.trim() || null}
+                        regionCode={
+                          (countryCode === 'CA' || countryCode === 'US') && regionCode.trim()
+                            ? regionCode.trim().toUpperCase()
+                            : null
+                        }
                       />
                     </div>
                     <span id="settings-company-address-hint" className="mt-1 block text-xs font-normal text-slate-500">

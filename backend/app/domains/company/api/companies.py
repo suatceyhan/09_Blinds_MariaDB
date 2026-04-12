@@ -49,6 +49,7 @@ class CompanyOut(BaseModel):
     email: str | None
     address: str | None = None
     country_code: str | None = None
+    region_code: str | None = None
     maps_url: str | None = None
     owner_user_id: UUID | None = None
     owner: CompanyOwnerRef | None = None
@@ -64,6 +65,78 @@ def _normalize_country_code(v: str | None) -> str | None:
     return s if len(s) == 2 and s.isalpha() else None
 
 
+_REGION_CA = frozenset(
+    {"AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"},
+)
+_REGION_US = frozenset(
+    {
+        "AL",
+        "AK",
+        "AZ",
+        "AR",
+        "CA",
+        "CO",
+        "CT",
+        "DE",
+        "DC",
+        "FL",
+        "GA",
+        "HI",
+        "ID",
+        "IL",
+        "IN",
+        "IA",
+        "KS",
+        "KY",
+        "LA",
+        "ME",
+        "MD",
+        "MA",
+        "MI",
+        "MN",
+        "MS",
+        "MO",
+        "MT",
+        "NE",
+        "NV",
+        "NH",
+        "NJ",
+        "NM",
+        "NY",
+        "NC",
+        "ND",
+        "OH",
+        "OK",
+        "OR",
+        "PA",
+        "RI",
+        "SC",
+        "SD",
+        "TN",
+        "TX",
+        "UT",
+        "VT",
+        "VA",
+        "WA",
+        "WV",
+        "WI",
+        "WY",
+    },
+)
+
+
+def _normalize_region_code(country_code: str | None, region_code: str | None) -> str | None:
+    if not region_code or not str(region_code).strip():
+        return None
+    cc = _normalize_country_code(country_code)
+    rc = str(region_code).strip().upper()[:8]
+    if not cc or cc not in ("CA", "US"):
+        return None
+    if cc == "CA":
+        return rc if rc in _REGION_CA else None
+    return rc if rc in _REGION_US else None
+
+
 class CompanyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=500)
     phone: str | None = Field(None, max_length=64)
@@ -71,6 +144,7 @@ class CompanyCreate(BaseModel):
     email: str | None = Field(None, max_length=320)
     address: str | None = Field(None, max_length=2000)
     country_code: str | None = Field(None, max_length=2)
+    region_code: str | None = Field(None, max_length=8)
     owner_user_id: UUID | None = None
 
     @field_validator("country_code", mode="before")
@@ -89,6 +163,7 @@ class CompanyPatch(BaseModel):
     email: str | None = Field(None, max_length=320)
     address: str | None = Field(None, max_length=2000)
     country_code: str | None = Field(None, max_length=2)
+    region_code: str | None = Field(None, max_length=8)
     owner_user_id: UUID | None = None
     tax_rate_percent: Decimal | None = Field(None, ge=0, le=100)
 
@@ -151,6 +226,12 @@ def _to_company_out(row: Companies) -> CompanyOut:
         address=row.address,
         country_code=_normalize_country_code(
             str(row.country_code).strip() if getattr(row, "country_code", None) is not None else None
+        ),
+        region_code=_normalize_region_code(
+            _normalize_country_code(
+                str(row.country_code).strip() if getattr(row, "country_code", None) is not None else None
+            ),
+            str(row.region_code).strip() if getattr(row, "region_code", None) is not None else None,
         ),
         maps_url=row.maps_url,
         owner_user_id=row.owner_user_id,
@@ -266,6 +347,7 @@ def create_company(
         raise HTTPException(status_code=409, detail="A company with this name already exists.")
     addr = _normalize_optional_str(body.address, 2000)
     cc = _normalize_country_code(body.country_code)
+    rc = _normalize_region_code(cc, getattr(body, "region_code", None))
     row = Companies(
         name=body.name.strip(),
         phone=(body.phone.strip() if body.phone and body.phone.strip() else None),
@@ -273,6 +355,7 @@ def create_company(
         email=(body.email.strip() if body.email and body.email.strip() else None),
         address=addr,
         country_code=cc,
+        region_code=rc,
         maps_url=_maps_url_from_address(addr),
         owner_user_id=None,
         is_deleted=False,
@@ -327,7 +410,17 @@ def patch_company(
         raw = {
             k: v
             for k, v in raw.items()
-            if k in ("name", "phone", "email", "website", "address", "country_code", "tax_rate_percent")
+            if k
+            in (
+                "name",
+                "phone",
+                "email",
+                "website",
+                "address",
+                "country_code",
+                "region_code",
+                "tax_rate_percent",
+            )
         }
         owner_key_in_payload = False
 
@@ -390,6 +483,13 @@ def patch_company(
 
     if "country_code" in raw:
         row.country_code = _normalize_country_code(raw.get("country_code"))
+    if "region_code" in raw:
+        row.region_code = _normalize_region_code(row.country_code, raw.get("region_code"))
+    elif "country_code" in raw:
+        row.region_code = _normalize_region_code(
+            row.country_code,
+            str(row.region_code).strip() if getattr(row, "region_code", None) is not None else None,
+        )
 
     if "tax_rate_percent" in raw:
         tr = raw.get("tax_rate_percent")

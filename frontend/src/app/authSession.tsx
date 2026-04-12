@@ -26,6 +26,8 @@ export type SessionUser = {
   active_company_name?: string | null
   /** ISO 3166-1 alpha-2 from active company row; drives address autocomplete country filter. */
   active_company_country_code?: string | null
+  /** Province/state code when company is CA/US; drives Photon bias + ranking. */
+  active_company_region_code?: string | null
   companies?: SessionCompanyRef[]
   photo_url?: string | null
 }
