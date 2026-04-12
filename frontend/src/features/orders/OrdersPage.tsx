@@ -128,13 +128,52 @@ function lineAttributeRows(opts: BlindsOrderOptions | null): BlindsLineAttribute
   return [
     {
       kind_id: 'product_category',
-      label: 'Product category',
+      label: 'Category',
       json_key: 'category',
       sort_order: 0,
       options: opts.categories ?? [],
       allowed_option_ids_by_blinds_type: opts.allowed_category_ids_by_blinds_type ?? {},
     },
   ]
+}
+
+function attributeColumnHeaderLabel(row: BlindsLineAttributeRow): string {
+  if (row.kind_id === 'product_category' || row.label === 'Product category') return 'Category'
+  return row.label
+}
+
+function isCategoryAttributeRow(row: BlindsLineAttributeRow): boolean {
+  return row.kind_id === 'product_category' || row.json_key === 'category'
+}
+
+/** Width in `ch` from header + longest option label (capped). */
+function categoryColumnWidthCh(row: BlindsLineAttributeRow): number {
+  const h = attributeColumnHeaderLabel(row)
+  let m = h.length
+  for (const o of row.options) m = Math.max(m, o.name.length)
+  return Math.min(Math.max(m + 1, 8), 20)
+}
+
+/** Up to 6 integer digits and 2 decimal places (e.g. 999999.99). */
+function sanitizeLineAmountInput(raw: string): string {
+  const s = raw.replace(/[^\d.]/g, '')
+  if (!s) return ''
+  const dot = s.indexOf('.')
+  if (dot === -1) return s.slice(0, 6)
+  const intPart = s.slice(0, dot).replace(/\./g, '').slice(0, 6)
+  const decPart = s.slice(dot + 1).replace(/\./g, '').slice(0, 2)
+  return `${intPart}.${decPart}`
+}
+
+function normalizeWindowCountFromApi(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === '') return null
+  const n =
+    typeof raw === 'number' && Number.isFinite(raw)
+      ? Math.trunc(raw)
+      : Number.parseInt(String(raw).trim(), 10)
+  if (Number.isNaN(n) || n < 1) return null
+  if (n > 99) return 99
+  return n
 }
 
 function allowedIdsForAttributeRow(row: BlindsLineAttributeRow, typeId: string): string[] {
@@ -167,10 +206,12 @@ function normalizeBlindsLineFromApi(raw: Record<string, unknown>): BlindsLineSta
   const line: BlindsLineState = {
     id: String(raw.id ?? ''),
     name: String(raw.name ?? ''),
-    window_count: (raw.window_count as number | null | undefined) ?? null,
+    window_count: normalizeWindowCountFromApi(raw.window_count),
     line_note: raw.line_note != null ? String(raw.line_note) : '',
     line_amount:
-      raw.line_amount != null && raw.line_amount !== '' ? String(raw.line_amount) : '',
+      raw.line_amount != null && raw.line_amount !== ''
+        ? sanitizeLineAmountInput(String(raw.line_amount))
+        : '',
   }
   for (const [k, v] of Object.entries(raw)) {
     if (
@@ -192,10 +233,16 @@ function normalizeBlindsLineFromApi(raw: Record<string, unknown>): BlindsLineSta
 
 function blindsLineToPayload(b: BlindsLineState, opts: BlindsOrderOptions | null): Record<string, unknown> {
   const rows = lineAttributeRows(opts)
+  const wcRaw = b.window_count
+  let window_count: number | null = null
+  if (wcRaw != null && typeof wcRaw === 'number' && Number.isFinite(wcRaw)) {
+    const w = Math.trunc(wcRaw)
+    if (w >= 1 && w <= 99) window_count = w
+  }
   const o: Record<string, unknown> = {
     id: b.id,
     name: b.name,
-    window_count: b.window_count ?? null,
+    window_count,
   }
   for (const r of rows) {
     const v = b[r.json_key]
@@ -386,7 +433,7 @@ function parseTaxRatePercent(v: unknown): number | null {
   return Number.isNaN(n) ? null : n
 }
 
-/** Transposed grid: one row per blinds type; Qty, category, line note & amount (lifting/cassette elsewhere). */
+/** Transposed grid: one row per blinds type; Qty, category attrs, amount, line note last (lifting/cassette elsewhere). */
 function BlindsTypesGrid(props: {
   blindsTypes: { id: string; name: string }[]
   blindsOrderOptions: BlindsOrderOptions | null
@@ -416,138 +463,179 @@ function BlindsTypesGrid(props: {
   }
 
   return (
-    <div className="mt-2 overflow-x-auto">
-      <table className="w-full min-w-[52rem] border-collapse text-xs">
-        <thead>
-          <tr className="border-b border-slate-200 bg-slate-50">
-            <th
-              scope="col"
-              className="sticky left-0 z-20 min-w-[9rem] bg-slate-50 px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-600"
-            >
-              Blinds type
-            </th>
-            <th
-              scope="col"
-              className="min-w-[4.5rem] px-1 py-2 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-600"
-            >
-              Qty
-            </th>
-            {attrRows.map((attrRow) => (
+    <div className="mt-2 min-w-0 space-y-1">
+      <p className="text-[11px] leading-snug text-slate-500">
+        If the table is wider than the form, scroll horizontally inside this shaded area — line notes and long
+        labels stay reachable.
+      </p>
+      <div className="min-w-0 overflow-x-auto rounded-md border border-slate-200/80 bg-white/80">
+        <table className="w-full min-w-[26rem] border-collapse text-xs">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-50">
               <th
-                key={`${keyPrefix}-h-${attrRow.kind_id}`}
                 scope="col"
-                className="min-w-[6.5rem] max-w-[11rem] px-1 py-2 text-center text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-600"
+                className="sticky left-0 z-20 min-w-[6rem] max-w-[8.5rem] bg-slate-50 px-1.5 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-600"
               >
-                {attrRow.label}
+                Blinds type
               </th>
-            ))}
-            <th
-              scope="col"
-              className="min-w-[10rem] px-1 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-600"
-            >
-              Line note
-            </th>
-            <th
-              scope="col"
-              className="min-w-[5.5rem] px-1 py-2 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-600"
-            >
-              Amount
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {bt.map((b) => {
-            const checked = lines.some((x) => x.id === b.id)
-            const cur = lines.find((x) => x.id === b.id)
-            return (
-              <tr key={`${keyPrefix}-row-${b.id}`} className="group hover:bg-slate-50/80">
-                <td className="sticky left-0 z-10 min-w-[9rem] bg-white px-2 py-1.5 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)] group-hover:bg-slate-50/80">
-                  <label className="flex cursor-pointer items-center gap-2">
+              <th
+                scope="col"
+                className="w-[4.25rem] min-w-[4rem] max-w-[4.75rem] px-0.5 py-2 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-600"
+              >
+                Qty
+              </th>
+              {attrRows.map((attrRow) => {
+                const cat = isCategoryAttributeRow(attrRow)
+                const wch = cat ? categoryColumnWidthCh(attrRow) : null
+                const style =
+                  cat && wch != null
+                    ? ({ width: `${wch}ch`, minWidth: `${wch}ch`, maxWidth: `${wch}ch` } as const)
+                    : undefined
+                return (
+                  <th
+                    key={`${keyPrefix}-h-${attrRow.kind_id}`}
+                    scope="col"
+                    style={style}
+                    className={`px-0.5 py-2 text-center text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-600 ${
+                      cat ? '' : 'min-w-[4rem] max-w-[6.5rem]'
+                    }`}
+                  >
+                    <span className="line-clamp-2">{attributeColumnHeaderLabel(attrRow)}</span>
+                  </th>
+                )
+              })}
+              <th
+                scope="col"
+                className="w-[5.25rem] min-w-[4.75rem] max-w-[5.75rem] px-0.5 py-2 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-600"
+              >
+                Amount
+              </th>
+              <th
+                scope="col"
+                className="min-w-[9rem] px-1 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-600"
+              >
+                Line note
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {bt.map((b) => {
+              const checked = lines.some((x) => x.id === b.id)
+              const cur = lines.find((x) => x.id === b.id)
+              return (
+                <tr key={`${keyPrefix}-row-${b.id}`} className="group hover:bg-slate-50/80">
+                  <td className="sticky left-0 z-10 min-w-[6rem] max-w-[8.5rem] bg-white px-1.5 py-1.5 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)] group-hover:bg-slate-50/80">
+                    <label className="flex cursor-pointer items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-teal-600"
+                        checked={checked}
+                        onChange={() => toggleType(b.id)}
+                      />
+                      <span className="min-w-0 truncate font-semibold text-slate-800" title={b.name}>
+                        {b.name}
+                      </span>
+                    </label>
+                  </td>
+                  <td className="w-[4.25rem] min-w-[4rem] max-w-[4.75rem] px-0.5 py-1 align-middle">
                     <input
-                      type="checkbox"
-                      className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-teal-600"
-                      checked={checked}
-                      onChange={() => toggleType(b.id)}
+                      type="number"
+                      min={1}
+                      max={99}
+                      step={1}
+                      disabled={!checked}
+                      placeholder="—"
+                      title={checked ? 'Quantity 1–99 (use arrows or type)' : 'Select type first'}
+                      aria-label={`Quantity for ${b.name}`}
+                      className="w-full min-w-0 rounded-md border border-slate-200 px-0.5 py-1.5 text-center text-xs tabular-nums outline-none focus:border-teal-500 disabled:bg-slate-100 disabled:text-slate-400 [&::-webkit-inner-spin-button]:opacity-100 [&::-webkit-outer-spin-button]:opacity-100"
+                      value={cur?.window_count != null ? cur.window_count : ''}
+                      onChange={(ev) => setCount(b.id, ev.target.value)}
                     />
-                    <span className="font-semibold text-slate-800">{b.name}</span>
-                  </label>
-                </td>
-                <td className="px-1 py-1 align-middle">
-                  <input
-                    type="number"
-                    min={1}
-                    disabled={!checked}
-                    placeholder="Qty"
-                    title={checked ? 'Quantity' : 'Select type first'}
-                    aria-label={`Quantity for ${b.name}`}
-                    className="w-full min-w-0 rounded-md border border-slate-200 px-1 py-1.5 text-center text-xs outline-none focus:border-teal-500 disabled:bg-slate-100 disabled:text-slate-400"
-                    value={cur?.window_count ?? ''}
-                    onChange={(ev) => setCount(b.id, ev.target.value)}
-                  />
-                </td>
-                {attrRows.map((attrRow) => {
-                  const opts = allowedIdsForAttributeRow(attrRow, b.id)
-                  if (!opts.length) {
+                  </td>
+                  {attrRows.map((attrRow) => {
+                    const opts = allowedIdsForAttributeRow(attrRow, b.id)
+                    const cat = isCategoryAttributeRow(attrRow)
+                    const wch = cat ? categoryColumnWidthCh(attrRow) : null
+                    const style =
+                      cat && wch != null
+                        ? ({ width: `${wch}ch`, minWidth: `${wch}ch`, maxWidth: `${wch}ch` } as const)
+                        : undefined
+                    const sel = cur ? String(cur[attrRow.json_key] ?? '') : ''
+                    const selLabel = sel ? attributeOptionLabel(attrRow, sel) : ''
+                    if (!opts.length) {
+                      return (
+                        <td
+                          key={`${keyPrefix}-${b.id}-${attrRow.kind_id}`}
+                          style={style}
+                          className={`px-0.5 py-1 text-center align-middle text-slate-300 ${
+                            cat ? '' : 'min-w-[4rem] max-w-[6.5rem]'
+                          }`}
+                          title={`${attributeColumnHeaderLabel(attrRow)} not used for ${b.name}`}
+                        >
+                          —
+                        </td>
+                      )
+                    }
                     return (
                       <td
                         key={`${keyPrefix}-${b.id}-${attrRow.kind_id}`}
-                        className="px-1 py-1 text-center align-middle text-slate-300"
-                        title={`${attrRow.label} not used for ${b.name}`}
+                        style={style}
+                        className={`px-0.5 py-1 align-middle ${cat ? '' : 'min-w-[4rem] max-w-[6.5rem]'}`}
                       >
-                        —
+                        <select
+                          disabled={!checked}
+                          value={sel}
+                          onChange={(e) => setLineField(b.id, attrRow.json_key, e.target.value)}
+                          title={
+                            checked
+                              ? `${attributeColumnHeaderLabel(attrRow)}: ${selLabel || '—'}`
+                              : 'Select type first'
+                          }
+                          aria-label={`${attributeColumnHeaderLabel(attrRow)} for ${b.name}`}
+                          className="h-8 w-full min-w-0 max-w-full truncate rounded-md border border-slate-200 bg-white px-0.5 text-center text-xs outline-none focus:border-teal-500 disabled:bg-slate-100 disabled:text-slate-400"
+                        >
+                          {opts.map((oid) => (
+                            <option key={oid} value={oid}>
+                              {attributeOptionLabel(attrRow, oid)}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                     )
-                  }
-                  return (
-                    <td key={`${keyPrefix}-${b.id}-${attrRow.kind_id}`} className="px-1 py-1 align-middle">
-                      <select
-                        disabled={!checked}
-                        value={String(cur?.[attrRow.json_key] ?? '')}
-                        onChange={(e) => setLineField(b.id, attrRow.json_key, e.target.value)}
-                        title={checked ? attrRow.label : 'Select type first'}
-                        aria-label={`${attrRow.label} for ${b.name}`}
-                        className="h-8 w-full min-w-0 rounded-md border border-slate-200 bg-white px-1 text-center text-xs outline-none focus:border-teal-500 disabled:bg-slate-100 disabled:text-slate-400"
-                      >
-                        {opts.map((oid) => (
-                          <option key={oid} value={oid}>
-                            {attributeOptionLabel(attrRow, oid)}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                  )
-                })}
-                <td className="px-1 py-1 align-top">
-                  <textarea
-                    disabled={!checked}
-                    rows={2}
-                    maxLength={2000}
-                    placeholder="Optional…"
-                    title={checked ? 'Note for this line' : 'Select type first'}
-                    aria-label={`Line note for ${b.name}`}
-                    className="w-full min-w-[8rem] resize-y rounded-md border border-slate-200 px-1.5 py-1 text-xs outline-none focus:border-teal-500 disabled:bg-slate-100 disabled:text-slate-400"
-                    value={String(cur?.line_note ?? '')}
-                    onChange={(e) => setLineNote(b.id, e.target.value)}
-                  />
-                </td>
-                <td className="px-1 py-1 align-middle">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    disabled={!checked}
-                    placeholder="0.00"
-                    title={checked ? 'Amount for this line' : 'Select type first'}
-                    aria-label={`Amount for ${b.name}`}
-                    className="w-full min-w-[4.5rem] rounded-md border border-slate-200 px-1 py-1.5 text-center text-xs outline-none focus:border-teal-500 disabled:bg-slate-100 disabled:text-slate-400"
-                    value={String(cur?.line_amount ?? '')}
-                    onChange={(e) => setLineAmount(b.id, e.target.value)}
-                  />
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
+                  })}
+                  <td className="w-[5.25rem] min-w-[4.75rem] max-w-[5.75rem] px-0.5 py-1 align-middle">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      maxLength={9}
+                      disabled={!checked}
+                      placeholder="0.00"
+                      title={checked ? 'Amount (up to 6 digits before decimal)' : 'Select type first'}
+                      aria-label={`Amount for ${b.name}`}
+                      className="w-full min-w-0 rounded-md border border-slate-200 px-0.5 py-1.5 text-center text-xs tabular-nums outline-none focus:border-teal-500 disabled:bg-slate-100 disabled:text-slate-400"
+                      value={String(cur?.line_amount ?? '')}
+                      onChange={(e) => setLineAmount(b.id, e.target.value)}
+                    />
+                  </td>
+                  <td className="min-w-[9rem] px-1 py-1 align-top">
+                    <textarea
+                      disabled={!checked}
+                      rows={2}
+                      maxLength={2000}
+                      placeholder="Optional…"
+                      title={checked ? 'Note for this line' : 'Select type first'}
+                      aria-label={`Line note for ${b.name}`}
+                      className="w-full min-w-[8rem] resize-y rounded-md border border-slate-200 px-1.5 py-1 text-xs outline-none focus:border-teal-500 disabled:bg-slate-100 disabled:text-slate-400"
+                      value={String(cur?.line_note ?? '')}
+                      onChange={(e) => setLineNote(b.id, e.target.value)}
+                    />
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -1280,10 +1368,14 @@ export function OrdersPage() {
 
   function setBlindsCount(id: string, v: string) {
     const t = v.trim()
-    const next = t === '' ? null : Number.parseInt(t, 10)
-    setBlindsLines((prev) =>
-      prev.map((x) => (x.id === id ? { ...x, window_count: Number.isNaN(next as any) ? x.window_count : next } : x)),
-    )
+    if (t === '') {
+      setBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, window_count: null } : x)))
+      return
+    }
+    const n = Number.parseInt(t, 10)
+    if (Number.isNaN(n)) return
+    const clamped = Math.min(99, Math.max(1, n))
+    setBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, window_count: clamped } : x)))
   }
 
   function setBlindsLineField(id: string, jsonKey: string, value: string) {
@@ -1298,7 +1390,8 @@ export function OrdersPage() {
   }
 
   function setBlindsLineAmount(id: string, value: string) {
-    setBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, line_amount: value } : x)))
+    const next = sanitizeLineAmountInput(value)
+    setBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, line_amount: next } : x)))
   }
 
   function editToggleBlinds(id: string) {
@@ -1313,10 +1406,14 @@ export function OrdersPage() {
 
   function editSetBlindsCount(id: string, v: string) {
     const t = v.trim()
-    const next = t === '' ? null : Number.parseInt(t, 10)
-    setEditBlindsLines((prev) =>
-      prev.map((x) => (x.id === id ? { ...x, window_count: Number.isNaN(next as any) ? x.window_count : next } : x)),
-    )
+    if (t === '') {
+      setEditBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, window_count: null } : x)))
+      return
+    }
+    const n = Number.parseInt(t, 10)
+    if (Number.isNaN(n)) return
+    const clamped = Math.min(99, Math.max(1, n))
+    setEditBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, window_count: clamped } : x)))
   }
 
   function editSetBlindsLineField(id: string, jsonKey: string, value: string) {
@@ -1331,7 +1428,8 @@ export function OrdersPage() {
   }
 
   function editSetBlindsLineAmount(id: string, value: string) {
-    setEditBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, line_amount: value } : x)))
+    const next = sanitizeLineAmountInput(value)
+    setEditBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, line_amount: next } : x)))
   }
 
   function openNewOrder() {
@@ -1456,7 +1554,7 @@ export function OrdersPage() {
                 ))}
               </select>
             </label>
-            <fieldset className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 sm:col-span-2">
+            <fieldset className="min-w-0 rounded-lg border border-slate-200 bg-slate-50/60 p-3 sm:col-span-2">
               <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Blinds types &amp; quantities
               </legend>
@@ -1470,21 +1568,21 @@ export function OrdersPage() {
                 setLineNote={setBlindsLineNote}
                 setLineAmount={setBlindsLineAmount}
               />
-              <label className="mt-3 block text-sm text-slate-700">
-                <span className="mb-1 block font-medium">Order note</span>
-                <textarea
-                  value={orderNote}
-                  onChange={(e) => setOrderNote(e.target.value)}
-                  rows={2}
-                  maxLength={4000}
-                  placeholder="Optional note for this order…"
-                  className="w-full whitespace-pre-wrap rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                />
-              </label>
               {blindsLines.length === 0 ? (
                 <p className="mt-2 text-xs text-amber-700">Choose at least one blinds type.</p>
               ) : null}
             </fieldset>
+            <label className="block w-full min-w-0 text-sm text-slate-700 sm:col-span-2">
+              <span className="mb-1 block font-medium">Order note</span>
+              <textarea
+                value={orderNote}
+                onChange={(e) => setOrderNote(e.target.value)}
+                rows={2}
+                maxLength={4000}
+                placeholder="Optional note for this order…"
+                className="w-full whitespace-pre-wrap rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+              />
+            </label>
             <div className="space-y-3 sm:col-span-2">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div className="block min-w-0 text-sm text-slate-700">
@@ -1746,7 +1844,7 @@ export function OrdersPage() {
             aria-label="Close dialog"
             onClick={closeOrderView}
           />
-          <div className="relative max-h-[92vh] w-full max-w-2xl overflow-hidden rounded-t-2xl border border-slate-200/90 bg-white shadow-2xl sm:rounded-2xl">
+          <div className="relative max-h-[92vh] w-full min-w-0 max-w-2xl overflow-hidden rounded-t-2xl border border-slate-200/90 bg-white shadow-2xl sm:rounded-2xl">
             <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-br from-teal-50/90 via-white to-white px-5 py-4 sm:px-6">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-800/90">Order detail</p>
@@ -1767,7 +1865,7 @@ export function OrdersPage() {
                 <X className="h-4 w-4" strokeWidth={2} />
               </button>
             </div>
-            <div className="max-h-[calc(92vh-5.5rem)] overflow-y-auto px-5 py-5 sm:px-6">
+            <div className="max-h-[calc(92vh-5.5rem)] min-w-0 overflow-x-hidden overflow-y-auto px-5 py-5 sm:px-6">
               {viewLoading ? (
                 <p className="text-sm text-slate-500">Loading…</p>
               ) : !viewOrder ? (
@@ -1998,7 +2096,7 @@ export function OrdersPage() {
               }
             }}
           />
-          <div className="relative max-h-[92vh] w-full max-w-2xl overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:rounded-2xl">
+          <div className="relative max-h-[92vh] w-full min-w-0 max-w-2xl overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:rounded-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
               <h2 className="text-lg font-semibold text-slate-900">Edit order</h2>
               <button
@@ -2019,7 +2117,7 @@ export function OrdersPage() {
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="max-h-[calc(92vh-4rem)] overflow-y-auto px-5 py-4">
+            <div className="max-h-[calc(92vh-4rem)] min-w-0 overflow-x-hidden overflow-y-auto px-5 py-4">
               {editLoading || !editDraft ? (
                 <p className="text-sm text-slate-500">Loading…</p>
               ) : (
@@ -2084,7 +2182,7 @@ export function OrdersPage() {
                         ))}
                       </select>
                     </label>
-                    <fieldset className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 sm:col-span-2">
+                    <fieldset className="min-w-0 rounded-lg border border-slate-200 bg-slate-50/60 p-3 sm:col-span-2">
                       <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Blinds types &amp; quantities
                       </legend>
@@ -2099,23 +2197,23 @@ export function OrdersPage() {
                         setLineAmount={editSetBlindsLineAmount}
                         keyPrefix="edit"
                       />
-                      <label className="mt-3 block text-sm text-slate-700">
-                        <span className="mb-1 block font-medium">Order note</span>
-                        <textarea
-                          value={editDraft.order_note}
-                          onChange={(e) =>
-                            setEditDraft((d) => (d ? { ...d, order_note: e.target.value } : d))
-                          }
-                          rows={2}
-                          maxLength={4000}
-                          placeholder="Optional note for this order…"
-                          className="w-full whitespace-pre-wrap rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                        />
-                      </label>
                       {editBlindsLines.length === 0 ? (
                         <p className="mt-2 text-xs text-amber-700">Choose at least one blinds type.</p>
                       ) : null}
                     </fieldset>
+                    <label className="block w-full min-w-0 text-sm text-slate-700 sm:col-span-2">
+                      <span className="mb-1 block font-medium">Order note</span>
+                      <textarea
+                        value={editDraft.order_note}
+                        onChange={(e) =>
+                          setEditDraft((d) => (d ? { ...d, order_note: e.target.value } : d))
+                        }
+                        rows={2}
+                        maxLength={4000}
+                        placeholder="Optional note for this order…"
+                        className="w-full whitespace-pre-wrap rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                      />
+                    </label>
                     <div className="space-y-3 sm:col-span-2">
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                         <div className="block min-w-0 text-sm text-slate-700">
