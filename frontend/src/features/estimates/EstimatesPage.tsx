@@ -112,6 +112,65 @@ function statusPillClassesForCode(
   }
 }
 
+/** Same heuristics as the orders list status chips (substring on display name). */
+function orderListStyleStatusPillClasses(name: string): { base: string; active: string } {
+  const n = (name || '').trim().toLowerCase()
+  if (n.includes('new')) return { base: 'bg-sky-50 text-sky-800 ring-sky-100', active: 'bg-sky-600 text-white ring-sky-600' }
+  if (n.includes('production')) return { base: 'bg-violet-50 text-violet-800 ring-violet-100', active: 'bg-violet-600 text-white ring-violet-600' }
+  if (n.includes('ready')) return { base: 'bg-amber-50 text-amber-900 ring-amber-100', active: 'bg-amber-600 text-white ring-amber-600' }
+  if (n.includes('install')) return { base: 'bg-indigo-50 text-indigo-800 ring-indigo-100', active: 'bg-indigo-600 text-white ring-indigo-600' }
+  if (n.includes('done') || n.includes('final') || n.includes('paid'))
+    return { base: 'bg-emerald-50 text-emerald-900 ring-emerald-100', active: 'bg-emerald-600 text-white ring-emerald-600' }
+  if (n.includes('cancel')) return { base: 'bg-rose-50 text-rose-800 ring-rose-100', active: 'bg-rose-600 text-white ring-rose-600' }
+  if (n.includes('estimate')) return { base: 'bg-teal-50 text-teal-900 ring-teal-100', active: 'bg-teal-600 text-white ring-teal-600' }
+  return { base: 'bg-slate-50 text-slate-800 ring-slate-200', active: 'bg-slate-800 text-white ring-slate-800' }
+}
+
+type EstimateStatusKind = 'pending' | 'converted' | 'cancelled' | 'new' | 'fallback'
+
+/**
+ * One semantic bucket for filter chips and row badges (code, API status, and label hints).
+ */
+function resolveEstimateStatusKind(
+  name: string,
+  code: string | null | undefined,
+  apiStatus: string | null | undefined,
+): EstimateStatusKind {
+  const c = (code ?? '').toLowerCase()
+  if (c === 'pending') return 'pending'
+  if (c === 'converted') return 'converted'
+  if (c === 'cancelled') return 'cancelled'
+  const n = (name || '').trim().toLowerCase()
+  const s = (apiStatus ?? '').trim().toLowerCase()
+  if (s === 'pending' || (n.includes('pending') && !n.includes('convert'))) return 'pending'
+  if (s === 'converted' || n.includes('convert')) return 'converted'
+  if (s === 'cancelled' || n.includes('cancel')) return 'cancelled'
+  if (n.includes('new')) return 'new'
+  return 'fallback'
+}
+
+const ESTIMATE_KIND_BADGE: Record<EstimateStatusKind, string> = {
+  pending: 'bg-amber-50 text-amber-900',
+  converted: 'bg-teal-50 text-teal-900',
+  cancelled: 'bg-rose-50 text-rose-800',
+  new: 'bg-sky-50 text-sky-800',
+  fallback: '',
+}
+
+function estimateFilterChipClasses(
+  name: string,
+  code: string | null | undefined,
+): { base: string; active: string } {
+  const kind = resolveEstimateStatusKind(name, code, null)
+  if (kind === 'pending' || kind === 'converted' || kind === 'cancelled') {
+    return statusPillClassesForCode(kind)
+  }
+  if (kind === 'new') {
+    return { base: 'bg-sky-50 text-sky-800 ring-sky-100', active: 'bg-sky-600 text-white ring-sky-600' }
+  }
+  return orderListStyleStatusPillClasses(name)
+}
+
 function estimateStatusLabel(status: string | null | undefined): string {
   const s = (status ?? '').toLowerCase()
   if (s === 'converted') return 'Converted to order'
@@ -120,20 +179,23 @@ function estimateStatusLabel(status: string | null | undefined): string {
   return 'Status'
 }
 
+function estimateRowStatusBadgeClasses(
+  status: string | null | undefined,
+  label: string | null | undefined,
+): string {
+  const name = (label ?? '').trim()
+  const kind = resolveEstimateStatusKind(name, null, status)
+  if (kind !== 'fallback') return ESTIMATE_KIND_BADGE[kind]
+  const { base } = orderListStyleStatusPillClasses(name)
+  return base.replace(/\s+ring-\S+/g, '').trim()
+}
+
 function EstimateStatusBadge({
   status,
   label,
 }: Readonly<{ status: string | null | undefined; label?: string | null }>) {
-  const s = (status ?? '').toLowerCase()
   const labelText = (label?.trim() || estimateStatusLabel(status)).trim()
-  const cls =
-    s === 'converted'
-      ? 'bg-emerald-100 text-emerald-900'
-      : s === 'cancelled'
-        ? 'bg-slate-200 text-slate-800'
-        : s === 'pending'
-          ? 'bg-amber-100 text-amber-900'
-          : 'bg-violet-50 text-violet-900'
+  const cls = estimateRowStatusBadgeClasses(status, label)
   return (
     <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${cls}`}>{labelText}</span>
   )
@@ -192,7 +254,6 @@ export function EstimatesPage() {
   const [windowCountByBlindsId, setWindowCountByBlindsId] = useState<Record<string, string>>({})
   const [blindsLineSelected, setBlindsLineSelected] = useState<Record<string, boolean>>({})
   const [visitWallDraft, setVisitWallDraft] = useState('')
-  const [visitWallApplied, setVisitWallApplied] = useState('')
   const [visitTimeZone, setVisitTimeZone] = useState(() => coerceTimeZoneForApi(defaultTimeZone()))
   const [guestEmails, setGuestEmails] = useState<string[]>([])
   const [visitNotes, setVisitNotes] = useState('')
@@ -282,12 +343,6 @@ export function EstimatesPage() {
     return (createContext?.guest_options ?? []).filter((g) => g.email.trim().toLowerCase() !== org)
   }, [createContext])
 
-  const visitSetEnabled = useMemo(() => {
-    if (!visitWallDraft.trim()) return false
-    if (!isValidScheduledWall(visitWallDraft)) return false
-    return snapWallToQuarterMinutes(visitWallDraft) !== visitWallApplied
-  }, [visitWallDraft, visitWallApplied])
-
   function setWindowInputFor(blindsId: string, value: string) {
     setWindowCountByBlindsId((w) => ({ ...w, [blindsId]: value }))
   }
@@ -296,7 +351,6 @@ export function EstimatesPage() {
     const p = defaultVisitScheduleParts()
     const w = joinScheduledWall(p.date, p.hour12, p.minute, p.ampm)
     setVisitWallDraft(w)
-    setVisitWallApplied(w)
     setVisitTimeZone(coerceTimeZoneForApi(defaultTimeZone()))
     setGuestEmails([])
     setVisitNotes('')
@@ -322,17 +376,11 @@ export function EstimatesPage() {
     () => (customers ?? []).find((c) => c.id === customerId),
     [customers, customerId],
   )
-  const customerAddressView = (selectedCustomer?.address ?? '').trim() || '—'
 
   async function onCreate(e: React.FormEvent) {
     e.preventDefault()
     if (!canEdit || !customerId) return
-    const snappedDraft = snapWallToQuarterMinutes(visitWallDraft)
-    if (snappedDraft !== visitWallApplied) {
-      setModalErr('Click Set to confirm the visit start time.')
-      return
-    }
-    const wall = visitWallApplied.trim()
+    const wall = snapWallToQuarterMinutes(visitWallDraft).trim()
     if (!isValidScheduledWall(wall)) {
       setModalErr('Invalid date and time format.')
       return
@@ -493,28 +541,17 @@ export function EstimatesPage() {
                 </label>
 
                 <div className="block text-xs font-medium text-slate-700">
-                  <span className="block">Visit start</span>
-                  <div className="mt-0.5 flex flex-wrap items-end gap-2">
+                  <span className="block">Visit date</span>
+                  <div className="mt-0.5">
                     <VisitStartQuarterPicker
                       compact
                       value={visitWallDraft}
-                      onChange={setVisitWallDraft}
-                      disabled={saving}
-                    />
-                    <button
-                      type="button"
-                      disabled={!visitSetEnabled}
-                      onClick={() => {
-                        if (!isValidScheduledWall(visitWallDraft)) return
-                        const s = snapWallToQuarterMinutes(visitWallDraft)
-                        setVisitWallApplied(s)
-                        setVisitWallDraft(s)
+                      onChange={(v) => {
+                        setVisitWallDraft(v)
                         setModalErr(null)
                       }}
-                      className="shrink-0 rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      Set
-                    </button>
+                      disabled={saving}
+                    />
                   </div>
                 </div>
 
@@ -540,10 +577,6 @@ export function EstimatesPage() {
 
               <div className="rounded-md border border-slate-100 bg-slate-50/80 px-2 py-2 text-xs text-slate-700">
                 <p className="font-semibold text-slate-800">Organizer & employees</p>
-                <p className="mt-0.5 text-[10px] text-slate-500">
-                  Calendar invite list. Customer address for the visit:{' '}
-                  <span className="font-medium text-slate-700">{customerAddressView}</span>
-                </p>
                 <div className="mt-1 max-h-28 space-y-1 overflow-y-auto rounded-md border border-slate-200 bg-white p-1.5">
                   {createContextLoading || !createContext ? (
                     <span className="text-[11px] text-slate-400">Loading…</span>
@@ -752,7 +785,7 @@ export function EstimatesPage() {
               </button>
               {(estimateStatusOpts ?? []).map((s) => {
                 const selected = filterStatusEstiId === s.id
-                const c = statusPillClassesForCode(s.code)
+                const c = estimateFilterChipClasses(s.name, s.code)
                 return (
                   <button
                     key={s.id}
@@ -793,7 +826,7 @@ export function EstimatesPage() {
                 <th className="px-2 py-3 sm:px-4">Address</th>
                 <th className="px-2 py-3 sm:px-4">Types &amp; windows</th>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Status</th>
-                <th className="px-2 py-3 sm:px-4">Scheduled</th>
+                <th className="px-2 py-3 sm:px-4">Visit date</th>
                 {canEdit ? <th className="w-44 px-2 py-3 text-right sm:px-4">Actions</th> : null}
               </tr>
             </thead>
@@ -853,7 +886,7 @@ export function EstimatesPage() {
                           </>
                         ) : (
                           <>
-                            {(r.status ?? 'pending').toLowerCase() === 'pending' && canCreateOrder ? (
+                            {r.status?.toLowerCase() === 'pending' && canCreateOrder ? (
                               <Link
                                 to={`/orders?fromEstimate=${encodeURIComponent(r.id)}`}
                                 className="inline-flex rounded-md p-1.5 text-slate-600 hover:bg-violet-50 hover:text-violet-800"

@@ -101,7 +101,6 @@ export function EstimateEditPage() {
   const [restorePending, setRestorePending] = useState(false)
 
   const [visitWallDraft, setVisitWallDraft] = useState('')
-  const [visitWallApplied, setVisitWallApplied] = useState('')
   const [visitTimeZone, setVisitTimeZone] = useState('UTC')
   const [visitAddress, setVisitAddress] = useState('')
   const [visitNotes, setVisitNotes] = useState('')
@@ -134,7 +133,6 @@ export function EstimateEditPage() {
           ? snapWallToQuarterMinutes(wallRaw)
           : joinScheduledWall(p0.date, p0.hour12, p0.minute, p0.ampm)
         setVisitWallDraft(initialWall)
-        setVisitWallApplied(initialWall)
         const tz = coerceTimeZoneForApi(d.visit_time_zone?.trim() || 'UTC')
         setVisitTimeZone(tz)
         setVisitAddress((d.visit_address ?? d.customer_address ?? '').trim())
@@ -189,11 +187,6 @@ export function EstimateEditPage() {
     setWindowCountByBlindsId((wt) => ({ ...wt, [blindsId]: value }))
   }
 
-  const customerAddressView = useMemo(
-    () => (detail?.customer_address ?? '').trim() || '—',
-    [detail?.customer_address],
-  )
-
   const guestSelectOptions = useMemo(() => {
     const fromCtx = createContext?.guest_options ?? []
     const seen = new Set(fromCtx.map((g) => g.email.toLowerCase()))
@@ -218,21 +211,10 @@ export function EstimateEditPage() {
     return guestSelectOptions.filter((g) => g.email.trim().toLowerCase() !== organizerEmailLc)
   }, [guestSelectOptions, organizerEmailLc])
 
-  const visitSetEnabled = useMemo(() => {
-    if (!visitWallDraft.trim()) return false
-    if (!isValidScheduledWall(visitWallDraft)) return false
-    return snapWallToQuarterMinutes(visitWallDraft) !== visitWallApplied
-  }, [visitWallDraft, visitWallApplied])
-
   async function onSave(e: React.FormEvent) {
     e.preventDefault()
     if (!estimateId || !canEdit || detail?.is_deleted) return
-    const snappedDraft = snapWallToQuarterMinutes(visitWallDraft)
-    if (snappedDraft !== visitWallApplied) {
-      setSaveErr('Click Set to confirm the visit start time.')
-      return
-    }
-    const wall = visitWallApplied.trim()
+    const wall = snapWallToQuarterMinutes(visitWallDraft).trim()
     if (!isValidScheduledWall(wall)) {
       setSaveErr('Invalid date and time format.')
       return
@@ -308,7 +290,6 @@ export function EstimateEditPage() {
         ? snapWallToQuarterMinutes(wallRaw)
         : joinScheduledWall(p0.date, p0.hour12, p0.minute, p0.ampm)
       setVisitWallDraft(initialWall)
-      setVisitWallApplied(initialWall)
       setVisitTimeZone(coerceTimeZoneForApi(d.visit_time_zone?.trim() || 'UTC'))
       setGuestEmails((d.visit_guest_emails ?? []).map((e) => e.trim()).filter(Boolean))
       {
@@ -414,27 +395,16 @@ export function EstimateEditPage() {
               ) : null}
             </label>
             <div className="block text-sm font-medium text-slate-700">
-              <span className="block">Visit start</span>
-              <div className="mt-1 flex flex-wrap items-end gap-2">
+              <span className="block">Visit date</span>
+              <div className="mt-1">
                 <VisitStartQuarterPicker
                   value={visitWallDraft}
-                  onChange={setVisitWallDraft}
-                  disabled={formDisabled}
-                />
-                <button
-                  type="button"
-                  disabled={formDisabled || !visitSetEnabled}
-                  onClick={() => {
-                    if (!isValidScheduledWall(visitWallDraft)) return
-                    const s = snapWallToQuarterMinutes(visitWallDraft)
-                    setVisitWallApplied(s)
-                    setVisitWallDraft(s)
+                  onChange={(v) => {
+                    setVisitWallDraft(v)
                     setSaveErr(null)
                   }}
-                  className="shrink-0 rounded-lg bg-teal-600 px-3 py-2 text-xs font-semibold text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Set
-                </button>
+                  disabled={formDisabled}
+                />
               </div>
             </div>
             <label className="block text-sm font-medium text-slate-600">
@@ -460,10 +430,6 @@ export function EstimateEditPage() {
 
           <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2 text-sm text-slate-700">
             <p className="font-semibold text-slate-800">Organizer & employees</p>
-            <p className="text-xs text-slate-500">
-              Calendar invite list. Customer address for the visit:{' '}
-              <span className="font-medium text-slate-700">{customerAddressView}</span>
-            </p>
             <div className="max-h-36 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2">
               <div className="flex items-start gap-2 rounded px-1 py-1 text-sm">
                 <input

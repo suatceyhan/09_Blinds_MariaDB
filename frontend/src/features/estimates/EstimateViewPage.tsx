@@ -163,7 +163,7 @@ export function EstimateViewPage() {
                   Restore
                 </button>
               ) : null}
-              {(row.status ?? 'pending').toLowerCase() === 'pending' &&
+              {row.status?.toLowerCase() === 'pending' &&
               !row.is_deleted &&
               canCreateOrder &&
               estimateId ? (
