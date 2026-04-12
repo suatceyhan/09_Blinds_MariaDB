@@ -785,6 +785,8 @@ export function OrdersPage() {
   const [paymentPending, setPaymentPending] = useState(false)
   const [deleteOrderId, setDeleteOrderId] = useState<string | null>(null)
   const [deletePending, setDeletePending] = useState(false)
+  const [restoreOrderId, setRestoreOrderId] = useState<string | null>(null)
+  const [restorePending, setRestorePending] = useState(false)
   const [deletePaymentEntryId, setDeletePaymentEntryId] = useState<string | null>(null)
   const [deletePaymentPending, setDeletePaymentPending] = useState(false)
   const [deleteAttachmentTarget, setDeleteAttachmentTarget] = useState<{
@@ -967,14 +969,19 @@ export function OrdersPage() {
     }
   }
 
-  async function restoreDeletedOrder(orderId: string) {
-    if (!canEdit) return
+  async function runRestoreOrder() {
+    if (!restoreOrderId || !canEdit) return
+    const oid = restoreOrderId
+    setRestorePending(true)
     setErr(null)
     try {
-      await postJson(`/orders/${orderId}/restore`, {})
+      await postJson(`/orders/${oid}/restore`, {})
+      setRestoreOrderId(null)
       await reloadList()
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not restore order')
+    } finally {
+      setRestorePending(false)
     }
   }
 
@@ -1696,7 +1703,7 @@ export function OrdersPage() {
                             type="button"
                             title="Restore order"
                             className="rounded-lg border border-teal-200 p-1.5 text-teal-800 hover:bg-teal-50"
-                            onClick={() => void restoreDeletedOrder(r.id)}
+                            onClick={() => setRestoreOrderId(r.id)}
                           >
                             <RotateCcw className="h-4 w-4" strokeWidth={2} />
                           </button>
@@ -2301,6 +2308,17 @@ export function OrdersPage() {
         pending={deleteAttachmentPending}
         onConfirm={() => void runDeleteAttachment()}
         onCancel={() => !deleteAttachmentPending && setDeleteAttachmentTarget(null)}
+      />
+
+      <ConfirmModal
+        open={restoreOrderId !== null}
+        title="Restore this order?"
+        description="The order will show in the default list again as active."
+        confirmLabel="Restore order"
+        cancelLabel="Cancel"
+        pending={restorePending}
+        onConfirm={() => void runRestoreOrder()}
+        onCancel={() => !restorePending && setRestoreOrderId(null)}
       />
 
       <ConfirmModal
