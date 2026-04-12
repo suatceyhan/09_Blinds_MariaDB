@@ -231,43 +231,35 @@ function fmtMoney(v: string | number | null | undefined): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function AmountsCard(props: {
-  subtotal: string | number | null | undefined
+/** Second row: computed total incl. tax, balance, tax (read-only; aligns with inputs row above). */
+function OrderFinancialTotalsRow(props: {
+  /** Pre-tax line sum; used only to compute total including tax. */
+  lineSubtotal: string | number | null | undefined
   tax: string | number | null | undefined
-  downpayment: string | number | null | undefined
   balance: string | number | null | undefined
-  taxableBase?: string | number | null | undefined
 }) {
-  const { subtotal, tax, downpayment, balance, taxableBase } = props
+  const { lineSubtotal, tax, balance } = props
   return (
-    <section className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Amounts</h3>
-      <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2">
-          <dt className="text-xs font-medium text-slate-500">Subtotal</dt>
-          <dd className="mt-1 text-base font-semibold text-slate-900">{fmtMoney(subtotal)}</dd>
-        </div>
-        <div className="rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2">
-          <dt className="text-xs font-medium text-slate-500">Tax</dt>
-          <dd className="mt-1 text-base font-semibold text-slate-900">{fmtMoney(tax)}</dd>
-          {taxableBase !== undefined ? (
-            <div className="mt-1 text-[11px] text-slate-500">Taxable base: {fmtMoney(taxableBase)}</div>
-          ) : null}
-        </div>
-        <div className="rounded-lg border border-slate-100 bg-white px-3 py-2 sm:col-span-2">
-          <dt className="text-xs font-medium text-slate-500">Total (incl. tax)</dt>
-          <dd className="mt-1 text-lg font-semibold text-slate-900">{fmtTotalIncludingTax(subtotal, tax)}</dd>
-        </div>
-        <div className="rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2">
-          <dt className="text-xs font-medium text-slate-500">Down payment</dt>
-          <dd className="mt-1 text-base font-semibold text-slate-900">{fmtMoney(downpayment)}</dd>
-        </div>
-        <div className="rounded-lg border border-slate-100 bg-teal-50/40 px-3 py-2">
-          <dt className="text-xs font-medium text-teal-800/80">Balance due</dt>
-          <dd className="mt-1 text-lg font-semibold text-teal-900">{fmtMoney(balance)}</dd>
-        </div>
-      </dl>
-    </section>
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="block min-w-0 text-sm text-slate-700">
+        <span className="mb-1 block font-medium">Total (incl. tax)</span>
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+          {fmtTotalIncludingTax(lineSubtotal, tax)}
+        </p>
+      </div>
+      <div className="block min-w-0 text-sm text-slate-700">
+        <span className="mb-1 block font-medium text-teal-800/80">Balance due</span>
+        <p className="rounded-lg border border-teal-100 bg-teal-50/50 px-3 py-2 text-sm font-semibold text-teal-900">
+          {fmtMoney(balance)}
+        </p>
+      </div>
+      <div className="block min-w-0 text-sm text-slate-700">
+        <span className="mb-1 block font-medium">Tax</span>
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+          {fmtMoney(tax)}
+        </p>
+      </div>
+    </div>
   )
 }
 
@@ -1109,42 +1101,42 @@ export function OrdersPage() {
                 <p className="mt-2 text-xs text-amber-700">Choose at least one blinds type.</p>
               ) : null}
             </fieldset>
-            <div className="block text-sm text-slate-700">
-              <span className="mb-1 block font-medium">Total amount</span>
-              <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
-                {lineSubtotalParsed.toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}{' '}
-                <span className="text-xs font-normal text-slate-500">(sum of line amounts)</span>
-              </p>
-            </div>
-            <label className="block text-sm text-slate-700">
-              <span className="mb-1 block font-medium">Down payment</span>
-              <input
-                inputMode="decimal"
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                value={downpayment}
-                onChange={(e) => setDownpayment(e.target.value)}
-                placeholder="0.00"
-              />
-            </label>
-            <label className="block text-sm text-slate-700">
-              <span className="mb-1 block font-medium">Taxable base</span>
-              <input
-                inputMode="decimal"
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                value={taxBaseAmount}
-                onChange={(e) => setTaxBaseAmount(e.target.value)}
-                placeholder="0.00"
-              />
-            </label>
-            <div className="sm:col-span-2">
-              <AmountsCard
-                subtotal={lineSubtotalParsed}
+            <div className="space-y-3 sm:col-span-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="block min-w-0 text-sm text-slate-700">
+                  <span className="mb-1 block font-medium">Total amount</span>
+                  <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+                    {lineSubtotalParsed.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}{' '}
+                    <span className="text-xs font-normal text-slate-500">(sum of line amounts)</span>
+                  </p>
+                </div>
+                <label className="block min-w-0 text-sm text-slate-700">
+                  <span className="mb-1 block font-medium">Down payment</span>
+                  <input
+                    inputMode="decimal"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                    value={downpayment}
+                    onChange={(e) => setDownpayment(e.target.value)}
+                    placeholder="0.00"
+                  />
+                </label>
+                <label className="block min-w-0 text-sm text-slate-700">
+                  <span className="mb-1 block font-medium">Taxable base</span>
+                  <input
+                    inputMode="decimal"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                    value={taxBaseAmount}
+                    onChange={(e) => setTaxBaseAmount(e.target.value)}
+                    placeholder="0.00"
+                  />
+                </label>
+              </div>
+              <OrderFinancialTotalsRow
+                lineSubtotal={lineSubtotalParsed}
                 tax={computedTaxAmount}
-                taxableBase={taxBaseParsed}
-                downpayment={dpParsed}
                 balance={computedBalance}
               />
             </div>
@@ -1430,13 +1422,33 @@ export function OrdersPage() {
                     </div>
                   </section>
 
-                  <AmountsCard
-                    subtotal={viewOrder.total_amount}
-                    tax={viewOrder.tax_amount}
-                    taxableBase={viewOrder.tax_uygulanacak_miktar}
-                    downpayment={viewOrder.downpayment}
-                    balance={viewOrder.balance}
-                  />
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div className="block min-w-0 text-sm text-slate-700">
+                        <span className="mb-1 block font-medium">Total amount</span>
+                        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+                          {fmtMoney(viewOrder.total_amount)}
+                        </p>
+                      </div>
+                      <div className="block min-w-0 text-sm text-slate-700">
+                        <span className="mb-1 block font-medium">Down payment</span>
+                        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+                          {fmtMoney(viewOrder.downpayment)}
+                        </p>
+                      </div>
+                      <div className="block min-w-0 text-sm text-slate-700">
+                        <span className="mb-1 block font-medium">Taxable base</span>
+                        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+                          {fmtMoney(viewOrder.tax_uygulanacak_miktar)}
+                        </p>
+                      </div>
+                    </div>
+                    <OrderFinancialTotalsRow
+                      lineSubtotal={viewOrder.total_amount}
+                      tax={viewOrder.tax_amount}
+                      balance={viewOrder.balance}
+                    />
+                  </div>
 
                   <section className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
                     <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Dates</h3>
@@ -1645,44 +1657,46 @@ export function OrdersPage() {
                         <p className="mt-2 text-xs text-amber-700">Choose at least one blinds type.</p>
                       ) : null}
                     </fieldset>
-                    <div className="block text-sm text-slate-700">
-                      <span className="mb-1 block font-medium">Total amount</span>
-                      <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
-                        {editLineSubtotalParsed.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}{' '}
-                        <span className="text-xs font-normal text-slate-500">(sum of line amounts)</span>
-                      </p>
-                    </div>
-                    <label className="block text-sm text-slate-700">
-                      <span className="mb-1 block font-medium">Down payment</span>
-                      <input
-                        inputMode="decimal"
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
-                        value={editDraft.downpayment}
-                        onChange={(e) =>
-                          setEditDraft((d) => (d ? { ...d, downpayment: e.target.value } : d))
-                        }
-                        placeholder="0.00"
-                      />
-                    </label>
-                    <label className="block text-sm text-slate-700">
-                      <span className="mb-1 block font-medium">Taxable base</span>
-                      <input
-                        inputMode="decimal"
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
-                        value={editDraft.tax_base}
-                        onChange={(e) => setEditDraft((d) => (d ? { ...d, tax_base: e.target.value } : d))}
-                        placeholder="0.00"
-                      />
-                    </label>
-                    <div className="sm:col-span-2">
-                      <AmountsCard
-                        subtotal={editLineSubtotalParsed}
+                    <div className="space-y-3 sm:col-span-2">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <div className="block min-w-0 text-sm text-slate-700">
+                          <span className="mb-1 block font-medium">Total amount</span>
+                          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+                            {editLineSubtotalParsed.toLocaleString(undefined, {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}{' '}
+                            <span className="text-xs font-normal text-slate-500">(sum of line amounts)</span>
+                          </p>
+                        </div>
+                        <label className="block min-w-0 text-sm text-slate-700">
+                          <span className="mb-1 block font-medium">Down payment</span>
+                          <input
+                            inputMode="decimal"
+                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
+                            value={editDraft.downpayment}
+                            onChange={(e) =>
+                              setEditDraft((d) => (d ? { ...d, downpayment: e.target.value } : d))
+                            }
+                            placeholder="0.00"
+                          />
+                        </label>
+                        <label className="block min-w-0 text-sm text-slate-700">
+                          <span className="mb-1 block font-medium">Taxable base</span>
+                          <input
+                            inputMode="decimal"
+                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
+                            value={editDraft.tax_base}
+                            onChange={(e) =>
+                              setEditDraft((d) => (d ? { ...d, tax_base: e.target.value } : d))
+                            }
+                            placeholder="0.00"
+                          />
+                        </label>
+                      </div>
+                      <OrderFinancialTotalsRow
+                        lineSubtotal={editLineSubtotalParsed}
                         tax={editComputedTaxAmount}
-                        taxableBase={editTaxBaseParsed}
-                        downpayment={editDpParsed}
                         balance={editComputedBalance}
                       />
                     </div>
