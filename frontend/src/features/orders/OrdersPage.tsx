@@ -61,6 +61,8 @@ type OrderDetail = {
   created_at: string | null
   updated_at?: string | null
   active?: boolean
+  /** Recorded via Payment on order detail (newest first from API). */
+  payment_entries?: Array<{ id: string; amount: string | number; paid_at: string }>
 }
 
 type OrderStatusOpt = { id: string; name: string }
@@ -300,6 +302,19 @@ function fmtDisplayDate(iso: string | null | undefined): string {
   const d = new Date(s)
   if (Number.isNaN(d.getTime())) return s
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+function fmtDisplayDateTime(iso: string | null | undefined): string {
+  if (!iso?.trim()) return '—'
+  const d = new Date(iso.trim())
+  if (Number.isNaN(d.getTime())) return iso.trim()
+  return d.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function statusCodeLabel(code: string): string {
@@ -1527,6 +1542,25 @@ export function OrdersPage() {
                       }
                     />
                   </div>
+
+                  {viewOrder.payment_entries && viewOrder.payment_entries.length > 0 ? (
+                    <div className="rounded-lg border border-slate-200/80 bg-white px-3 py-3 sm:px-4">
+                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        Recorded payments
+                      </h3>
+                      <ul className="mt-2 divide-y divide-slate-100">
+                        {viewOrder.payment_entries.map((p) => (
+                          <li
+                            key={p.id}
+                            className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 py-2 text-sm first:pt-0 last:pb-0"
+                          >
+                            <span className="font-medium tabular-nums text-slate-900">{fmtMoney(p.amount)}</span>
+                            <span className="text-slate-500">{fmtDisplayDateTime(p.paid_at)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
 
                   <section className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
                     <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Dates</h3>

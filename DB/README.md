@@ -22,3 +22,4 @@ Yeni migration eklerken mevcut en büyük numaradan bir sonrakini kullanın.
 - **`13_blinds_product_categories.sql`**: Global ürün kategorileri + şirket bazlı `blinds_type_category_allowed` matrisi; `blinds_lines[].category`.
 - **`14_migrate_product_category_to_global.sql`**: Eski tenant başına kategori şemasından global şemaya tek seferlik geçiş (gerekirse).
 - **`15_blinds_line_extra_attributes.sql`**: Ek sipariş satırı öznitelikleri (`lifting_system`, `cassette_type` vb.): `blinds_line_extra_kind`, `blinds_line_extra_option`, `blinds_type_extra_allowed`; JSON’da `blinds_lines[].<line_json_key>`.
+- **`16_order_payment_entries.sql`**: `order_payment_entries` — `POST /orders/{id}/record-payment` ile kaydedilen tutarlar (tutar + `created_at`); sipariş detayında geçmiş listesi için.

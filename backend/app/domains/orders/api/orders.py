@@ -295,6 +295,14 @@ class OrderCreateIn(BaseModel):
     order_note: str | None = Field(None, max_length=4000)
 
 
+class OrderPaymentEntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    amount: Decimal
+    paid_at: datetime
+
+
 class OrderDetailOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -310,6 +318,7 @@ class OrderDetailOut(BaseModel):
     tax_uygulanacak_miktar: Decimal | None = None
     tax_amount: Decimal | None = None
     blinds_lines: list[dict[str, Any]] = Field(default_factory=list)
+    payment_entries: list[OrderPaymentEntryOut] = Field(default_factory=list)
     order_note: str | None = None
     agree_data: str | None = None
     agreement_date: date | None = None
@@ -643,6 +652,15 @@ def record_order_payment(
     db.execute(
         text(
             """
+            INSERT INTO order_payment_entries (company_id, order_id, amount)
+            VALUES (CAST(:cid AS uuid), :oid, :amt)
+            """
+        ),
+        {"cid": str(cid), "oid": oid, "amt": pay_amt},
+    )
+    db.execute(
+        text(
+            """
             UPDATE orders
             SET
               final_payment = :fp,
@@ -705,7 +723,19 @@ def get_order(
         raise HTTPException(status_code=404, detail="Order not found.")
     d = dict(row)
     lines = _normalize_blinds_lines(d.pop("blinds_lines_json", None))
-    return OrderDetailOut(**d, blinds_lines=lines)
+    pay_rows = db.execute(
+        text(
+            """
+            SELECT id::text AS id, amount, created_at AS paid_at
+            FROM order_payment_entries
+            WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid
+            ORDER BY created_at DESC
+            """
+        ),
+        {"cid": str(cid), "oid": oid},
+    ).mappings().all()
+    payment_entries = [OrderPaymentEntryOut(**dict(pr)) for pr in pay_rows]
+    return OrderDetailOut(**d, blinds_lines=lines, payment_entries=payment_entries)
 
 
 @router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
