@@ -1,0 +1,54 @@
+# Starter şablonu: web (nginx + SPA) + API + PostgreSQL
+# Çalıştırma: docker compose up --build
+# Arayüz: http://localhost:8080  |  API doğrudan: http://localhost:8000
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: starter
+      POSTGRES_PASSWORD: starter
+      POSTGRES_DB: starter
+    volumes:
+      - starter_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U starter -d starter"]
+      interval: 5s
+      timeout: 5s
+      retries: 8
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://starter:starter@db:5432/starter
+      # Üretimde mutlaka güçlü bir değer verin: örn. openssl rand -hex 32
+      SECRET_KEY: ${SECRET_KEY:-docker-compose-dev-only-replace-in-production-please}
+      DEBUG: "false"
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
+      APP_NAME: ${APP_NAME:-Starter API}
+      SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-}
+      SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:-}
+      SUPER_ADMIN_NAME: ${SUPER_ADMIN_NAME:-Super Admin}
+      PUBLIC_REGISTRATION_ENABLED: ${PUBLIC_REGISTRATION_ENABLED:-true}
+      DEFAULT_REGISTERED_ROLE_NAME: ${DEFAULT_REGISTERED_ROLE_NAME:-user}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE: /api
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+volumes:
+  starter_pgdata:

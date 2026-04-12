@@ -1,0 +1,39 @@
+# Ortam ve sırlar
+.env
+.env.local
+.env.*.local
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+frontend/dist/
+npm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Test / coverage
+.coverage
+htmlcov/
+coverage/
+
+# Alembic (yerel denemeler — istenirse kaldırılabilir)
+# backend/alembic/versions/*.pyc
+
+# Yüklenen dosyalar (şirket logosu vb.)
+backend/data/uploads/
