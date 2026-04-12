@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Eye, FolderKanban, Pencil, RotateCcw, Trash2, X } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
@@ -28,6 +28,7 @@ type OrderRow = {
   estimate_id: string | null
   total_amount: string | number | null
   downpayment?: string | number | null
+  final_payment?: string | number | null
   balance: string | number | null
   tax_amount?: string | number | null
   status_code: string
@@ -45,6 +46,8 @@ type OrderDetail = {
   estimate_id: string | null
   total_amount: string | number | null
   downpayment: string | number | null
+  /** Cumulative payments after the down payment; balance subtracts this. */
+  final_payment?: string | number | null
   balance: string | number | null
   tax_uygulanacak_miktar?: string | number | null
   tax_amount?: string | number | null
@@ -231,20 +234,20 @@ function fmtMoney(v: string | number | null | undefined): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-/** Second row: computed total incl. tax, balance, tax (read-only; aligns with inputs row above). */
-function OrderFinancialTotalsRow(props: {
-  /** Pre-tax line sum; used only to compute total including tax. */
-  lineSubtotal: string | number | null | undefined
-  tax: string | number | null | undefined
+/** Second financial row: paid (down + recorded payments), balance due, tax. */
+function OrderFinancialSecondRow(props: {
+  paidDisplay: string
   balance: string | number | null | undefined
+  tax: string | number | null | undefined
+  belowBalance?: ReactNode
 }) {
-  const { lineSubtotal, tax, balance } = props
+  const { paidDisplay, balance, tax, belowBalance } = props
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
       <div className="block min-w-0 text-sm text-slate-700">
-        <span className="mb-1 block font-medium">Total (incl. tax)</span>
+        <span className="mb-1 block font-medium">Paid</span>
         <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
-          {fmtTotalIncludingTax(lineSubtotal, tax)}
+          {paidDisplay}
         </p>
       </div>
       <div className="block min-w-0 text-sm text-slate-700">
@@ -252,6 +255,7 @@ function OrderFinancialTotalsRow(props: {
         <p className="rounded-lg border border-teal-100 bg-teal-50/50 px-3 py-2 text-sm font-semibold text-teal-900">
           {fmtMoney(balance)}
         </p>
+        {belowBalance ? <div className="mt-2">{belowBalance}</div> : null}
       </div>
       <div className="block min-w-0 text-sm text-slate-700">
         <span className="mb-1 block font-medium">Tax</span>
@@ -322,6 +326,13 @@ function parseOptionalDecimal(raw: string): number | null {
 
 function safeRound2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100
+}
+
+/** Orders table: paid = down payment + cumulative post-down payments (`final_payment`). */
+function orderListPaidDisplay(r: OrderRow): string {
+  const down = parseMoneyAmount(r.downpayment) ?? 0
+  const extra = parseMoneyAmount(r.final_payment) ?? 0
+  return fmtMoney(safeRound2(down + extra))
 }
 
 function sumBlindsLineAmounts(lines: BlindsLineState[]): number {
@@ -539,6 +550,9 @@ export function OrdersPage() {
   const [viewOrderId, setViewOrderId] = useState<string | null>(null)
   const [viewOrder, setViewOrder] = useState<OrderDetail | null>(null)
   const [viewLoading, setViewLoading] = useState(false)
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false)
+  const [paymentAmountInput, setPaymentAmountInput] = useState('')
+  const [paymentPending, setPaymentPending] = useState(false)
   const [deleteOrderId, setDeleteOrderId] = useState<string | null>(null)
   const [deletePending, setDeletePending] = useState(false)
 
@@ -549,6 +563,7 @@ export function OrdersPage() {
   const [editBlindsLines, setEditBlindsLines] = useState<BlindsLineState[]>([])
   const [editLoading, setEditLoading] = useState(false)
   const [editSaving, setEditSaving] = useState(false)
+  const [editExtraPaid, setEditExtraPaid] = useState(0)
   const [orderStatuses, setOrderStatuses] = useState<OrderStatusOpt[] | null>(null)
 
   const fromEstimateQ = useMemo(() => searchParams.get('fromEstimate')?.trim() ?? '', [searchParams])
@@ -563,11 +578,15 @@ export function OrdersPage() {
     return safeRound2((taxBaseParsed * companyTaxRatePercent) / 100)
   }, [companyTaxRatePercent, taxBaseParsed])
 
-  const computedBalance = useMemo(() => {
-    if (dpParsed == null) return null
-    const taxPart = computedTaxAmount ?? 0
-    return safeRound2(lineSubtotalParsed - dpParsed + taxPart)
-  }, [lineSubtotalParsed, dpParsed, computedTaxAmount])
+  const computedTotalInclTax = useMemo(
+    () => safeRound2(lineSubtotalParsed + (computedTaxAmount ?? 0)),
+    [lineSubtotalParsed, computedTaxAmount],
+  )
+  const computedPaid = useMemo(() => safeRound2(dpParsed ?? 0), [dpParsed])
+  const computedBalance = useMemo(
+    () => safeRound2(computedTotalInclTax - computedPaid),
+    [computedTotalInclTax, computedPaid],
+  )
 
   const editLineSubtotalParsed = useMemo(
     () => sumBlindsLineAmounts(editBlindsLines),
@@ -587,11 +606,25 @@ export function OrdersPage() {
     return safeRound2((editTaxBaseParsed * companyTaxRatePercent) / 100)
   }, [editDraft, companyTaxRatePercent, editTaxBaseParsed])
 
+  const editTotalInclTax = useMemo(() => {
+    if (!editDraft) return 0
+    return safeRound2(editLineSubtotalParsed + (editComputedTaxAmount ?? 0))
+  }, [editDraft, editLineSubtotalParsed, editComputedTaxAmount])
+  const editPaidTotal = useMemo(() => {
+    if (!editDraft) return 0
+    return safeRound2((editDpParsed ?? 0) + editExtraPaid)
+  }, [editDraft, editDpParsed, editExtraPaid])
   const editComputedBalance = useMemo(() => {
-    if (!editDraft || editDpParsed == null) return null
-    const taxPart = editComputedTaxAmount ?? 0
-    return safeRound2(editLineSubtotalParsed - editDpParsed + taxPart)
-  }, [editDraft, editDpParsed, editLineSubtotalParsed, editComputedTaxAmount])
+    if (!editDraft) return null
+    return safeRound2(editTotalInclTax - editPaidTotal)
+  }, [editDraft, editTotalInclTax, editPaidTotal])
+
+  const viewPaidFormatted = useMemo(() => {
+    if (!viewOrder) return '—'
+    const down = parseMoneyAmount(viewOrder.downpayment) ?? 0
+    const extra = parseMoneyAmount(viewOrder.final_payment) ?? 0
+    return fmtMoney(safeRound2(down + extra))
+  }, [viewOrder])
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300)
@@ -673,8 +706,7 @@ export function OrdersPage() {
       setDeleteOrderId(null)
       await reloadList()
       if (curView === oid) {
-        setViewOrderId(null)
-        setViewOrder(null)
+        closeOrderView()
       }
       if (curEdit === oid) {
         setEditOrderId(null)
@@ -700,6 +732,49 @@ export function OrdersPage() {
       setErr(e instanceof Error ? e.message : 'Could not restore order')
     }
   }
+
+  async function submitRecordPayment() {
+    if (!viewOrderId || !canEdit) return
+    const amt = parseOptionalDecimal(paymentAmountInput.trim())
+    if (amt == null || amt <= 0) {
+      setErr('Enter a valid payment amount.')
+      return
+    }
+    const oid = viewOrderId
+    setPaymentPending(true)
+    setErr(null)
+    try {
+      await postJson<OrderDetail>(`/orders/${oid}/record-payment`, { amount: amt })
+      const d = await getJson<OrderDetail>(`/orders/${oid}`)
+      setViewOrder(d)
+      setPaymentModalOpen(false)
+      setPaymentAmountInput('')
+      await reloadList()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not record payment')
+    } finally {
+      setPaymentPending(false)
+    }
+  }
+
+  const closeOrderView = () => {
+    setViewOrderId(null)
+    setViewOrder(null)
+    setPaymentModalOpen(false)
+    setPaymentAmountInput('')
+  }
+
+  useEffect(() => {
+    if (!paymentModalOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !paymentPending) {
+        setPaymentModalOpen(false)
+        setPaymentAmountInput('')
+      }
+    }
+    globalThis.addEventListener('keydown', onKey)
+    return () => globalThis.removeEventListener('keydown', onKey)
+  }, [paymentModalOpen, paymentPending])
 
   useEffect(() => {
     if (!viewOrderId || !canView) {
@@ -730,6 +805,7 @@ export function OrdersPage() {
       setEditCustomerId('')
       setEditEstimateId(null)
       setEditBlindsLines([])
+      setEditExtraPaid(0)
       setEditLoading(false)
       return
     }
@@ -754,6 +830,7 @@ export function OrdersPage() {
             status_orde_id: d.status_orde_id?.trim() ?? '',
             status_order_label_fallback: d.status_order_label?.trim() ?? null,
           })
+          setEditExtraPaid(safeRound2(parseMoneyAmount(d.final_payment) ?? 0))
         }
       } catch {
         if (!c) {
@@ -761,6 +838,7 @@ export function OrdersPage() {
           setEditCustomerId('')
           setEditEstimateId(null)
           setEditBlindsLines([])
+          setEditExtraPaid(0)
         }
       } finally {
         if (!c) setEditLoading(false)
@@ -1104,13 +1182,9 @@ export function OrdersPage() {
             <div className="space-y-3 sm:col-span-2">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div className="block min-w-0 text-sm text-slate-700">
-                  <span className="mb-1 block font-medium">Total amount</span>
-                  <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
-                    {lineSubtotalParsed.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}{' '}
-                    <span className="text-xs font-normal text-slate-500">(sum of line amounts)</span>
+                  <span className="mb-1 block font-medium">Total (incl. tax)</span>
+                  <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+                    {fmtTotalIncludingTax(lineSubtotalParsed, computedTaxAmount)}
                   </p>
                 </div>
                 <label className="block min-w-0 text-sm text-slate-700">
@@ -1134,10 +1208,10 @@ export function OrdersPage() {
                   />
                 </label>
               </div>
-              <OrderFinancialTotalsRow
-                lineSubtotal={lineSubtotalParsed}
-                tax={computedTaxAmount}
+              <OrderFinancialSecondRow
+                paidDisplay={fmtMoney(computedPaid)}
                 balance={computedBalance}
+                tax={computedTaxAmount}
               />
             </div>
 
@@ -1243,7 +1317,9 @@ export function OrdersPage() {
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4" title="Order subtotal plus tax">
                   Total
                 </th>
-                <th className="whitespace-nowrap px-2 py-3 sm:px-4">Tax</th>
+                <th className="whitespace-nowrap px-2 py-3 sm:px-4" title="Down payment plus recorded payments">
+                  Paid
+                </th>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Down payment</th>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Balance</th>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Created</th>
@@ -1287,7 +1363,7 @@ export function OrdersPage() {
                     <td className="px-2 py-3 font-medium sm:px-4">
                       {fmtTotalIncludingTax(r.total_amount, r.tax_amount)}
                     </td>
-                    <td className="px-2 py-3 sm:px-4">{fmtMoney(r.tax_amount)}</td>
+                    <td className="px-2 py-3 sm:px-4">{orderListPaidDisplay(r)}</td>
                     <td className="px-2 py-3 sm:px-4">{fmtMoney(r.downpayment)}</td>
                     <td className="px-2 py-3 sm:px-4">{fmtMoney(r.balance)}</td>
                     <td className="px-2 py-3 text-slate-600 sm:px-4">{fmtDisplayDate(r.created_at)}</td>
@@ -1347,10 +1423,7 @@ export function OrdersPage() {
             type="button"
             className="absolute inset-0 bg-slate-900/50 backdrop-blur-[1px]"
             aria-label="Close dialog"
-            onClick={() => {
-              setViewOrderId(null)
-              setViewOrder(null)
-            }}
+            onClick={closeOrderView}
           />
           <div className="relative max-h-[92vh] w-full max-w-2xl overflow-hidden rounded-t-2xl border border-slate-200/90 bg-white shadow-2xl sm:rounded-2xl">
             <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-br from-teal-50/90 via-white to-white px-5 py-4 sm:px-6">
@@ -1368,10 +1441,7 @@ export function OrdersPage() {
                 type="button"
                 className="rounded-full border border-slate-200/80 bg-white p-2 text-slate-600 shadow-sm hover:bg-slate-50"
                 title="Close"
-                onClick={() => {
-                  setViewOrderId(null)
-                  setViewOrder(null)
-                }}
+                onClick={closeOrderView}
               >
                 <X className="h-4 w-4" strokeWidth={2} />
               </button>
@@ -1396,10 +1466,7 @@ export function OrdersPage() {
                         <Link
                           to={`/customers/${viewOrder.customer_id}`}
                           className="font-semibold text-teal-700 hover:underline"
-                          onClick={() => {
-                            setViewOrderId(null)
-                            setViewOrder(null)
-                          }}
+                          onClick={closeOrderView}
                         >
                           {viewOrder.customer_display || viewOrder.customer_id}
                         </Link>
@@ -1410,10 +1477,7 @@ export function OrdersPage() {
                           <Link
                             to={`/estimates/${viewOrder.estimate_id}`}
                             className="font-mono font-medium text-teal-700 hover:underline"
-                            onClick={() => {
-                              setViewOrderId(null)
-                              setViewOrder(null)
-                            }}
+                            onClick={closeOrderView}
                           >
                             {viewOrder.estimate_id}
                           </Link>
@@ -1425,9 +1489,9 @@ export function OrdersPage() {
                   <div className="space-y-3">
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <div className="block min-w-0 text-sm text-slate-700">
-                        <span className="mb-1 block font-medium">Total amount</span>
+                        <span className="mb-1 block font-medium">Total (incl. tax)</span>
                         <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
-                          {fmtMoney(viewOrder.total_amount)}
+                          {fmtTotalIncludingTax(viewOrder.total_amount, viewOrder.tax_amount)}
                         </p>
                       </div>
                       <div className="block min-w-0 text-sm text-slate-700">
@@ -1443,10 +1507,24 @@ export function OrdersPage() {
                         </p>
                       </div>
                     </div>
-                    <OrderFinancialTotalsRow
-                      lineSubtotal={viewOrder.total_amount}
-                      tax={viewOrder.tax_amount}
+                    <OrderFinancialSecondRow
+                      paidDisplay={viewPaidFormatted}
                       balance={viewOrder.balance}
+                      tax={viewOrder.tax_amount}
+                      belowBalance={
+                        canEdit && viewOrder.active !== false ? (
+                          <button
+                            type="button"
+                            className="w-full rounded-lg border border-teal-300 bg-white px-3 py-2 text-sm font-medium text-teal-800 shadow-sm hover:bg-teal-50 disabled:opacity-50"
+                            onClick={() => {
+                              setPaymentAmountInput('')
+                              setPaymentModalOpen(true)
+                            }}
+                          >
+                            Payment
+                          </button>
+                        ) : undefined
+                      }
                     />
                   </div>
 
@@ -1508,8 +1586,7 @@ export function OrdersPage() {
                         className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-teal-700"
                         onClick={() => {
                           const oid = viewOrderId
-                          setViewOrderId(null)
-                          setViewOrder(null)
+                          closeOrderView()
                           setEditOrderId(oid)
                         }}
                       >
@@ -1660,13 +1737,9 @@ export function OrdersPage() {
                     <div className="space-y-3 sm:col-span-2">
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                         <div className="block min-w-0 text-sm text-slate-700">
-                          <span className="mb-1 block font-medium">Total amount</span>
-                          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
-                            {editLineSubtotalParsed.toLocaleString(undefined, {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}{' '}
-                            <span className="text-xs font-normal text-slate-500">(sum of line amounts)</span>
+                          <span className="mb-1 block font-medium">Total (incl. tax)</span>
+                          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+                            {fmtTotalIncludingTax(editLineSubtotalParsed, editComputedTaxAmount)}
                           </p>
                         </div>
                         <label className="block min-w-0 text-sm text-slate-700">
@@ -1694,10 +1767,10 @@ export function OrdersPage() {
                           />
                         </label>
                       </div>
-                      <OrderFinancialTotalsRow
-                        lineSubtotal={editLineSubtotalParsed}
-                        tax={editComputedTaxAmount}
+                      <OrderFinancialSecondRow
+                        paidDisplay={fmtMoney(editPaidTotal)}
                         balance={editComputedBalance}
+                        tax={editComputedTaxAmount}
                       />
                     </div>
                     <label className="block text-sm text-slate-700 sm:col-span-2">
@@ -1742,6 +1815,66 @@ export function OrdersPage() {
                   </div>
                 </form>
               )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {paymentModalOpen && viewOrderId ? (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (!paymentPending && e.target === e.currentTarget) {
+              setPaymentModalOpen(false)
+              setPaymentAmountInput('')
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="payment-modal-title"
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <h2 id="payment-modal-title" className="text-lg font-semibold text-slate-900">
+              Record payment
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Enter the amount to record. It cannot exceed the current balance due.
+            </p>
+            <label className="mt-4 block text-sm text-slate-700">
+              <span className="mb-1 block font-medium">Amount</span>
+              <input
+                inputMode="decimal"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                value={paymentAmountInput}
+                onChange={(e) => setPaymentAmountInput(e.target.value)}
+                placeholder="0.00"
+                disabled={paymentPending}
+              />
+            </label>
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={paymentPending}
+                onClick={() => {
+                  setPaymentModalOpen(false)
+                  setPaymentAmountInput('')
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={paymentPending}
+                onClick={() => void submitRecordPayment()}
+                className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {paymentPending ? 'Saving…' : 'Pay'}
+              </button>
             </div>
           </div>
         </div>

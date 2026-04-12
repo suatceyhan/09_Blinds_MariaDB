@@ -49,18 +49,20 @@ def _tax_amount_from_base(tax_base: Decimal | None, rate_pct: Decimal | None) ->
     return (tax_base * rate_pct / Decimal("100")).quantize(q, rounding=ROUND_HALF_UP)
 
 
-def _balance_with_tax(
+def _order_balance(
     total: Decimal | None,
     down: Decimal | None,
     tax_amt: Decimal | None,
+    final_pay: Decimal | None = None,
 ) -> Decimal | None:
-    """Amount owed: total − down payment + tax (tax optional)."""
-    if total is None or down is None:
+    """Amount still owed: total + tax − down payment − extra payments (final_payment)."""
+    if total is None:
         return None
     t = Decimal(str(total))
-    d = Decimal(str(down))
+    d = Decimal("0") if down is None else Decimal(str(down))
     tax_part = Decimal("0") if tax_amt is None else Decimal(str(tax_amt))
-    return t - d + tax_part
+    fp = Decimal("0") if final_pay is None else Decimal(str(final_pay))
+    return t - d - fp + tax_part
 
 
 def _new_order_id() -> str:
@@ -270,6 +272,7 @@ class OrderListItemOut(BaseModel):
     estimate_id: str | None = None
     total_amount: Decimal | None = None
     downpayment: Decimal | None = None
+    final_payment: Decimal | None = None
     balance: Decimal | None = None
     tax_uygulanacak_miktar: Decimal | None = None
     tax_amount: Decimal | None = None
@@ -316,6 +319,10 @@ class OrderDetailOut(BaseModel):
     created_at: Any | None = None
     updated_at: Any | None = None
     active: bool = True
+
+
+class OrderRecordPaymentIn(BaseModel):
+    amount: Decimal = Field(..., gt=0)
 
 
 class OrderPatchIn(BaseModel):
@@ -554,6 +561,7 @@ def list_orders(
               o.estimate_id,
               o.total_amount,
               o.downpayment,
+              o.final_payment,
               o.balance,
               o.tax_uygulanacak_miktar,
               o.tax_amount,
@@ -573,6 +581,80 @@ def list_orders(
         params,
     ).mappings().all()
     return [OrderListItemOut(**dict(r)) for r in rows]
+
+
+@router.post("/{order_id}/record-payment", response_model=OrderDetailOut)
+def record_order_payment(
+    order_id: str,
+    body: OrderRecordPaymentIn,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("orders.edit"))],
+):
+    """Add to cumulative post-down payment total (`final_payment`) and refresh `balance`."""
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    oid = order_id.strip()
+    q = Decimal("0.01")
+    pay_amt = Decimal(str(body.amount)).quantize(q, rounding=ROUND_HALF_UP)
+    if pay_amt <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be positive.")
+    row = db.execute(
+        text(
+            """
+            SELECT
+              o.total_amount,
+              o.downpayment,
+              o.tax_amount,
+              o.final_payment,
+              o.balance,
+              o.active
+            FROM orders o
+            WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid
+            LIMIT 1
+            """
+        ),
+        {"cid": str(cid), "oid": oid},
+    ).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    if not row.get("active"):
+        raise HTTPException(status_code=400, detail="Cannot record payment on a deleted order.")
+    total = row.get("total_amount")
+    if total is None:
+        raise HTTPException(status_code=400, detail="Order has no total amount.")
+    cur_fp = row.get("final_payment")
+    cur_fp_d = Decimal("0") if cur_fp is None else Decimal(str(cur_fp))
+    down = row.get("downpayment")
+    tax_amt = row.get("tax_amount")
+    owed = _order_balance(Decimal(str(total)), down, tax_amt, cur_fp_d)
+    if owed is None:
+        raise HTTPException(status_code=400, detail="Cannot compute balance for this order.")
+    owed_q = owed.quantize(q, rounding=ROUND_HALF_UP)
+    if pay_amt > owed_q:
+        raise HTTPException(
+            status_code=400,
+            detail="Payment exceeds balance due.",
+        )
+    new_fp = (cur_fp_d + pay_amt).quantize(q, rounding=ROUND_HALF_UP)
+    new_balance = _order_balance(Decimal(str(total)), down, tax_amt, new_fp)
+    if new_balance is not None:
+        new_balance = new_balance.quantize(q, rounding=ROUND_HALF_UP)
+    db.execute(
+        text(
+            """
+            UPDATE orders
+            SET
+              final_payment = :fp,
+              balance = :bal,
+              updated_at = NOW()
+            WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+            """
+        ),
+        {"cid": str(cid), "oid": oid, "fp": new_fp, "bal": new_balance},
+    )
+    db.commit()
+    return get_order(order_id=oid, db=db, current_user=current_user)
 
 
 @router.get("/{order_id}", response_model=OrderDetailOut)
@@ -771,7 +853,7 @@ def create_order(
         raise HTTPException(status_code=400, detail="Choose at least one blinds type.")
     validate_blinds_lines_categories(db, cid, lines)
     total_amount: Decimal | None = _sum_blinds_line_amounts(lines)
-    balance: Decimal | None = _balance_with_tax(total_amount, down, tax_amt)
+    balance: Decimal | None = _order_balance(total_amount, down, tax_amt, None)
 
     for _ in range(5):
         new_id = _new_order_id()
@@ -865,6 +947,7 @@ def patch_order(
               o.status_code,
               o.total_amount,
               o.downpayment,
+              o.final_payment,
               o.tax_amount,
               o.agree_data
             FROM orders o
@@ -884,6 +967,7 @@ def patch_order(
     eff_total: Any = cur.get("total_amount")
     eff_down: Any = cur.get("downpayment")
     eff_tax: Any = cur.get("tax_amount")
+    eff_fp: Any = cur.get("final_payment")
 
     if "blinds_lines" in patch_fields:
         normalized_lines = _normalize_blinds_lines(patch_fields["blinds_lines"])
@@ -972,9 +1056,9 @@ def patch_order(
         sets.append("order_note = :order_note")
         params["order_note"] = _normalize_order_note(patch_fields.get("order_note"))
 
-    if eff_total is not None and eff_down is not None:
+    if eff_total is not None and sets:
         sets.append("balance = :balance")
-        params["balance"] = _balance_with_tax(eff_total, eff_down, eff_tax)
+        params["balance"] = _order_balance(eff_total, eff_down, eff_tax, eff_fp)
 
     if not sets:
         raise HTTPException(status_code=400, detail="No changes submitted.")
