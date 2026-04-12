@@ -10,6 +10,7 @@ import {
   snapWallToQuarterMinutes,
 } from '@/lib/visitSchedule'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
+import { VisitStartQuarterPicker } from '@/components/ui/VisitStartQuarterPicker'
 
 type BlindsRef = { id: string; name: string; window_count?: number | null }
 type BlindsOpt = { id: string; name: string }
@@ -18,7 +19,7 @@ type EstimateStatusOpt = {
   id: string
   name: string
   active: boolean
-  workflow?: string | null
+  code?: string | null
   sort_order?: number
 }
 
@@ -94,7 +95,7 @@ export function EstimateEditPage() {
   const [saveErr, setSaveErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [workflowStatusEstiId, setWorkflowStatusEstiId] = useState('')
+  const [selectedStatusEstiId, setSelectedStatusEstiId] = useState('')
   const [estimateStatuses, setEstimateStatuses] = useState<EstimateStatusOpt[] | null>(null)
   const [restoreOpen, setRestoreOpen] = useState(false)
   const [restorePending, setRestorePending] = useState(false)
@@ -126,7 +127,7 @@ export function EstimateEditPage() {
         setBlindsTypes(bt)
         setCreateContext(ctx)
         setEstimateStatuses(estSt)
-        setWorkflowStatusEstiId((d.status_esti_id ?? '').trim())
+        setSelectedStatusEstiId((d.status_esti_id ?? '').trim())
         const p0 = defaultVisitScheduleParts()
         const wallRaw = d.scheduled_wall?.trim() ?? ''
         const initialWall = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(wallRaw)
@@ -168,7 +169,7 @@ export function EstimateEditPage() {
     const cur = (detail.status ?? '').toLowerCase()
     const curId = (detail.status_esti_id ?? '').trim()
     const filtered = estimateStatuses.filter((s) => {
-      const w = (s.workflow ?? '').toLowerCase()
+      const w = (s.code ?? '').toLowerCase()
       if (!s.active && s.id !== curId) return false
       if (cur === 'converted') return w === 'converted' || w === 'cancelled'
       if (cur === 'pending') return w === 'pending' || w === 'cancelled'
@@ -179,10 +180,10 @@ export function EstimateEditPage() {
 
   useEffect(() => {
     if (!detail || !estimateStatuses?.length) return
-    if (workflowStatusEstiId.trim()) return
-    const pending = estimateStatuses.find((s) => s.workflow === 'pending' && s.active)
-    if (pending) setWorkflowStatusEstiId(pending.id)
-  }, [detail, estimateStatuses, workflowStatusEstiId])
+    if (selectedStatusEstiId.trim()) return
+    const pending = estimateStatuses.find((s) => s.code === 'pending' && s.active)
+    if (pending) setSelectedStatusEstiId(pending.id)
+  }, [detail, estimateStatuses, selectedStatusEstiId])
 
   function setWindowInputFor(blindsId: string, value: string) {
     setWindowCountByBlindsId((wt) => ({ ...wt, [blindsId]: value }))
@@ -254,7 +255,7 @@ export function EstimateEditPage() {
       blinds_lines.push({ blinds_id: b.id, window_count: n })
     }
 
-    const statusEstiId = workflowStatusEstiId.trim()
+    const statusEstiId = selectedStatusEstiId.trim()
     if (!statusEstiId) {
       setSaveErr('Could not resolve estimate status. Reload the page or check Lookups → Estimate statuses.')
       return
@@ -300,7 +301,7 @@ export function EstimateEditPage() {
       const d = await postJson<EstimateDetail>(`/estimates/${estimateId}/restore`, {})
       setDetail(d)
       setRestoreOpen(false)
-      setWorkflowStatusEstiId((d.status_esti_id ?? '').trim())
+      setSelectedStatusEstiId((d.status_esti_id ?? '').trim())
       const p0 = defaultVisitScheduleParts()
       const wallRaw = d.scheduled_wall?.trim() ?? ''
       const initialWall = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(wallRaw)
@@ -396,9 +397,9 @@ export function EstimateEditPage() {
               Status
               <select
                 className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:opacity-60"
-                value={workflowStatusEstiId}
+                value={selectedStatusEstiId}
                 disabled={formDisabled || estimateStatusSelectOptions.length < 1}
-                onChange={(e) => setWorkflowStatusEstiId(e.target.value)}
+                onChange={(e) => setSelectedStatusEstiId(e.target.value)}
               >
                 {estimateStatusSelectOptions.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -415,18 +416,10 @@ export function EstimateEditPage() {
             <div className="block text-sm font-medium text-slate-700">
               <span className="block">Visit start</span>
               <div className="mt-1 flex flex-wrap items-end gap-2">
-                <input
-                  type="datetime-local"
-                  step={900}
-                  className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:opacity-60"
+                <VisitStartQuarterPicker
                   value={visitWallDraft}
+                  onChange={setVisitWallDraft}
                   disabled={formDisabled}
-                  onChange={(e) => setVisitWallDraft(e.target.value)}
-                  onBlur={() => {
-                    const w = visitWallDraft.trim()
-                    if (isValidScheduledWall(w)) setVisitWallDraft(snapWallToQuarterMinutes(w))
-                  }}
-                  aria-label="Visit start date and time"
                 />
                 <button
                   type="button"

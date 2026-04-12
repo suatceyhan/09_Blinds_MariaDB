@@ -9,7 +9,6 @@ type Row = {
   company_id: string
   name: string
   active: boolean
-  workflow?: string | null
   sort_order?: number
 }
 
@@ -324,7 +323,6 @@ export function EstimateStatusesLookupPage() {
               <tr>
                 <th className="px-4 py-3">Sort</th>
                 <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">Workflow</th>
                 <th className="px-4 py-3">Status</th>
                 {canEdit ? <th className="px-4 py-3 text-right">Actions</th> : null}
               </tr>
@@ -337,13 +335,6 @@ export function EstimateStatusesLookupPage() {
                 >
                   <td className="whitespace-nowrap px-4 py-3 text-slate-600">{r.sort_order ?? 0}</td>
                   <td className="px-4 py-3 font-medium text-slate-900">{r.name}</td>
-                  <td className="px-4 py-3 text-xs text-slate-600">
-                    {r.workflow ? (
-                      <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono">{r.workflow}</span>
-                    ) : (
-                      <span className="text-slate-500">Custom label</span>
-                    )}
-                  </td>
                   <td className="px-4 py-3">
                     <span
                       className={

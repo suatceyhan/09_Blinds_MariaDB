@@ -28,3 +28,4 @@ Yeni migration eklerken mevcut en büyük numaradan bir sonrakini kullanın.
 - **`19_status_estimate_lookup.sql`**: `status_estimate` (şirket başına `pending` / `converted` / `cancelled` slug’ları); `estimate.status_esti_id` FK; tetikleyici `converted` satırına günceller; `GET`/`PATCH` `/lookups/estimate-statuses`.
 - **`20_status_estimate_custom_rows.sql`**: `status_estimate.slug` isteğe bağlı (NULL = özel etiket); `(company_id, slug)` yalnızca `slug IS NOT NULL` iken benzersiz; `POST /lookups/estimate-statuses` ile yeni satır.
 - **`21_status_sort_order.sql`**: `status_order.sort_order` ve `status_estimate.sort_order` — liste / filtre chip sırası (`PATCH` ile düzenlenebilir); mevcut satırlar backfill.
+- **`22_status_estimate_builtin_kind.sql`**: `status_estimate.slug` kaldırılır; yerine **`builtin_kind`** (`pending` \| `converted` \| `cancelled` veya `NULL` özel etiket); tetikleyici `trg_orders_mark_estimate_converted` güncellenir.

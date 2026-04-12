@@ -553,7 +553,7 @@ def prefill_from_estimate(
               e.customer_id,
               trim(concat_ws(' ', c.name, c.surname)) AS customer_display,
               e.visit_notes,
-              se.slug AS estimate_status,
+              se.builtin_kind AS estimate_status,
               ( {_SQL_BLINDS_SUMMARY} ) AS blinds_summary,
               ( {_SQL_BLINDS_LINES_JSON} ) AS blinds_lines_json,
               e.scheduled_start_at,
@@ -1162,7 +1162,7 @@ def create_order(
         er = db.execute(
             text(
                 """
-                SELECT e.customer_id, se.slug AS st, COALESCE(e.is_deleted, FALSE) AS is_deleted
+                SELECT e.customer_id, se.builtin_kind AS st, COALESCE(e.is_deleted, FALSE) AS is_deleted
                 FROM estimate e
                 LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
                 WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid

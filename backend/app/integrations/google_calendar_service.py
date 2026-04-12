@@ -353,7 +353,7 @@ def try_push_estimate_to_google_calendar(
                   e.id,
                   e.scheduled_start_at,
                   e.tarih_saat,
-                  se.slug AS status,
+                  se.builtin_kind AS status,
                   e.google_event_id,
                   e.visit_time_zone,
                   e.visit_address,

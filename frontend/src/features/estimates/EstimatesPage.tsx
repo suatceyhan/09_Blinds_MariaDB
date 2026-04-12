@@ -10,6 +10,7 @@ import {
   snapWallToQuarterMinutes,
 } from '@/lib/visitSchedule'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
+import { VisitStartQuarterPicker } from '@/components/ui/VisitStartQuarterPicker'
 import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
 
 type CustomerOpt = { id: string; name: string; surname?: string | null; address?: string | null }
@@ -32,7 +33,7 @@ type EstimateRow = {
   created_at: string | null
 }
 
-type EstimateStatusFilterOpt = { id: string; name: string; sort_order?: number; workflow?: string | null }
+type EstimateStatusFilterOpt = { id: string; name: string; sort_order?: number; code?: string | null }
 
 type CreateContext = {
   organizer_name: string
@@ -95,10 +96,10 @@ function customerLabel(c: CustomerOpt): string {
   return n || c.id
 }
 
-function statusPillClassesForWorkflow(
-  workflow: string | null | undefined,
+function statusPillClassesForCode(
+  code: string | null | undefined,
 ): { base: string; active: string } {
-  const w = (workflow ?? '').toLowerCase()
+  const w = (code ?? '').toLowerCase()
   switch (w) {
     case 'pending':
       return { base: 'bg-amber-50 text-amber-900 ring-amber-100', active: 'bg-amber-600 text-white ring-amber-600' }
@@ -494,17 +495,11 @@ export function EstimatesPage() {
                 <div className="block text-xs font-medium text-slate-700">
                   <span className="block">Visit start</span>
                   <div className="mt-0.5 flex flex-wrap items-end gap-2">
-                    <input
-                      type="datetime-local"
-                      step={900}
-                      className="min-w-0 flex-1 rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                    <VisitStartQuarterPicker
+                      compact
                       value={visitWallDraft}
-                      onChange={(e) => setVisitWallDraft(e.target.value)}
-                      onBlur={() => {
-                        const w = visitWallDraft.trim()
-                        if (isValidScheduledWall(w)) setVisitWallDraft(snapWallToQuarterMinutes(w))
-                      }}
-                      aria-label="Visit start date and time"
+                      onChange={setVisitWallDraft}
+                      disabled={saving}
                     />
                     <button
                       type="button"
@@ -757,7 +752,7 @@ export function EstimatesPage() {
               </button>
               {(estimateStatusOpts ?? []).map((s) => {
                 const selected = filterStatusEstiId === s.id
-                const c = statusPillClassesForWorkflow(s.workflow)
+                const c = statusPillClassesForCode(s.code)
                 return (
                   <button
                     key={s.id}

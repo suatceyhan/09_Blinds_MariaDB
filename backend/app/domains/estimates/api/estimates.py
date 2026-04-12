@@ -135,9 +135,9 @@ class EstimateStatusLookupOptOut(BaseModel):
     id: str
     name: str
     sort_order: int = 0
-    workflow: str | None = Field(
+    code: str | None = Field(
         default=None,
-        description="Built-in slug when set; null for custom labels.",
+        description="pending | converted | cancelled when row is built-in; null for custom labels.",
     )
 
 
@@ -451,7 +451,7 @@ def list_estimate_statuses_for_estimates(
     rows = db.execute(
         text(
             """
-            SELECT se.id, se.name, se.sort_order, se.slug AS workflow
+            SELECT se.id, se.name, se.sort_order, se.builtin_kind AS code
             FROM status_estimate se
             WHERE se.company_id = CAST(:cid AS uuid) AND se.active IS TRUE
             ORDER BY se.sort_order ASC, se.name ASC
@@ -462,8 +462,8 @@ def list_estimate_statuses_for_estimates(
     out: list[EstimateStatusLookupOptOut] = []
     for r in rows:
         d = dict(r)
-        wf = d.get("workflow")
-        d["workflow"] = str(wf).strip().lower() if wf else None
+        c = d.get("code")
+        d["code"] = str(c).strip().lower() if c else None
         out.append(EstimateStatusLookupOptOut(**d))
     return out
 
@@ -577,7 +577,7 @@ def list_estimates(
         where.append("e.status_esti_id = :status_esti_id")
     elif st_raw != "all":
         params["st"] = st_raw
-        where.append("se.slug = :st")
+        where.append("se.builtin_kind = :st")
     if term:
         params["term"] = f"%{term}%"
         where.append(
@@ -606,7 +606,7 @@ def list_estimates(
               c.address AS customer_address,
               ( {_SQL_BLINDS_TYPES_JSON} ) AS blinds_types_json,
               e.perde_sayisi,
-              se.slug AS status,
+              se.builtin_kind AS status,
               COALESCE(NULLIF(trim(se.name), ''), '—') AS status_label,
               e.status_esti_id AS status_esti_id,
               e.is_deleted,
@@ -669,7 +669,7 @@ def create_estimate(
         text(
             """
             SELECT id FROM status_estimate
-            WHERE company_id = CAST(:cid AS uuid) AND slug = 'pending'
+            WHERE company_id = CAST(:cid AS uuid) AND builtin_kind = 'pending'
             LIMIT 1
             """
         ),
@@ -798,7 +798,7 @@ def get_estimate(
               e.visit_organizer_email,
               e.visit_guest_emails,
               e.visit_recurrence_rrule,
-              se.slug AS status,
+              se.builtin_kind AS status,
               COALESCE(NULLIF(trim(se.name), ''), '—') AS status_label,
               e.status_esti_id AS status_esti_id,
               e.is_deleted,
@@ -901,7 +901,7 @@ def patch_estimate(
         new_st = db.execute(
             text(
                 """
-                SELECT id, slug FROM status_estimate
+                SELECT id, builtin_kind FROM status_estimate
                 WHERE company_id = CAST(:cid AS uuid) AND id = :sid AND active IS TRUE
                 LIMIT 1
                 """
@@ -913,7 +913,7 @@ def patch_estimate(
         cur_st = db.execute(
             text(
                 """
-                SELECT se.slug AS slug
+                SELECT se.builtin_kind AS builtin_kind
                 FROM estimate e
                 LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
                 WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid AND e.is_deleted IS NOT TRUE
@@ -922,10 +922,10 @@ def patch_estimate(
             ),
             {"cid": str(cid), "eid": eid},
         ).mappings().first()
-        cur_slug = (cur_st or {}).get("slug")
-        raw_new = new_st.get("slug")
-        new_slug = str(raw_new).strip().lower() if raw_new else None
-        if cur_slug == "converted" and new_slug not in ("converted", "cancelled"):
+        cur_kind = (cur_st or {}).get("builtin_kind")
+        raw_new = new_st.get("builtin_kind")
+        new_kind = str(raw_new).strip().lower() if raw_new else None
+        if cur_kind == "converted" and new_kind not in ("converted", "cancelled"):
             raise HTTPException(
                 status_code=400,
                 detail="Converted estimates can only be set to cancelled.",

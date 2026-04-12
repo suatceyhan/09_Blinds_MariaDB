@@ -95,7 +95,7 @@ def get_dashboard_summary(
             JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
             LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
             WHERE e.is_deleted IS NOT TRUE
-              AND (se.slug IS NULL OR se.slug <> 'cancelled')
+              AND (se.builtin_kind IS NULL OR se.builtin_kind <> 'cancelled')
               AND (
                 (e.scheduled_start_at >= :start AND e.scheduled_start_at < :end)
                OR (e.scheduled_start_at IS NULL AND e.tarih_saat >= :start AND e.tarih_saat < :end)
@@ -114,7 +114,7 @@ def get_dashboard_summary(
             FROM estimate e
             LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
             WHERE e.is_deleted IS NOT TRUE
-              AND (se.slug IS NULL OR se.slug <> 'cancelled')
+              AND (se.builtin_kind IS NULL OR se.builtin_kind <> 'cancelled')
               AND (
                 (e.scheduled_start_at >= :start AND e.scheduled_start_at < :week_end)
                OR (e.scheduled_start_at IS NULL AND e.tarih_saat >= :start AND e.tarih_saat < :week_end)

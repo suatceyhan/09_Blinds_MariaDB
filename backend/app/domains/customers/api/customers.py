@@ -208,7 +208,7 @@ def get_customer(
               e.id,
               e.tarih_saat,
               e.scheduled_start_at,
-              se.slug AS status,
+              se.builtin_kind AS status,
               COALESCE(NULLIF(trim(se.name), ''), '—') AS status_label,
               COALESCE(
                 (

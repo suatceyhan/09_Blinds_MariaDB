@@ -370,7 +370,7 @@ def patch_order_status(
     return OrderStatusOut(**dict(row))
 
 
-# --- Estimate status (status_estimate): same UX as order statuses; optional internal slug for workflow rows ---
+# --- Estimate status (status_estimate): same UX as order statuses; optional builtin_kind in DB (not "slug") ---
 
 
 class EstimateStatusOut(BaseModel):
@@ -381,9 +381,9 @@ class EstimateStatusOut(BaseModel):
     name: str
     active: bool
     sort_order: int = 0
-    workflow: str | None = Field(
+    code: str | None = Field(
         default=None,
-        description="pending | converted | cancelled for built-in rows; null for custom labels (no slug).",
+        description="pending | converted | cancelled for built-in rows; null for custom labels.",
     )
 
 
@@ -401,8 +401,8 @@ class EstimateStatusPatchIn(BaseModel):
 
 def _estimate_status_row_out(row: dict[str, Any]) -> EstimateStatusOut:
     d = dict(row)
-    slug = d.pop("slug", None)
-    d["workflow"] = str(slug).strip().lower() if slug else None
+    bk = d.pop("builtin_kind", None)
+    d["code"] = str(bk).strip().lower() if bk else None
     return EstimateStatusOut(**d)
 
 
@@ -429,7 +429,7 @@ def list_estimate_statuses(
     rows = db.execute(
         text(
             f"""
-            SELECT se.company_id, se.id, se.slug, se.name, se.active, se.sort_order
+            SELECT se.company_id, se.id, se.builtin_kind, se.name, se.active, se.sort_order
             FROM status_estimate se
             WHERE {w}
             ORDER BY se.sort_order ASC, se.active DESC, se.name ASC
@@ -472,7 +472,7 @@ def create_estimate_status(
             db.execute(
                 text(
                     """
-                    INSERT INTO status_estimate (company_id, id, slug, name, active, sort_order)
+                    INSERT INTO status_estimate (company_id, id, builtin_kind, name, active, sort_order)
                     VALUES (:company_id, :id, NULL, :name, TRUE, :sort_order)
                     """
                 ),
@@ -490,7 +490,7 @@ def create_estimate_status(
         row = db.execute(
             text(
                 """
-                SELECT company_id, id, slug, name, active, sort_order
+                SELECT company_id, id, builtin_kind, name, active, sort_order
                 FROM status_estimate
                 WHERE company_id = :company_id AND id = :id
                 """
@@ -514,7 +514,7 @@ def patch_estimate_status(
     current = db.execute(
         text(
             """
-            SELECT company_id, id, slug, name, active, sort_order
+            SELECT company_id, id, builtin_kind, name, active, sort_order
             FROM status_estimate
             WHERE company_id = :company_id AND id = :id
             """
@@ -546,7 +546,7 @@ def patch_estimate_status(
     row = db.execute(
         text(
             """
-            SELECT company_id, id, slug, name, active, sort_order
+            SELECT company_id, id, builtin_kind, name, active, sort_order
             FROM status_estimate
             WHERE company_id = :company_id AND id = :id
             """
