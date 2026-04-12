@@ -1,10 +1,20 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Eye, FolderKanban, Pencil, RotateCcw, Trash2, X } from 'lucide-react'
+import {
+  Camera,
+  Eye,
+  FileSpreadsheet,
+  FolderKanban,
+  Pencil,
+  RotateCcw,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
-import { deleteJson, getJson, patchJson, postJson } from '@/lib/api'
+import { deleteJson, getJson, patchJson, postJson, postMultipartJson } from '@/lib/api'
 
 type CustomerOpt = { id: string; name: string; surname?: string | null }
 
@@ -39,6 +49,16 @@ type OrderRow = {
   active?: boolean
 }
 
+type OrderAttachmentRow = {
+  id: string
+  kind: string
+  filename: string
+  url: string
+  created_at: string
+}
+
+type PendingOrderAttachment = { key: string; file: File; kind: 'photo' | 'excel' }
+
 type OrderDetail = {
   id: string
   customer_id: string
@@ -61,8 +81,9 @@ type OrderDetail = {
   created_at: string | null
   updated_at?: string | null
   active?: boolean
-  /** Recorded via Payment on order detail (newest first from API). */
+  /** Down payment (`id` downpayment) + recorded Pay rows; chronological from API. */
   payment_entries?: Array<{ id: string; amount: string | number; paid_at: string }>
+  attachments?: OrderAttachmentRow[]
 }
 
 type OrderStatusOpt = { id: string; name: string }
@@ -531,6 +552,200 @@ function BlindsTypesGrid(props: {
   )
 }
 
+function OrderAttachmentsBlock(props: {
+  blockId: string
+  orderId: string | null
+  serverFiles: OrderAttachmentRow[]
+  pendingFiles: PendingOrderAttachment[]
+  onPendingChange: (files: PendingOrderAttachment[]) => void
+  canEdit: boolean
+  uploadBusy: boolean
+  setUploadBusy: (v: boolean) => void
+  onAfterServerMutation: () => Promise<void>
+  setErr: (msg: string | null) => void
+  onRequestDeleteAttachment: (attachmentId: string) => void
+}) {
+  const {
+    blockId,
+    orderId,
+    serverFiles,
+    pendingFiles,
+    onPendingChange,
+    canEdit,
+    uploadBusy,
+    setUploadBusy,
+    onAfterServerMutation,
+    setErr,
+    onRequestDeleteAttachment,
+  } = props
+  const capRef = useRef<HTMLInputElement>(null)
+  const photoRef = useRef<HTMLInputElement>(null)
+  const excelRef = useRef<HTMLInputElement>(null)
+
+  async function handleChosenFile(file: File | null | undefined, kind: 'photo' | 'excel') {
+    if (!file) return
+    if (!orderId) {
+      onPendingChange([
+        ...pendingFiles,
+        { key: globalThis.crypto?.randomUUID?.() ?? String(Date.now()), file, kind },
+      ])
+      return
+    }
+    setUploadBusy(true)
+    setErr(null)
+    try {
+      const fd = new FormData()
+      fd.append('kind', kind)
+      fd.append('file', file)
+      await postMultipartJson<OrderDetail>(`/orders/${orderId}/attachments`, fd)
+      await onAfterServerMutation()
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : 'Upload failed')
+    } finally {
+      setUploadBusy(false)
+    }
+  }
+
+  const showList = serverFiles.length > 0 || pendingFiles.length > 0
+  const showToolbar = canEdit
+
+  if (!showList && !showToolbar) return null
+
+  return (
+    <div className="rounded-lg border border-slate-200/80 bg-white px-3 py-3 sm:px-4">
+      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Attachments</h3>
+      {!orderId && canEdit ? (
+        <p className="mt-1 text-xs text-slate-500">
+          Files you add here will upload after the order is created.
+        </p>
+      ) : null}
+      {showToolbar ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <input
+            ref={capRef}
+            id={`${blockId}-cam`}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            disabled={uploadBusy}
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              e.target.value = ''
+              void handleChosenFile(f, 'photo')
+            }}
+          />
+          <input
+            ref={photoRef}
+            id={`${blockId}-photo`}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            disabled={uploadBusy}
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              e.target.value = ''
+              void handleChosenFile(f, 'photo')
+            }}
+          />
+          <input
+            ref={excelRef}
+            id={`${blockId}-excel`}
+            type="file"
+            accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+            className="hidden"
+            disabled={uploadBusy}
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              e.target.value = ''
+              void handleChosenFile(f, 'excel')
+            }}
+          />
+          <button
+            type="button"
+            disabled={uploadBusy}
+            onClick={() => capRef.current?.click()}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <Camera className="h-3.5 w-3.5" strokeWidth={2} />
+            Take photo
+          </button>
+          <button
+            type="button"
+            disabled={uploadBusy}
+            onClick={() => photoRef.current?.click()}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <Upload className="h-3.5 w-3.5" strokeWidth={2} />
+            Upload photo
+          </button>
+          <button
+            type="button"
+            disabled={uploadBusy}
+            onClick={() => excelRef.current?.click()}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" strokeWidth={2} />
+            Upload Excel
+          </button>
+        </div>
+      ) : null}
+      {pendingFiles.length > 0 ? (
+        <ul className="mt-2 space-y-1 text-xs text-slate-600">
+          {pendingFiles.map((p) => (
+            <li key={p.key} className="flex items-center justify-between gap-2 rounded border border-dashed border-slate-200 px-2 py-1">
+              <span className="min-w-0 truncate">
+                {p.kind === 'excel' ? 'Excel' : 'Photo'}: {p.file.name}
+              </span>
+              {canEdit ? (
+                <button
+                  type="button"
+                  className="shrink-0 rounded p-1 text-red-600 hover:bg-red-50"
+                  title="Remove"
+                  onClick={() => onPendingChange(pendingFiles.filter((x) => x.key !== p.key))}
+                >
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {serverFiles.length > 0 ? (
+        <ul className="mt-2 divide-y divide-slate-100">
+          {serverFiles.map((a) => (
+            <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0">
+              <div className="min-w-0">
+                <a
+                  href={a.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-teal-700 hover:underline"
+                >
+                  {a.filename}
+                </a>
+                <span className="ml-2 text-xs text-slate-500">
+                  {a.kind === 'excel' ? 'Spreadsheet' : 'Photo'} · {fmtDisplayDateTime(a.created_at)}
+                </span>
+              </div>
+              {canEdit ? (
+                <button
+                  type="button"
+                  title="Remove attachment"
+                  className="rounded-lg border border-red-200 p-1.5 text-red-700 hover:bg-red-50"
+                  onClick={() => onRequestDeleteAttachment(a.id)}
+                >
+                  <Trash2 className="h-4 w-4" strokeWidth={2} />
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  )
+}
+
 export function OrdersPage() {
   const me = useAuthSession()
   const canView = Boolean(me?.permissions.includes('orders.view'))
@@ -570,6 +785,17 @@ export function OrdersPage() {
   const [paymentPending, setPaymentPending] = useState(false)
   const [deleteOrderId, setDeleteOrderId] = useState<string | null>(null)
   const [deletePending, setDeletePending] = useState(false)
+  const [deletePaymentEntryId, setDeletePaymentEntryId] = useState<string | null>(null)
+  const [deletePaymentPending, setDeletePaymentPending] = useState(false)
+  const [deleteAttachmentTarget, setDeleteAttachmentTarget] = useState<{
+    orderId: string
+    id: string
+  } | null>(null)
+  const [deleteAttachmentPending, setDeleteAttachmentPending] = useState(false)
+
+  const [createPendingAttachments, setCreatePendingAttachments] = useState<PendingOrderAttachment[]>([])
+  const [editAttachments, setEditAttachments] = useState<OrderAttachmentRow[]>([])
+  const [attachmentUploadBusy, setAttachmentUploadBusy] = useState(false)
 
   const [editOrderId, setEditOrderId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null)
@@ -697,6 +923,8 @@ export function OrdersPage() {
       setEditCustomerId('')
       setEditEstimateId(null)
       setEditBlindsLines([])
+      setEditExtraPaid(0)
+      setEditAttachments([])
       await reloadList()
       if (viewOrderId === oid) {
         const d = await getJson<OrderDetail>(`/orders/${oid}`)
@@ -729,6 +957,8 @@ export function OrdersPage() {
         setEditCustomerId('')
         setEditEstimateId(null)
         setEditBlindsLines([])
+        setEditExtraPaid(0)
+        setEditAttachments([])
       }
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not delete order')
@@ -769,6 +999,49 @@ export function OrdersPage() {
       setErr(e instanceof Error ? e.message : 'Could not record payment')
     } finally {
       setPaymentPending(false)
+    }
+  }
+
+  async function runDeletePaymentEntry() {
+    if (!deletePaymentEntryId || !viewOrderId || !canEdit) return
+    const oid = viewOrderId
+    const eid = deletePaymentEntryId
+    setDeletePaymentPending(true)
+    setErr(null)
+    try {
+      await deleteJson(`/orders/${oid}/payment-entries/${eid}`)
+      const d = await getJson<OrderDetail>(`/orders/${oid}`)
+      setViewOrder(d)
+      setDeletePaymentEntryId(null)
+      await reloadList()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not remove payment')
+    } finally {
+      setDeletePaymentPending(false)
+    }
+  }
+
+  async function runDeleteAttachment() {
+    if (!deleteAttachmentTarget || !canEdit) return
+    const { orderId, id } = deleteAttachmentTarget
+    setDeleteAttachmentPending(true)
+    setErr(null)
+    try {
+      await deleteJson(`/orders/${orderId}/attachments/${id}`)
+      if (viewOrderId === orderId) {
+        const d = await getJson<OrderDetail>(`/orders/${orderId}`)
+        setViewOrder(d)
+      }
+      if (editOrderId === orderId) {
+        const d = await getJson<OrderDetail>(`/orders/${orderId}`)
+        setEditAttachments(d.attachments ?? [])
+      }
+      setDeleteAttachmentTarget(null)
+      await reloadList()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not remove attachment')
+    } finally {
+      setDeleteAttachmentPending(false)
     }
   }
 
@@ -821,6 +1094,7 @@ export function OrdersPage() {
       setEditEstimateId(null)
       setEditBlindsLines([])
       setEditExtraPaid(0)
+      setEditAttachments([])
       setEditLoading(false)
       return
     }
@@ -846,6 +1120,7 @@ export function OrdersPage() {
             status_order_label_fallback: d.status_order_label?.trim() ?? null,
           })
           setEditExtraPaid(safeRound2(parseMoneyAmount(d.final_payment) ?? 0))
+          setEditAttachments(d.attachments ?? [])
         }
       } catch {
         if (!c) {
@@ -854,6 +1129,7 @@ export function OrdersPage() {
           setEditEstimateId(null)
           setEditBlindsLines([])
           setEditExtraPaid(0)
+          setEditAttachments([])
         }
       } finally {
         if (!c) setEditLoading(false)
@@ -982,6 +1258,7 @@ export function OrdersPage() {
     setDownpayment('')
     setAgreementDate('')
     setOrderNote('')
+    setCreatePendingAttachments([])
   }
 
   function toggleBlinds(id: string) {
@@ -1062,8 +1339,9 @@ export function OrdersPage() {
     const dp = dpParsed
     setSaving(true)
     setErr(null)
+    const pendingAtt = [...createPendingAttachments]
     try {
-      await postJson<OrderRow>('/orders', {
+      const created = await postJson<OrderDetail>('/orders', {
         customer_id: customerId.trim(),
         ...(linkedEstimateId ? { estimate_id: linkedEstimateId } : {}),
         ...(taxBase !== null ? { tax_uygulanacak_miktar: taxBase } : {}),
@@ -1074,6 +1352,12 @@ export function OrdersPage() {
           : {}),
         blinds_lines: blindsLines.map((b) => blindsLineToPayload(b, blindsOrderOptions)),
       })
+      for (const p of pendingAtt) {
+        const fd = new FormData()
+        fd.append('kind', p.kind)
+        fd.append('file', p.file)
+        await postMultipartJson(`/orders/${created.id}/attachments`, fd)
+      }
       setShowCreateForm(false)
       resetCreateForm()
       await reloadList()
@@ -1239,6 +1523,21 @@ export function OrdersPage() {
                 onChange={(e) => setAgreementDate(e.target.value)}
               />
             </label>
+            <div className="sm:col-span-2">
+              <OrderAttachmentsBlock
+                blockId="new-order-att"
+                orderId={null}
+                serverFiles={[]}
+                pendingFiles={createPendingAttachments}
+                onPendingChange={setCreatePendingAttachments}
+                canEdit={canEdit}
+                uploadBusy={attachmentUploadBusy || saving}
+                setUploadBusy={setAttachmentUploadBusy}
+                onAfterServerMutation={async () => {}}
+                setErr={setErr}
+                onRequestDeleteAttachment={() => {}}
+              />
+            </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <button
@@ -1552,10 +1851,27 @@ export function OrdersPage() {
                         {viewOrder.payment_entries.map((p) => (
                           <li
                             key={p.id}
-                            className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 py-2 text-sm first:pt-0 last:pb-0"
+                            className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
                           >
-                            <span className="font-medium tabular-nums text-slate-900">{fmtMoney(p.amount)}</span>
-                            <span className="text-slate-500">{fmtDisplayDateTime(p.paid_at)}</span>
+                            <div className="min-w-0 flex-1">
+                              <span className="font-medium tabular-nums text-slate-900">{fmtMoney(p.amount)}</span>
+                              {p.id === 'downpayment' ? (
+                                <span className="ml-2 text-xs font-normal text-slate-500">Down payment</span>
+                              ) : null}
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                              <span className="text-slate-500">{fmtDisplayDateTime(p.paid_at)}</span>
+                              {canEdit && viewOrder.active !== false && p.id !== 'downpayment' ? (
+                                <button
+                                  type="button"
+                                  title="Remove payment"
+                                  className="rounded-lg border border-red-200 p-1.5 text-red-700 hover:bg-red-50"
+                                  onClick={() => setDeletePaymentEntryId(p.id)}
+                                >
+                                  <Trash2 className="h-4 w-4" strokeWidth={2} />
+                                </button>
+                              ) : null}
+                            </div>
                           </li>
                         ))}
                       </ul>
@@ -1575,6 +1891,27 @@ export function OrdersPage() {
                       </div>
                     </dl>
                   </section>
+
+                  {viewOrderId ? (
+                    <OrderAttachmentsBlock
+                      blockId="view-order-att"
+                      orderId={viewOrderId}
+                      serverFiles={viewOrder.attachments ?? []}
+                      pendingFiles={[]}
+                      onPendingChange={() => {}}
+                      canEdit={canEdit && viewOrder.active !== false}
+                      uploadBusy={attachmentUploadBusy}
+                      setUploadBusy={setAttachmentUploadBusy}
+                      onAfterServerMutation={async () => {
+                        const d = await getJson<OrderDetail>(`/orders/${viewOrderId}`)
+                        setViewOrder(d)
+                      }}
+                      setErr={setErr}
+                      onRequestDeleteAttachment={(id) =>
+                        setDeleteAttachmentTarget({ orderId: viewOrderId, id })
+                      }
+                    />
+                  ) : null}
 
                   {viewOrder.blinds_lines && viewOrder.blinds_lines.length > 0 ? (
                     <section className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
@@ -1649,6 +1986,8 @@ export function OrdersPage() {
                 setEditCustomerId('')
                 setEditEstimateId(null)
                 setEditBlindsLines([])
+                setEditExtraPaid(0)
+                setEditAttachments([])
               }
             }}
           />
@@ -1666,6 +2005,8 @@ export function OrdersPage() {
                   setEditCustomerId('')
                   setEditEstimateId(null)
                   setEditBlindsLines([])
+                  setEditExtraPaid(0)
+                  setEditAttachments([])
                 }}
               >
                 <X className="h-4 w-4" />
@@ -1818,6 +2159,28 @@ export function OrdersPage() {
                         }
                       />
                     </label>
+                    {editOrderId ? (
+                      <div className="sm:col-span-2">
+                        <OrderAttachmentsBlock
+                          blockId="edit-order-att"
+                          orderId={editOrderId}
+                          serverFiles={editAttachments}
+                          pendingFiles={[]}
+                          onPendingChange={() => {}}
+                          canEdit={canEdit}
+                          uploadBusy={attachmentUploadBusy || editSaving}
+                          setUploadBusy={setAttachmentUploadBusy}
+                          onAfterServerMutation={async () => {
+                            const d = await getJson<OrderDetail>(`/orders/${editOrderId}`)
+                            setEditAttachments(d.attachments ?? [])
+                          }}
+                          setErr={setErr}
+                          onRequestDeleteAttachment={(id) =>
+                            setDeleteAttachmentTarget({ orderId: editOrderId, id })
+                          }
+                        />
+                      </div>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap justify-end gap-2 pt-2">
                     <button
@@ -1830,6 +2193,8 @@ export function OrdersPage() {
                         setEditCustomerId('')
                         setEditEstimateId(null)
                         setEditBlindsLines([])
+                        setEditExtraPaid(0)
+                        setEditAttachments([])
                       }}
                     >
                       Cancel
@@ -1913,6 +2278,30 @@ export function OrdersPage() {
           </div>
         </div>
       ) : null}
+
+      <ConfirmModal
+        open={deletePaymentEntryId !== null}
+        title="Remove this payment?"
+        description="This payment line will be removed and the order balance will be recalculated. You cannot restore it from the app."
+        confirmLabel="Remove payment"
+        cancelLabel="Cancel"
+        variant="danger"
+        pending={deletePaymentPending}
+        onConfirm={() => void runDeletePaymentEntry()}
+        onCancel={() => !deletePaymentPending && setDeletePaymentEntryId(null)}
+      />
+
+      <ConfirmModal
+        open={deleteAttachmentTarget !== null}
+        title="Remove this file?"
+        description="The attachment will no longer appear on this order."
+        confirmLabel="Remove file"
+        cancelLabel="Cancel"
+        variant="danger"
+        pending={deleteAttachmentPending}
+        onConfirm={() => void runDeleteAttachment()}
+        onCancel={() => !deleteAttachmentPending && setDeleteAttachmentTarget(null)}
+      />
 
       <ConfirmModal
         open={deleteOrderId !== null}

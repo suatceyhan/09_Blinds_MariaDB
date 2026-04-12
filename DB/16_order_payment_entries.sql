@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS order_payment_entries (
   order_id     VARCHAR(16)  NOT NULL,
   amount       NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
   created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  is_deleted   BOOLEAN      NOT NULL DEFAULT FALSE,
   PRIMARY KEY (id),
   CONSTRAINT fk_order_payment_entries_order
     FOREIGN KEY (company_id, order_id)

@@ -2,18 +2,20 @@
 
 import json
 import secrets
-from datetime import date, datetime
+from datetime import date, datetime, time, timezone
 from decimal import ROUND_HALF_UP, Decimal
+from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing_extensions import Annotated
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.dependencies.auth import effective_company_id, require_permissions
 from app.domains.user.models.users import Users
@@ -25,6 +27,21 @@ from app.domains.business_lookups.services.blinds_catalog import (
 
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
+
+ORDER_PHOTO_MAX_BYTES = 15 * 1024 * 1024
+ORDER_EXCEL_MAX_BYTES = 25 * 1024 * 1024
+ORDER_PHOTO_TYPES: dict[str, str] = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
+ORDER_EXCEL_TYPES: dict[str, str] = {
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/vnd.ms-excel": ".xls",
+    "text/csv": ".csv",
+}
 
 
 def _company_tax_rate_percent(db: Session, company_id: UUID) -> Decimal | None:
@@ -68,8 +85,67 @@ def _order_balance(
 def _new_order_id() -> str:
     return secrets.token_hex(8)
 
+
 def _new_row_id() -> str:
     return secrets.token_hex(8)
+
+
+def _orders_upload_dir(company_id: UUID, order_id: str) -> Path:
+    return settings.resolved_upload_root() / "orders" / str(company_id) / order_id
+
+
+def _safe_upload_basename(name: str, max_len: int = 100) -> str:
+    base = Path(name).name
+    cleaned = "".join(c for c in base if c.isalnum() or c in "._- ")
+    return (cleaned.strip() or "file")[:max_len]
+
+
+def _normalize_upload_content_type(raw: str | None) -> str:
+    if not raw:
+        return ""
+    return raw.split(";")[0].strip().lower()
+
+
+def _sync_order_final_payment_from_entries(db: Session, cid: UUID, oid: str) -> None:
+    q = Decimal("0.01")
+    r = db.execute(
+        text(
+            """
+            SELECT COALESCE(SUM(amount), 0) AS s
+            FROM order_payment_entries
+            WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid
+              AND COALESCE(is_deleted, FALSE) = FALSE
+            """
+        ),
+        {"cid": str(cid), "oid": oid},
+    ).mappings().first()
+    sum_fp = Decimal(str(r["s"])).quantize(q, rounding=ROUND_HALF_UP) if r else Decimal("0")
+    orow = db.execute(
+        text(
+            """
+            SELECT total_amount, downpayment, tax_amount
+            FROM orders
+            WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+            LIMIT 1
+            """
+        ),
+        {"cid": str(cid), "oid": oid},
+    ).mappings().first()
+    if not orow:
+        return
+    bal = _order_balance(orow["total_amount"], orow["downpayment"], orow["tax_amount"], sum_fp)
+    if bal is not None:
+        bal = bal.quantize(q, rounding=ROUND_HALF_UP)
+    db.execute(
+        text(
+            """
+            UPDATE orders
+            SET final_payment = :fp, balance = :bal, updated_at = NOW()
+            WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+            """
+        ),
+        {"cid": str(cid), "oid": oid, "fp": sum_fp, "bal": bal},
+    )
 
 
 _SQL_BLINDS_SUMMARY = """
@@ -295,12 +371,85 @@ class OrderCreateIn(BaseModel):
     order_note: str | None = Field(None, max_length=4000)
 
 
+class OrderAttachmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    kind: str
+    filename: str
+    url: str
+    created_at: Any
+
+
 class OrderPaymentEntryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
     amount: Decimal
     paid_at: datetime
+
+
+def _down_payment_paid_at(agreement_date: Any, created_at: Any) -> datetime:
+    """Display timestamp for the synthetic down-payment line (agreement date start of day, else order created)."""
+    if agreement_date is not None:
+        if isinstance(agreement_date, datetime):
+            return agreement_date
+        if isinstance(agreement_date, date):
+            return datetime.combine(agreement_date, time.min, tzinfo=timezone.utc)
+    if isinstance(created_at, datetime):
+        return created_at
+    return datetime.now(timezone.utc)
+
+
+def _build_payment_entries_for_detail(
+    downpayment: Any,
+    agreement_date: Any,
+    created_at: Any,
+    pay_rows: list[Any],
+) -> list[OrderPaymentEntryOut]:
+    q = Decimal("0.01")
+    out: list[OrderPaymentEntryOut] = []
+    down_d = (
+        Decimal("0")
+        if downpayment is None
+        else Decimal(str(downpayment)).quantize(q, rounding=ROUND_HALF_UP)
+    )
+    if down_d > 0:
+        out.append(
+            OrderPaymentEntryOut(
+                id="downpayment",
+                amount=down_d,
+                paid_at=_down_payment_paid_at(agreement_date, created_at),
+            )
+        )
+    out.extend(OrderPaymentEntryOut(**dict(pr)) for pr in pay_rows)
+    out.sort(key=lambda e: (e.paid_at, 0 if e.id == "downpayment" else 1))
+    return out
+
+
+def _fetch_order_attachments(db: Session, cid: UUID, oid: str) -> list[OrderAttachmentOut]:
+    rows = db.execute(
+        text(
+            """
+            SELECT id::text AS id, kind, original_filename, stored_relpath, created_at
+            FROM order_attachments
+            WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid
+              AND COALESCE(is_deleted, FALSE) = FALSE
+            ORDER BY created_at DESC
+            """
+        ),
+        {"cid": str(cid), "oid": oid},
+    ).mappings().all()
+    return [
+        OrderAttachmentOut(
+            id=str(r["id"]),
+            kind=str(r["kind"]),
+            filename=str(r["original_filename"]),
+            url=f"/uploads/{r['stored_relpath']}",
+            created_at=r["created_at"],
+        )
+        for r in rows
+    ]
 
 
 class OrderDetailOut(BaseModel):
@@ -319,6 +468,7 @@ class OrderDetailOut(BaseModel):
     tax_amount: Decimal | None = None
     blinds_lines: list[dict[str, Any]] = Field(default_factory=list)
     payment_entries: list[OrderPaymentEntryOut] = Field(default_factory=list)
+    attachments: list[OrderAttachmentOut] = Field(default_factory=list)
     order_note: str | None = None
     agree_data: str | None = None
     agreement_date: date | None = None
@@ -645,10 +795,6 @@ def record_order_payment(
             status_code=400,
             detail="Payment exceeds balance due.",
         )
-    new_fp = (cur_fp_d + pay_amt).quantize(q, rounding=ROUND_HALF_UP)
-    new_balance = _order_balance(Decimal(str(total)), down, tax_amt, new_fp)
-    if new_balance is not None:
-        new_balance = new_balance.quantize(q, rounding=ROUND_HALF_UP)
     db.execute(
         text(
             """
@@ -658,21 +804,175 @@ def record_order_payment(
         ),
         {"cid": str(cid), "oid": oid, "amt": pay_amt},
     )
+    _sync_order_final_payment_from_entries(db, cid, oid)
+    db.commit()
+    return get_order(order_id=oid, db=db, current_user=current_user)
+
+
+@router.delete(
+    "/{order_id}/payment-entries/{entry_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def soft_delete_order_payment_entry(
+    order_id: str,
+    entry_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("orders.edit"))],
+):
+    """Soft-delete a recorded payment row; recomputes `final_payment` and `balance` from active rows."""
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    oid = order_id.strip()
+    try:
+        eid = UUID(entry_id.strip())
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Payment entry not found.") from exc
+    res = db.execute(
+        text(
+            """
+            UPDATE order_payment_entries
+            SET is_deleted = TRUE
+            WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid AND id = CAST(:eid AS uuid)
+              AND COALESCE(is_deleted, FALSE) = FALSE
+            """
+        ),
+        {"cid": str(cid), "oid": oid, "eid": str(eid)},
+    )
+    if res.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Payment entry not found.")
+    _sync_order_final_payment_from_entries(db, cid, oid)
+    db.commit()
+    return None
+
+
+@router.post("/{order_id}/attachments", response_model=OrderDetailOut)
+async def upload_order_attachment(
+    order_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("orders.edit"))],
+    kind: Annotated[str, Form()],
+    file: Annotated[UploadFile, File()],
+):
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    oid = order_id.strip()
+    k = (kind or "").strip().lower()
+    if k not in ("photo", "excel"):
+        raise HTTPException(status_code=400, detail="kind must be photo or excel.")
+    ok = db.execute(
+        text(
+            """
+            SELECT 1 FROM orders
+            WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+            LIMIT 1
+            """
+        ),
+        {"cid": str(cid), "oid": oid},
+    ).first()
+    if not ok:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    ct = _normalize_upload_content_type(file.content_type)
+    max_bytes = ORDER_PHOTO_MAX_BYTES if k == "photo" else ORDER_EXCEL_MAX_BYTES
+    fn_low = (file.filename or "").lower()
+    if k == "photo":
+        ext = ORDER_PHOTO_TYPES.get(ct)
+        if not ext and fn_low.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
+            ext = Path(fn_low).suffix.lower()
+            if ext == ".jpeg":
+                ext = ".jpg"
+            ct = ct or "image/jpeg"
+        if not ext:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid image type. Use PNG, JPEG, WebP, or GIF.",
+            )
+    else:
+        ext = ORDER_EXCEL_TYPES.get(ct)
+        if not ext:
+            if fn_low.endswith(".xlsx"):
+                ext, ct = ".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            elif fn_low.endswith(".xls"):
+                ext, ct = ".xls", "application/vnd.ms-excel"
+            elif fn_low.endswith(".csv"):
+                ext, ct = ".csv", "text/csv"
+        if not ext:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid spreadsheet type. Use XLSX, XLS, or CSV.",
+            )
+    data = await file.read()
+    if len(data) > max_bytes:
+        raise HTTPException(status_code=400, detail="File too large.")
+    safe = _safe_upload_basename(file.filename or f"upload{ext}")
+    unique = f"{uuid4().hex}_{safe}"
+    if not unique.lower().endswith(ext.lower()):
+        unique = f"{unique}{ext}"
+    dest_dir = _orders_upload_dir(cid, oid)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = dest_dir / unique
+    rel = Path("orders") / str(cid) / oid / unique
+    stored_relpath = rel.as_posix()
+    dest_path.write_bytes(data)
     db.execute(
         text(
             """
-            UPDATE orders
-            SET
-              final_payment = :fp,
-              balance = :bal,
-              updated_at = NOW()
-            WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+            INSERT INTO order_attachments (
+              company_id, order_id, kind, original_filename, stored_relpath, content_type, file_size
+            )
+            VALUES (
+              CAST(:cid AS uuid), :oid, :kind, :oname, :spath, :ct, :fsz
+            )
             """
         ),
-        {"cid": str(cid), "oid": oid, "fp": new_fp, "bal": new_balance},
+        {
+            "cid": str(cid),
+            "oid": oid,
+            "kind": k,
+            "oname": safe,
+            "spath": stored_relpath,
+            "ct": ct or None,
+            "fsz": len(data),
+        },
     )
     db.commit()
     return get_order(order_id=oid, db=db, current_user=current_user)
+
+
+@router.delete(
+    "/{order_id}/attachments/{attachment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def soft_delete_order_attachment(
+    order_id: str,
+    attachment_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("orders.edit"))],
+):
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    oid = order_id.strip()
+    try:
+        aid = UUID(attachment_id.strip())
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Attachment not found.") from exc
+    res = db.execute(
+        text(
+            """
+            UPDATE order_attachments
+            SET is_deleted = TRUE
+            WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid AND id = CAST(:aid AS uuid)
+              AND COALESCE(is_deleted, FALSE) = FALSE
+            """
+        ),
+        {"cid": str(cid), "oid": oid, "aid": str(aid)},
+    )
+    if res.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Attachment not found.")
+    db.commit()
+    return None
 
 
 @router.get("/{order_id}", response_model=OrderDetailOut)
@@ -729,13 +1029,25 @@ def get_order(
             SELECT id::text AS id, amount, created_at AS paid_at
             FROM order_payment_entries
             WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid
-            ORDER BY created_at DESC
+              AND COALESCE(is_deleted, FALSE) = FALSE
+            ORDER BY created_at ASC
             """
         ),
         {"cid": str(cid), "oid": oid},
     ).mappings().all()
-    payment_entries = [OrderPaymentEntryOut(**dict(pr)) for pr in pay_rows]
-    return OrderDetailOut(**d, blinds_lines=lines, payment_entries=payment_entries)
+    payment_entries = _build_payment_entries_for_detail(
+        d.get("downpayment"),
+        d.get("agreement_date"),
+        d.get("created_at"),
+        list(pay_rows),
+    )
+    attachments = _fetch_order_attachments(db, cid, oid)
+    return OrderDetailOut(
+        **d,
+        blinds_lines=lines,
+        payment_entries=payment_entries,
+        attachments=attachments,
+    )
 
 
 @router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
