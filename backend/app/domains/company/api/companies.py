@@ -16,6 +16,9 @@ from app.domains.company.models.company import Companies
 from app.domains.user.models.user_company_memberships import UserCompanyMembership
 from app.domains.user.models.users import Users
 from app.core.config import settings
+from app.domains.business_lookups.services.estimate_status_defaults import (
+    ensure_default_estimate_statuses_for_company,
+)
 from app.domains.user.services.company_membership import ensure_membership, user_has_membership
 
 router = APIRouter(prefix="/companies", tags=["Companies"])
@@ -363,6 +366,7 @@ def create_company(
     db.add(row)
     try:
         db.flush()
+        ensure_default_estimate_statuses_for_company(db, row.id)
         if body.owner_user_id:
             _require_owner_user(db, body.owner_user_id)
             ensure_membership(db, body.owner_user_id, row.id, commit=False)

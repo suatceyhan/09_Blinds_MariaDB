@@ -15,6 +15,9 @@ from typing_extensions import Annotated
 
 from app.core.database import get_db
 from app.dependencies.auth import effective_company_id, require_permissions
+from app.domains.business_lookups.services.estimate_status_defaults import (
+    ensure_default_estimate_statuses_for_company,
+)
 from app.domains.user.models.users import Users
 from app.integrations.google_calendar_service import try_push_estimate_to_google_calendar
 
@@ -676,9 +679,21 @@ def create_estimate(
         {"cid": str(cid)},
     ).mappings().first()
     if not pend_row:
+        ensure_default_estimate_statuses_for_company(db, cid)
+        pend_row = db.execute(
+            text(
+                """
+                SELECT id FROM status_estimate
+                WHERE company_id = CAST(:cid AS uuid) AND builtin_kind = 'pending'
+                LIMIT 1
+                """
+            ),
+            {"cid": str(cid)},
+        ).mappings().first()
+    if not pend_row:
         raise HTTPException(
             status_code=500,
-            detail="Estimate status lookup is not initialized. Apply DB migration 19_status_estimate_lookup.sql.",
+            detail="Could not resolve default estimate status (pending) for this company.",
         )
     pending_status_id = str(pend_row["id"])
 
