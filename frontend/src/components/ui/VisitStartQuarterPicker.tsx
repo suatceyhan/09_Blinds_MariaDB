@@ -1,13 +1,41 @@
 import { useMemo } from 'react'
 import {
   VISIT_MINUTE_QUARTERS,
+  from24HourTo12,
   joinScheduledWall,
   parseScheduledWallToParts,
   snapWallToQuarterMinutes,
+  to24HourFrom12,
   type VisitAmPm,
+  type VisitMinuteQuarter,
 } from '@/lib/visitSchedule'
 
-const HOURS_12 = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'] as const
+/** All 24×4 quarter-hour slots; value key `HH:mm` (24h) for a single `<select>`. */
+const VISIT_QUARTER_TIME_OPTIONS: readonly { key: string; label: string }[] = (() => {
+  const out: { key: string; label: string }[] = []
+  for (let hi = 0; hi < 24; hi++) {
+    for (const m of VISIT_MINUTE_QUARTERS) {
+      const { hour12, ampm } = from24HourTo12(hi)
+      const ap = ampm === 'am' ? 'AM' : 'PM'
+      out.push({
+        key: `${String(hi).padStart(2, '0')}:${m}`,
+        label: `${hour12}:${m} ${ap}`,
+      })
+    }
+  }
+  return out
+})()
+
+function timeKeyFromUiParts(parts: {
+  hour12: string
+  minute: VisitMinuteQuarter
+  ampm: VisitAmPm
+}): string {
+  const h12 = Number.parseInt(String(parts.hour12).replaceAll(/\D/g, ''), 10)
+  const h12c = Number.isNaN(h12) ? 12 : Math.min(12, Math.max(1, h12))
+  const hi = to24HourFrom12(h12c, parts.ampm)
+  return `${String(hi).padStart(2, '0')}:${parts.minute}`
+}
 
 type VisitStartQuarterPickerProps = {
   /** API wall clock `YYYY-MM-DDTHH:mm` (24h); minutes should be 00/15/30/45. */
@@ -20,8 +48,8 @@ type VisitStartQuarterPickerProps = {
 }
 
 /**
- * Visit start without native `datetime-local` minute list (browsers ignore 15-minute steps there).
- * Date + hour (12) + quarter minutes + AM/PM → same `scheduled_wall` string as before.
+ * Visit start: one **date** field + one **time** dropdown (96 × 15-minute choices).
+ * Same `scheduled_wall` string as before.
  */
 export function VisitStartQuarterPicker({
   value,
@@ -35,25 +63,15 @@ export function VisitStartQuarterPicker({
     [value],
   )
 
+  const timeKey = timeKeyFromUiParts(p)
+
   const ctl = compact
     ? 'rounded-md border border-slate-200 px-1.5 py-1 text-xs outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:opacity-60'
     : 'rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:opacity-60'
 
-  function push(next: { date?: string; hour12?: string; minute?: string; ampm?: VisitAmPm }) {
-    onChange(
-      joinScheduledWall(
-        next.date ?? p.date,
-        next.hour12 ?? p.hour12,
-        next.minute ?? p.minute,
-        next.ampm ?? p.ampm,
-      ),
-    )
-  }
-
   return (
-    <div
-      className={`flex min-w-0 flex-1 flex-wrap items-end gap-1.5 sm:gap-2 ${className}`.trim()}
-      role="group"
+    <fieldset
+      className={`m-0 flex min-w-0 flex-1 flex-wrap items-end gap-1.5 border-0 p-0 sm:gap-2 ${className}`.trim()}
       aria-label="Visit start date and time"
     >
       <label className="flex min-w-0 flex-col text-[10px] font-medium text-slate-500">
@@ -65,55 +83,36 @@ export function VisitStartQuarterPicker({
           value={p.date}
           onChange={(e) => {
             const d = e.target.value
-            if (d) push({ date: d })
+            if (d) {
+              onChange(joinScheduledWall(d, p.hour12, p.minute, p.ampm))
+            }
           }}
         />
       </label>
-      <label className="flex flex-col text-[10px] font-medium text-slate-500">
-        <span className="mb-0.5">Hour</span>
+      <label className="flex min-w-[9rem] flex-1 flex-col text-[10px] font-medium text-slate-500 sm:min-w-[10.5rem]">
+        <span className="mb-0.5">Time</span>
         <select
           disabled={disabled}
-          className={`w-[4.25rem] shrink-0 ${ctl}`}
-          value={p.hour12}
-          onChange={(e) => push({ hour12: e.target.value })}
-          aria-label="Hour (12-hour)"
+          className={`w-full min-w-0 ${ctl}`}
+          value={timeKey}
+          onChange={(e) => {
+            const key = e.target.value
+            const [hs, ms] = key.split(':')
+            const hi = Number.parseInt(hs, 10)
+            const m = (VISIT_MINUTE_QUARTERS.includes(ms as VisitMinuteQuarter) ? ms : '00') as VisitMinuteQuarter
+            if (Number.isNaN(hi) || hi < 0 || hi > 23) return
+            const { hour12, ampm } = from24HourTo12(hi)
+            onChange(joinScheduledWall(p.date, String(hour12), m, ampm))
+          }}
+          aria-label="Time (15-minute steps only)"
         >
-          {HOURS_12.map((h) => (
-            <option key={h} value={h}>
-              {h}
+          {VISIT_QUARTER_TIME_OPTIONS.map((o) => (
+            <option key={o.key} value={o.key}>
+              {o.label}
             </option>
           ))}
         </select>
       </label>
-      <label className="flex flex-col text-[10px] font-medium text-slate-500">
-        <span className="mb-0.5">Min</span>
-        <select
-          disabled={disabled}
-          className={`w-[3.25rem] shrink-0 ${ctl}`}
-          value={p.minute}
-          onChange={(e) => push({ minute: e.target.value })}
-          aria-label="Minutes (15-minute steps)"
-        >
-          {VISIT_MINUTE_QUARTERS.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="flex flex-col text-[10px] font-medium text-slate-500">
-        <span className="mb-0.5">AM/PM</span>
-        <select
-          disabled={disabled}
-          className={`w-[4.5rem] shrink-0 ${ctl}`}
-          value={p.ampm}
-          onChange={(e) => push({ ampm: e.target.value as VisitAmPm })}
-          aria-label="AM or PM"
-        >
-          <option value="am">AM</option>
-          <option value="pm">PM</option>
-        </select>
-      </label>
-    </div>
+    </fieldset>
   )
 }
