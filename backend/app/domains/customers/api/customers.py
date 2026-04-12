@@ -208,7 +208,8 @@ def get_customer(
               e.id,
               e.tarih_saat,
               e.scheduled_start_at,
-              COALESCE(e.status, 'pending') AS status,
+              se.slug AS status,
+              COALESCE(NULLIF(trim(se.name), ''), '—') AS status_label,
               COALESCE(
                 (
                   SELECT string_agg(
@@ -233,6 +234,7 @@ def get_customer(
                 )
               ) AS blinds_summary
             FROM estimate e
+            LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
             WHERE e.company_id = :company_id AND e.customer_id = :cid AND e.is_deleted IS NOT TRUE
             ORDER BY COALESCE(e.scheduled_start_at, e.tarih_saat) DESC NULLS LAST
             LIMIT 50

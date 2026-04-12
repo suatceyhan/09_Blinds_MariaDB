@@ -16,6 +16,7 @@ type EstimateDetail = {
   blinds_types: BlindsRef[]
   perde_sayisi: number | null
   status?: string | null
+  status_label?: string | null
   is_deleted?: boolean | null
   scheduled_start_at: string | null
   scheduled_end_at: string | null
@@ -41,22 +42,30 @@ function formatDt(raw: string | null | undefined): string {
 }
 
 function workflowStatusLabel(status: string | null | undefined): string {
-  const s = (status ?? 'pending').toLowerCase()
+  const s = (status ?? '').toLowerCase()
   if (s === 'converted') return 'Converted to order'
   if (s === 'cancelled') return 'Cancelled'
-  return 'Pending'
+  if (s === 'pending') return 'Pending'
+  return 'Status'
 }
 
-function WorkflowStatusBadge({ status }: Readonly<{ status: string | null | undefined }>) {
-  const s = (status ?? 'pending').toLowerCase()
-  const label = workflowStatusLabel(s)
+function WorkflowStatusBadge({
+  status,
+  label,
+}: Readonly<{ status: string | null | undefined; label?: string | null }>) {
+  const s = (status ?? '').toLowerCase()
+  const labelText = (label?.trim() || workflowStatusLabel(s)).trim()
   const cls =
     s === 'converted'
       ? 'bg-emerald-100 text-emerald-900'
       : s === 'cancelled'
         ? 'bg-slate-200 text-slate-800'
-        : 'bg-amber-100 text-amber-900'
-  return <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${cls}`}>{label}</span>
+        : s === 'pending'
+          ? 'bg-amber-100 text-amber-900'
+          : 'bg-violet-50 text-violet-900'
+  return (
+    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${cls}`}>{labelText}</span>
+  )
 }
 
 export function EstimateViewPage() {
@@ -188,7 +197,7 @@ export function EstimateViewPage() {
             <div>
               <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Status</dt>
               <dd className="mt-1">
-                <WorkflowStatusBadge status={row.status} />
+                <WorkflowStatusBadge status={row.status} label={row.status_label} />
               </dd>
             </div>
             <div>

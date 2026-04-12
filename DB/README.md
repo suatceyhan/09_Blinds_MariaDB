@@ -25,3 +25,6 @@ Yeni migration eklerken mevcut en büyük numaradan bir sonrakini kullanın.
 - **`16_order_payment_entries.sql`**: `order_payment_entries` — `POST /orders/{id}/record-payment` ile kaydedilen tutarlar (tutar + `created_at`); sipariş detayında geçmiş listesi için.
 - **`17_order_payment_entries_soft_delete.sql`**: `order_payment_entries.is_deleted` — ödeme satırı silme (soft); `final_payment` toplamı aktif satırlardan yeniden hesaplanır.
 - **`18_order_attachments.sql`**: `order_attachments` — siparişe foto / Excel dosyası (`kind` `photo` \| `excel`); soft delete.
+- **`19_status_estimate_lookup.sql`**: `status_estimate` (şirket başına `pending` / `converted` / `cancelled` slug’ları); `estimate.status_esti_id` FK; tetikleyici `converted` satırına günceller; `GET`/`PATCH` `/lookups/estimate-statuses`.
+- **`20_status_estimate_custom_rows.sql`**: `status_estimate.slug` isteğe bağlı (NULL = özel etiket); `(company_id, slug)` yalnızca `slug IS NOT NULL` iken benzersiz; `POST /lookups/estimate-statuses` ile yeni satır.
+- **`21_status_sort_order.sql`**: `status_order.sort_order` ve `status_estimate.sort_order` — liste / filtre chip sırası (`PATCH` ile düzenlenebilir); mevcut satırlar backfill.

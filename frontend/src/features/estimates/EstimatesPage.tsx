@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarDays, Eye, Pencil, RotateCcw, ShoppingBag, Trash2 } from 'lucide-react'
+import { CalendarDays, Check, Eye, Pencil, RotateCcw, ShoppingBag, Trash2 } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
 import { getJson, postJson, deleteJson } from '@/lib/api'
+import {
+  defaultVisitScheduleParts,
+  isValidScheduledWall,
+  joinScheduledWall,
+  snapWallToQuarterMinutes,
+} from '@/lib/visitSchedule'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
 
@@ -18,21 +24,20 @@ type EstimateRow = {
   blinds_types: BlindsLine[]
   perde_sayisi: number | null
   status?: string | null
+  status_label?: string | null
+  status_esti_id?: string | null
   is_deleted?: boolean | null
   scheduled_start_at: string | null
   tarih_saat: string | null
   created_at: string | null
 }
 
+type EstimateStatusFilterOpt = { id: string; name: string; sort_order?: number; workflow?: string | null }
+
 type CreateContext = {
   organizer_name: string
   organizer_email: string | null
   guest_options: { email: string; label: string }[]
-}
-
-function toDatetimeLocalValue(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 function defaultTimeZone(): string {
@@ -90,35 +95,46 @@ function customerLabel(c: CustomerOpt): string {
   return n || c.id
 }
 
-function statusPillClasses(status: 'pending' | 'converted' | 'cancelled'): { base: string; active: string } {
-  switch (status) {
+function statusPillClassesForWorkflow(
+  workflow: string | null | undefined,
+): { base: string; active: string } {
+  const w = (workflow ?? '').toLowerCase()
+  switch (w) {
     case 'pending':
       return { base: 'bg-amber-50 text-amber-900 ring-amber-100', active: 'bg-amber-600 text-white ring-amber-600' }
     case 'converted':
       return { base: 'bg-teal-50 text-teal-900 ring-teal-100', active: 'bg-teal-600 text-white ring-teal-600' }
     case 'cancelled':
       return { base: 'bg-rose-50 text-rose-800 ring-rose-100', active: 'bg-rose-600 text-white ring-rose-600' }
+    default:
+      return { base: 'bg-violet-50 text-violet-900 ring-violet-100', active: 'bg-violet-700 text-white ring-violet-700' }
   }
 }
 
 function estimateStatusLabel(status: string | null | undefined): string {
-  const s = (status ?? 'pending').toLowerCase()
+  const s = (status ?? '').toLowerCase()
   if (s === 'converted') return 'Converted to order'
   if (s === 'cancelled') return 'Cancelled'
-  return 'Pending'
+  if (s === 'pending') return 'Pending'
+  return 'Status'
 }
 
-function EstimateStatusBadge({ status }: Readonly<{ status: string | null | undefined }>) {
-  const s = (status ?? 'pending').toLowerCase()
-  const label = estimateStatusLabel(s)
+function EstimateStatusBadge({
+  status,
+  label,
+}: Readonly<{ status: string | null | undefined; label?: string | null }>) {
+  const s = (status ?? '').toLowerCase()
+  const labelText = (label?.trim() || estimateStatusLabel(status)).trim()
   const cls =
     s === 'converted'
       ? 'bg-emerald-100 text-emerald-900'
       : s === 'cancelled'
         ? 'bg-slate-200 text-slate-800'
-        : 'bg-amber-100 text-amber-900'
+        : s === 'pending'
+          ? 'bg-amber-100 text-amber-900'
+          : 'bg-violet-50 text-violet-900'
   return (
-    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${cls}`}>{label}</span>
+    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${cls}`}>{labelText}</span>
   )
 }
 
@@ -127,7 +143,8 @@ function TypesAndWindowsCell({ lines }: Readonly<{ lines: BlindsLine[] }>) {
   return (
     <ul className="max-w-md list-none space-y-0.5 text-slate-800">
       {lines.map((b) => (
-        <li key={b.id} className="text-sm">
+        <li key={b.id} className="flex items-start gap-1.5 text-sm">
+          <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-600" strokeWidth={2.5} aria-hidden />
           <span className="font-medium">{b.name}</span>
           {b.window_count != null ? (
             <span className="text-slate-600"> — {b.window_count} windows</span>
@@ -154,7 +171,8 @@ export function EstimatesPage() {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [scheduleFilter] = useState<'all' | 'upcoming' | 'past'>('all')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'converted' | 'cancelled'>('pending')
+  const [filterStatusEstiId, setFilterStatusEstiId] = useState('')
+  const [estimateStatusOpts, setEstimateStatusOpts] = useState<EstimateStatusFilterOpt[] | null>(null)
   const [showDeleted, setShowDeleted] = useState(false)
   const [filterCustomerId] = useState('')
 
@@ -170,11 +188,12 @@ export function EstimatesPage() {
   const [modalErr, setModalErr] = useState<string | null>(null)
 
   const [customerId, setCustomerId] = useState('')
-  const [selectedBlindsIds, setSelectedBlindsIds] = useState<string[]>([])
   const [windowCountByBlindsId, setWindowCountByBlindsId] = useState<Record<string, string>>({})
-  const [scheduledLocal, setScheduledLocal] = useState(() => toDatetimeLocalValue(new Date()))
+  const [blindsLineSelected, setBlindsLineSelected] = useState<Record<string, boolean>>({})
+  const [visitWallDraft, setVisitWallDraft] = useState('')
+  const [visitWallApplied, setVisitWallApplied] = useState('')
   const [visitTimeZone, setVisitTimeZone] = useState(() => coerceTimeZoneForApi(defaultTimeZone()))
-  const [guestEmail, setGuestEmail] = useState('')
+  const [guestEmails, setGuestEmails] = useState<string[]>([])
   const [visitNotes, setVisitNotes] = useState('')
 
   useEffect(() => {
@@ -182,16 +201,32 @@ export function EstimatesPage() {
     return () => clearTimeout(t)
   }, [search])
 
+  useEffect(() => {
+    if (!me) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const st = await getJson<EstimateStatusFilterOpt[]>(`/estimates/lookup/estimate-statuses`)
+        if (!cancelled) setEstimateStatusOpts(st ?? [])
+      } catch {
+        if (!cancelled) setEstimateStatusOpts([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [me])
+
   const listParams = useMemo(() => {
     const p = new URLSearchParams()
     p.set('limit', '200')
     if (debouncedSearch.trim()) p.set('search', debouncedSearch.trim())
     if (scheduleFilter !== 'all') p.set('schedule_filter', scheduleFilter)
-    if (statusFilter !== 'all') p.set('status_filter', statusFilter)
+    if (filterStatusEstiId.trim()) p.set('status_esti_id', filterStatusEstiId.trim())
     if (showDeleted) p.set('include_deleted', 'true')
     if (filterCustomerId.trim()) p.set('customer_id', filterCustomerId.trim())
     return p.toString()
-  }, [debouncedSearch, scheduleFilter, statusFilter, showDeleted, filterCustomerId])
+  }, [debouncedSearch, scheduleFilter, filterStatusEstiId, showDeleted, filterCustomerId])
 
   useEffect(() => {
     if (!me) return
@@ -229,34 +264,44 @@ export function EstimatesPage() {
     setRows(list)
   }
 
-  function toggleBlinds(id: string) {
-    setSelectedBlindsIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    )
-  }
-
   useEffect(() => {
-    setWindowCountByBlindsId((w) => {
-      const next: Record<string, string> = {}
-      for (const id of selectedBlindsIds) {
-        next[id] = w[id] ?? ''
+    if (!blindsTypes?.length) return
+    setWindowCountByBlindsId((prev) => {
+      const next = { ...prev }
+      for (const b of blindsTypes) {
+        if (next[b.id] === undefined) next[b.id] = ''
       }
       return next
     })
-  }, [selectedBlindsIds])
+  }, [blindsTypes])
+
+  const employeeGuestOptions = useMemo(() => {
+    const org = createContext?.organizer_email?.trim().toLowerCase() ?? ''
+    if (!org) return createContext?.guest_options ?? []
+    return (createContext?.guest_options ?? []).filter((g) => g.email.trim().toLowerCase() !== org)
+  }, [createContext])
+
+  const visitSetEnabled = useMemo(() => {
+    if (!visitWallDraft.trim()) return false
+    if (!isValidScheduledWall(visitWallDraft)) return false
+    return snapWallToQuarterMinutes(visitWallDraft) !== visitWallApplied
+  }, [visitWallDraft, visitWallApplied])
 
   function setWindowInputFor(blindsId: string, value: string) {
     setWindowCountByBlindsId((w) => ({ ...w, [blindsId]: value }))
   }
 
   async function openCreate() {
-    setScheduledLocal(toDatetimeLocalValue(new Date()))
+    const p = defaultVisitScheduleParts()
+    const w = joinScheduledWall(p.date, p.hour12, p.minute, p.ampm)
+    setVisitWallDraft(w)
+    setVisitWallApplied(w)
     setVisitTimeZone(coerceTimeZoneForApi(defaultTimeZone()))
-    setGuestEmail('')
+    setGuestEmails([])
     setVisitNotes('')
     setCustomerId('')
-    setSelectedBlindsIds([])
     setWindowCountByBlindsId({})
+    setBlindsLineSelected({})
     setModalErr(null)
     setCreateContext(null)
     setShowCreate(true)
@@ -280,9 +325,14 @@ export function EstimatesPage() {
 
   async function onCreate(e: React.FormEvent) {
     e.preventDefault()
-    if (!canEdit || !customerId || selectedBlindsIds.length < 1 || !scheduledLocal.trim()) return
-    const wall = scheduledLocal.trim()
-    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(wall)) {
+    if (!canEdit || !customerId) return
+    const snappedDraft = snapWallToQuarterMinutes(visitWallDraft)
+    if (snappedDraft !== visitWallApplied) {
+      setModalErr('Click Set to confirm the visit start time.')
+      return
+    }
+    const wall = visitWallApplied.trim()
+    if (!isValidScheduledWall(wall)) {
       setModalErr('Invalid date and time format.')
       return
     }
@@ -293,21 +343,22 @@ export function EstimatesPage() {
     const orgEmail = createContext?.organizer_email?.trim() || undefined
 
     const blinds_lines: { blinds_id: string; window_count: number | null }[] = []
-    for (const bid of selectedBlindsIds) {
-      const raw = (windowCountByBlindsId[bid] ?? '').trim()
+    for (const b of blindsTypes ?? []) {
+      if (!blindsLineSelected[b.id]) continue
+      const raw = (windowCountByBlindsId[b.id] ?? '').trim()
       if (raw === '') {
-        blinds_lines.push({ blinds_id: bid, window_count: null })
-        continue
+        setModalErr('Enter a window count for each selected blinds type.')
+        return
       }
       const n = Number.parseInt(raw, 10)
       if (Number.isNaN(n) || n < 1) {
-        setModalErr('Window counts must be positive integers or left empty.')
+        setModalErr('Window counts must be positive integers.')
         return
       }
-      blinds_lines.push({ blinds_id: bid, window_count: n })
+      blinds_lines.push({ blinds_id: b.id, window_count: n })
     }
 
-    const guestList = guestEmail.trim() ? [guestEmail.trim()] : []
+    const guestList = guestEmails.map((e) => e.trim()).filter(Boolean)
 
     setSaving(true)
     setModalErr(null)
@@ -440,11 +491,43 @@ export function EstimatesPage() {
                   </select>
                 </label>
 
-                <label className="block text-xs font-medium text-slate-700">
-                  Time zone
+                <div className="block text-xs font-medium text-slate-700">
+                  <span className="block">Visit start</span>
+                  <div className="mt-0.5 flex flex-wrap items-end gap-2">
+                    <input
+                      type="datetime-local"
+                      step={900}
+                      className="min-w-0 flex-1 rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                      value={visitWallDraft}
+                      onChange={(e) => setVisitWallDraft(e.target.value)}
+                      onBlur={() => {
+                        const w = visitWallDraft.trim()
+                        if (isValidScheduledWall(w)) setVisitWallDraft(snapWallToQuarterMinutes(w))
+                      }}
+                      aria-label="Visit start date and time"
+                    />
+                    <button
+                      type="button"
+                      disabled={!visitSetEnabled}
+                      onClick={() => {
+                        if (!isValidScheduledWall(visitWallDraft)) return
+                        const s = snapWallToQuarterMinutes(visitWallDraft)
+                        setVisitWallApplied(s)
+                        setVisitWallDraft(s)
+                        setModalErr(null)
+                      }}
+                      className="shrink-0 rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Set
+                    </button>
+                  </div>
+                </div>
+
+                <label className="block text-xs font-medium text-slate-600">
+                  <span>Time zone</span>
                   <select
                     required
-                    className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                    className="mt-0.5 w-full rounded-md border border-slate-100 bg-slate-50/90 px-2 py-1.5 text-sm text-slate-800 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
                     value={visitTimeZone}
                     onChange={(e) => setVisitTimeZone(e.target.value)}
                   >
@@ -458,93 +541,120 @@ export function EstimatesPage() {
                     ))}
                   </select>
                 </label>
-
-                <label className="block text-xs font-medium text-slate-700">
-                  Visit start
-                  <input
-                    required
-                    type="datetime-local"
-                    className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                    value={scheduledLocal}
-                    onChange={(e) => setScheduledLocal(e.target.value)}
-                  />
-                </label>
               </div>
 
-              <div className="space-y-1 rounded-md border border-slate-100 bg-slate-50 px-2 py-1.5 text-xs text-slate-600">
-                <div>
-                  <span className="font-medium text-slate-700">Address</span>
-                  <span className="ml-1">{customerAddressView}</span>
+              <div className="rounded-md border border-slate-100 bg-slate-50/80 px-2 py-2 text-xs text-slate-700">
+                <p className="font-semibold text-slate-800">Organizer & employees</p>
+                <p className="mt-0.5 text-[10px] text-slate-500">
+                  Calendar invite list. Customer address for the visit:{' '}
+                  <span className="font-medium text-slate-700">{customerAddressView}</span>
+                </p>
+                <div className="mt-1 max-h-28 space-y-1 overflow-y-auto rounded-md border border-slate-200 bg-white p-1.5">
+                  {createContextLoading || !createContext ? (
+                    <span className="text-[11px] text-slate-400">Loading…</span>
+                  ) : (
+                    <>
+                      <div className="flex items-start gap-2 rounded px-1 py-0.5 text-[11px]">
+                        <input
+                          type="checkbox"
+                          checked
+                          disabled
+                          className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-not-allowed rounded border-slate-300 text-teal-600 opacity-70"
+                          aria-label="Organizer (always included)"
+                        />
+                        <span className="min-w-0 leading-snug">
+                          <span className="font-medium text-slate-800">{createContext.organizer_name}</span>
+                          <span className="ml-1 align-middle rounded bg-teal-100 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-teal-900">
+                            Organizer
+                          </span>
+                          {createContext.organizer_email ? (
+                            <span className="block text-slate-500">{createContext.organizer_email}</span>
+                          ) : (
+                            <span className="block text-slate-400">No organizer email on file</span>
+                          )}
+                        </span>
+                      </div>
+                      {employeeGuestOptions.length === 0 ? (
+                        <span className="text-[11px] text-slate-400">No additional team contacts.</span>
+                      ) : (
+                        employeeGuestOptions.map((g) => {
+                          const checked = guestEmails.some((e) => e.toLowerCase() === g.email.toLowerCase())
+                          return (
+                            <label
+                              key={g.email.toLowerCase()}
+                              className="flex cursor-pointer items-start gap-2 rounded px-1 py-0.5 text-[11px] hover:bg-slate-50"
+                            >
+                              <input
+                                type="checkbox"
+                                className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-teal-600"
+                                checked={checked}
+                                disabled={createContextLoading || !createContext}
+                                onChange={() => {
+                                  setGuestEmails((prev) =>
+                                    checked
+                                      ? prev.filter((e) => e.toLowerCase() !== g.email.toLowerCase())
+                                      : [...prev, g.email.trim()],
+                                  )
+                                }}
+                              />
+                              <span className="min-w-0 leading-snug">
+                                <span className="font-medium text-slate-800">{g.label}</span>
+                                <span className="block text-slate-500">{g.email}</span>
+                              </span>
+                            </label>
+                          )
+                        })
+                      )}
+                    </>
+                  )}
                 </div>
-                <div>
-                  <span className="font-medium text-slate-700">Organizer</span>
-                  <span className="ml-1">
-                    {createContextLoading
-                      ? '…'
-                      : createContext
-                        ? `${createContext.organizer_name}${
-                            createContext.organizer_email ? ` · ${createContext.organizer_email}` : ''
-                          }`
-                        : '—'}
-                  </span>
-                </div>
-                <label className="block pt-0.5">
-                  <span className="font-medium text-slate-700">Guest</span>
-                  <select
-                    className="mt-0.5 w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                    value={guestEmail}
-                    onChange={(e) => setGuestEmail(e.target.value)}
-                    disabled={createContextLoading || !createContext}
-                  >
-                    <option value="">None</option>
-                    {(createContext?.guest_options ?? []).map((g) => (
-                      <option key={g.email.toLowerCase()} value={g.email}>
-                        {g.label} ({g.email})
-                      </option>
-                    ))}
-                  </select>
-                </label>
               </div>
 
               <fieldset className="rounded-md border border-slate-200 p-2">
                 <legend className="px-1 text-xs font-medium text-slate-800">Blinds types</legend>
+                <p className="mb-1 text-[10px] text-slate-500">
+                  Optional — enter a window count only for types you want on this estimate.
+                </p>
                 <div className="mt-1 grid max-h-40 grid-cols-1 gap-1 overflow-y-auto sm:grid-cols-2">
                   {(blindsTypes ?? []).map((b) => {
-                    const checked = selectedBlindsIds.includes(b.id)
+                    const checked = Boolean(blindsLineSelected[b.id])
                     return (
-                      <div
+                      <label
                         key={b.id}
-                        className={`flex flex-wrap items-center gap-1 rounded border px-1.5 py-1 text-xs ${
-                          checked ? 'border-teal-200 bg-teal-50/50' : 'border-transparent'
-                        }`}
+                        className="flex flex-wrap items-center gap-1.5 rounded border border-transparent px-1.5 py-1 text-xs hover:bg-slate-50/80"
                       >
-                        <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-slate-800">
-                          <input
-                            type="checkbox"
-                            className="h-3 w-3 shrink-0 rounded border-slate-300 text-teal-600"
-                            checked={checked}
-                            onChange={() => toggleBlinds(b.id)}
-                          />
-                          <span className="truncate font-medium">{b.name}</span>
-                        </label>
-                        {checked ? (
-                          <input
-                            type="number"
-                            min={1}
-                            placeholder="Win"
-                            title="Windows"
-                            className="w-14 rounded border border-slate-200 px-1 py-0.5 text-xs outline-none focus:border-teal-500"
-                            value={windowCountByBlindsId[b.id] ?? ''}
-                            onChange={(ev) => setWindowInputFor(b.id, ev.target.value)}
-                          />
-                        ) : null}
-                      </div>
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-teal-600"
+                          checked={checked}
+                          onChange={(ev) => {
+                            const on = ev.target.checked
+                            setBlindsLineSelected((prev) => ({ ...prev, [b.id]: on }))
+                            if (!on) setWindowCountByBlindsId((w) => ({ ...w, [b.id]: '' }))
+                          }}
+                          aria-label={`Include ${b.name}`}
+                        />
+                        <span className="min-w-0 flex-1 truncate font-medium text-slate-800">{b.name}</span>
+                        <input
+                          type="number"
+                          min={1}
+                          placeholder="Qty"
+                          title="Windows"
+                          disabled={!checked}
+                          className="w-14 rounded border border-slate-200 px-1 py-0.5 text-xs outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
+                          value={windowCountByBlindsId[b.id] ?? ''}
+                          onChange={(ev) => {
+                            const v = ev.target.value
+                            setWindowInputFor(b.id, v)
+                            const n = Number.parseInt(v.trim(), 10)
+                            if (!Number.isNaN(n) && n >= 1)
+                              setBlindsLineSelected((prev) => ({ ...prev, [b.id]: true }))
+                          }}
+                        />
+                      </label>
                     )
                   })}
                 </div>
-                {selectedBlindsIds.length === 0 ? (
-                  <p className="mt-1 text-[11px] text-amber-700">Choose at least one type.</p>
-                ) : null}
               </fieldset>
 
               <label className="block text-xs font-medium text-slate-700">
@@ -582,13 +692,7 @@ export function EstimatesPage() {
               </button>
               <button
                 type="submit"
-                disabled={
-                  saving ||
-                  !customerId ||
-                  selectedBlindsIds.length < 1 ||
-                  customers?.length === 0 ||
-                  blindsTypes?.length === 0
-                }
+                disabled={saving || !customerId || customers?.length === 0 || blindsTypes?.length === 0}
                 className="rounded-md bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
               >
                 {saving ? 'Saving…' : 'Create'}
@@ -641,9 +745,9 @@ export function EstimatesPage() {
               <button
                 type="button"
                 disabled={loading}
-                onClick={() => setStatusFilter('all')}
+                onClick={() => setFilterStatusEstiId('')}
                 className={`inline-flex h-8 items-center rounded-full px-3 text-xs font-semibold ring-1 transition ${
-                  statusFilter === 'all'
+                  filterStatusEstiId.trim() === ''
                     ? 'bg-slate-900 text-white ring-slate-900'
                     : 'bg-white text-slate-700 ring-slate-200 hover:bg-slate-50'
                 } ${loading ? 'opacity-60' : ''}`}
@@ -651,23 +755,22 @@ export function EstimatesPage() {
               >
                 All
               </button>
-              {(['pending', 'converted', 'cancelled'] as const).map((st) => {
-                const selected = statusFilter === st
-                const c = statusPillClasses(st)
-                const label = st === 'pending' ? 'Pending' : st === 'converted' ? 'Converted' : 'Cancelled'
+              {(estimateStatusOpts ?? []).map((s) => {
+                const selected = filterStatusEstiId === s.id
+                const c = statusPillClassesForWorkflow(s.workflow)
                 return (
                   <button
-                    key={st}
+                    key={s.id}
                     type="button"
                     disabled={loading}
-                    onClick={() => setStatusFilter(st)}
+                    onClick={() => setFilterStatusEstiId(s.id)}
                     className={`inline-flex h-8 items-center rounded-full px-3 text-xs font-semibold ring-1 transition ${
                       selected ? c.active : c.base
                     } ${selected ? '' : 'hover:brightness-[0.98]'} ${loading ? 'opacity-60' : ''}`}
                     aria-pressed={selected}
-                    title={label}
+                    title={s.name}
                   >
-                    {label}
+                    {s.name}
                   </button>
                 )
               })}
@@ -724,7 +827,7 @@ export function EstimatesPage() {
                     <TypesAndWindowsCell lines={r.blinds_types} />
                   </td>
                   <td className="align-top px-2 py-3 sm:px-4">
-                    <EstimateStatusBadge status={r.status} />
+                    <EstimateStatusBadge status={r.status} label={r.status_label} />
                     {r.is_deleted ? (
                       <span className="mt-1 block text-[11px] font-medium text-slate-500">Deleted</span>
                     ) : null}

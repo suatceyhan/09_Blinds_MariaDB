@@ -76,6 +76,15 @@ export const appPages: PageConfig[] = [
     showInNav: true,
   },
   {
+    id: 'lookups-estimate-statuses',
+    name: 'Estimate statuses',
+    basePath: '/lookups/estimate-statuses',
+    parent: 'lookups-root',
+    module: 'lookups',
+    permissions: { view: 'lookups.view', edit: 'lookups.edit' },
+    showInNav: true,
+  },
+  {
     id: 'lookups-blinds-product-categories',
     name: 'Product categories',
     basePath: '/lookups/blinds-product-categories',

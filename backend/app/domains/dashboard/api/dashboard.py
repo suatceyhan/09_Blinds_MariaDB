@@ -93,8 +93,9 @@ def get_dashboard_summary(
               e.tarih_saat
             FROM estimate e
             JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
+            LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
             WHERE e.is_deleted IS NOT TRUE
-              AND COALESCE(e.status, 'pending') NOT IN ('cancelled')
+              AND (se.slug IS NULL OR se.slug <> 'cancelled')
               AND (
                 (e.scheduled_start_at >= :start AND e.scheduled_start_at < :end)
                OR (e.scheduled_start_at IS NULL AND e.tarih_saat >= :start AND e.tarih_saat < :end)
@@ -110,12 +111,13 @@ def get_dashboard_summary(
         text(
             """
             SELECT COUNT(*)::int AS c
-            FROM estimate
-            WHERE is_deleted IS NOT TRUE
-              AND COALESCE(status, 'pending') NOT IN ('cancelled')
+            FROM estimate e
+            LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
+            WHERE e.is_deleted IS NOT TRUE
+              AND (se.slug IS NULL OR se.slug <> 'cancelled')
               AND (
-                (scheduled_start_at >= :start AND scheduled_start_at < :week_end)
-               OR (scheduled_start_at IS NULL AND tarih_saat >= :start AND tarih_saat < :week_end)
+                (e.scheduled_start_at >= :start AND e.scheduled_start_at < :week_end)
+               OR (e.scheduled_start_at IS NULL AND e.tarih_saat >= :start AND e.tarih_saat < :week_end)
               )
             """
         ),

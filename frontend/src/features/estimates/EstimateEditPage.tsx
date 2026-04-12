@@ -3,12 +3,24 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, CalendarDays } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
 import { getJson, patchJson, postJson } from '@/lib/api'
+import {
+  defaultVisitScheduleParts,
+  isValidScheduledWall,
+  joinScheduledWall,
+  snapWallToQuarterMinutes,
+} from '@/lib/visitSchedule'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 
 type BlindsRef = { id: string; name: string; window_count?: number | null }
 type BlindsOpt = { id: string; name: string }
 
-type WorkflowStatus = 'pending' | 'converted' | 'cancelled'
+type EstimateStatusOpt = {
+  id: string
+  name: string
+  active: boolean
+  workflow?: string | null
+  sort_order?: number
+}
 
 type EstimateDetail = {
   id: string
@@ -24,6 +36,8 @@ type EstimateDetail = {
   visit_organizer_email?: string | null
   visit_guest_emails?: string[]
   status?: string | null
+  status_label?: string | null
+  status_esti_id?: string | null
   is_deleted?: boolean | null
 }
 
@@ -67,11 +81,6 @@ const VISIT_TIME_ZONES: string[] = [
   'Pacific/Auckland',
 ]
 
-function toDatetimeLocalValue(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
 export function EstimateEditPage() {
   const { estimateId } = useParams()
   const navigate = useNavigate()
@@ -85,17 +94,19 @@ export function EstimateEditPage() {
   const [saveErr, setSaveErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus>('pending')
+  const [workflowStatusEstiId, setWorkflowStatusEstiId] = useState('')
+  const [estimateStatuses, setEstimateStatuses] = useState<EstimateStatusOpt[] | null>(null)
   const [restoreOpen, setRestoreOpen] = useState(false)
   const [restorePending, setRestorePending] = useState(false)
 
-  const [scheduledLocal, setScheduledLocal] = useState('')
+  const [visitWallDraft, setVisitWallDraft] = useState('')
+  const [visitWallApplied, setVisitWallApplied] = useState('')
   const [visitTimeZone, setVisitTimeZone] = useState('UTC')
   const [visitAddress, setVisitAddress] = useState('')
   const [visitNotes, setVisitNotes] = useState('')
-  const [guestEmail, setGuestEmail] = useState('')
-  const [selectedBlindsIds, setSelectedBlindsIds] = useState<string[]>([])
+  const [guestEmails, setGuestEmails] = useState<string[]>([])
   const [windowCountByBlindsId, setWindowCountByBlindsId] = useState<Record<string, string>>({})
+  const [blindsIncluded, setBlindsIncluded] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     if (!me || !estimateId || !canEdit) return
@@ -104,35 +115,40 @@ export function EstimateEditPage() {
       setLoading(true)
       setLoadErr(null)
       try {
-        const [d, bt, ctx] = await Promise.all([
+        const [d, bt, ctx, estSt] = await Promise.all([
           getJson<EstimateDetail>(`/estimates/${estimateId}`),
           getJson<BlindsOpt[]>(`/estimates/lookup/blinds-types`),
           getJson<CreateContext>(`/estimates/lookup/create-context`),
+          getJson<EstimateStatusOpt[]>(`/lookups/estimate-statuses?limit=50&include_inactive=true`),
         ])
         if (cancelled) return
         setDetail(d)
         setBlindsTypes(bt)
         setCreateContext(ctx)
-        const st = (d.status ?? 'pending').toLowerCase()
-        setWorkflowStatus(
-          st === 'converted' || st === 'cancelled' ? st : 'pending',
-        )
-        const wall = d.scheduled_wall?.trim() ?? ''
-        setScheduledLocal(
-          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(wall) ? wall : toDatetimeLocalValue(new Date()),
-        )
+        setEstimateStatuses(estSt)
+        setWorkflowStatusEstiId((d.status_esti_id ?? '').trim())
+        const p0 = defaultVisitScheduleParts()
+        const wallRaw = d.scheduled_wall?.trim() ?? ''
+        const initialWall = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(wallRaw)
+          ? snapWallToQuarterMinutes(wallRaw)
+          : joinScheduledWall(p0.date, p0.hour12, p0.minute, p0.ampm)
+        setVisitWallDraft(initialWall)
+        setVisitWallApplied(initialWall)
         const tz = coerceTimeZoneForApi(d.visit_time_zone?.trim() || 'UTC')
         setVisitTimeZone(tz)
         setVisitAddress((d.visit_address ?? d.customer_address ?? '').trim())
         setVisitNotes((d.visit_notes ?? '').trim())
-        setGuestEmail(d.visit_guest_emails?.[0]?.trim() ?? '')
-        const ids = (d.blinds_types ?? []).map((b) => b.id)
-        setSelectedBlindsIds(ids)
+        setGuestEmails((d.visit_guest_emails ?? []).map((e) => e.trim()).filter(Boolean))
         const wc: Record<string, string> = {}
-        for (const b of d.blinds_types ?? []) {
-          wc[b.id] = b.window_count != null ? String(b.window_count) : ''
+        const inc: Record<string, boolean> = {}
+        for (const b of bt ?? []) {
+          const line = (d.blinds_types ?? []).find((x) => x.id === b.id)
+          const raw = line?.window_count != null ? String(line.window_count) : ''
+          wc[b.id] = raw
+          inc[b.id] = raw.trim() !== '' && Number.parseInt(raw.trim(), 10) >= 1
         }
         setWindowCountByBlindsId(wc)
+        setBlindsIncluded(inc)
       } catch (e) {
         if (!cancelled) {
           setDetail(null)
@@ -147,21 +163,26 @@ export function EstimateEditPage() {
     }
   }, [me, estimateId, canEdit])
 
-  useEffect(() => {
-    setWindowCountByBlindsId((w) => {
-      const next: Record<string, string> = {}
-      for (const id of selectedBlindsIds) {
-        next[id] = w[id] ?? ''
-      }
-      return next
+  const estimateStatusSelectOptions = useMemo(() => {
+    if (!detail || !estimateStatuses?.length) return []
+    const cur = (detail.status ?? '').toLowerCase()
+    const curId = (detail.status_esti_id ?? '').trim()
+    const filtered = estimateStatuses.filter((s) => {
+      const w = (s.workflow ?? '').toLowerCase()
+      if (!s.active && s.id !== curId) return false
+      if (cur === 'converted') return w === 'converted' || w === 'cancelled'
+      if (cur === 'pending') return w === 'pending' || w === 'cancelled'
+      return true
     })
-  }, [selectedBlindsIds])
+    return [...filtered].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+  }, [detail, estimateStatuses])
 
-  function toggleBlinds(id: string) {
-    setSelectedBlindsIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    )
-  }
+  useEffect(() => {
+    if (!detail || !estimateStatuses?.length) return
+    if (workflowStatusEstiId.trim()) return
+    const pending = estimateStatuses.find((s) => s.workflow === 'pending' && s.active)
+    if (pending) setWorkflowStatusEstiId(pending.id)
+  }, [detail, estimateStatuses, workflowStatusEstiId])
 
   function setWindowInputFor(blindsId: string, value: string) {
     setWindowCountByBlindsId((wt) => ({ ...wt, [blindsId]: value }))
@@ -186,29 +207,57 @@ export function EstimateEditPage() {
     return [...extra, ...fromCtx]
   }, [createContext?.guest_options, detail?.visit_guest_emails])
 
+  const organizerEmailLc = useMemo(() => {
+    const o = (detail?.visit_organizer_email || createContext?.organizer_email || '').trim().toLowerCase()
+    return o
+  }, [detail?.visit_organizer_email, createContext?.organizer_email])
+
+  const employeeGuestOptions = useMemo(() => {
+    if (!organizerEmailLc) return guestSelectOptions
+    return guestSelectOptions.filter((g) => g.email.trim().toLowerCase() !== organizerEmailLc)
+  }, [guestSelectOptions, organizerEmailLc])
+
+  const visitSetEnabled = useMemo(() => {
+    if (!visitWallDraft.trim()) return false
+    if (!isValidScheduledWall(visitWallDraft)) return false
+    return snapWallToQuarterMinutes(visitWallDraft) !== visitWallApplied
+  }, [visitWallDraft, visitWallApplied])
+
   async function onSave(e: React.FormEvent) {
     e.preventDefault()
-    if (!estimateId || !canEdit || detail?.is_deleted || selectedBlindsIds.length < 1) return
-    const wall = scheduledLocal.trim()
-    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(wall)) {
+    if (!estimateId || !canEdit || detail?.is_deleted) return
+    const snappedDraft = snapWallToQuarterMinutes(visitWallDraft)
+    if (snappedDraft !== visitWallApplied) {
+      setSaveErr('Click Set to confirm the visit start time.')
+      return
+    }
+    const wall = visitWallApplied.trim()
+    if (!isValidScheduledWall(wall)) {
       setSaveErr('Invalid date and time format.')
       return
     }
     const tz = coerceTimeZoneForApi(visitTimeZone.trim())
 
     const blinds_lines: { blinds_id: string; window_count: number | null }[] = []
-    for (const bid of selectedBlindsIds) {
-      const raw = (windowCountByBlindsId[bid] ?? '').trim()
+    for (const b of blindsTypes ?? []) {
+      if (!blindsIncluded[b.id]) continue
+      const raw = (windowCountByBlindsId[b.id] ?? '').trim()
       if (raw === '') {
-        blinds_lines.push({ blinds_id: bid, window_count: null })
-        continue
+        setSaveErr('Enter a window count for each selected blinds type.')
+        return
       }
       const n = Number.parseInt(raw, 10)
       if (Number.isNaN(n) || n < 1) {
-        setSaveErr('Window counts must be positive integers or left empty.')
+        setSaveErr('Window counts must be positive integers.')
         return
       }
-      blinds_lines.push({ blinds_id: bid, window_count: n })
+      blinds_lines.push({ blinds_id: b.id, window_count: n })
+    }
+
+    const statusEstiId = workflowStatusEstiId.trim()
+    if (!statusEstiId) {
+      setSaveErr('Could not resolve estimate status. Reload the page or check Lookups → Estimate statuses.')
+      return
     }
 
     setSaving(true)
@@ -219,9 +268,9 @@ export function EstimateEditPage() {
         visit_time_zone: tz,
         visit_address: visitAddress.trim() || null,
         visit_notes: visitNotes.trim() || null,
-        visit_guest_emails: guestEmail.trim() ? [guestEmail.trim()] : [],
+        visit_guest_emails: guestEmails.map((e) => e.trim()).filter(Boolean),
         blinds_lines,
-        status: workflowStatus,
+        status_esti_id: statusEstiId,
       })
       navigate(`/estimates/${estimateId}`)
     } catch (err) {
@@ -251,10 +300,28 @@ export function EstimateEditPage() {
       const d = await postJson<EstimateDetail>(`/estimates/${estimateId}/restore`, {})
       setDetail(d)
       setRestoreOpen(false)
-      const st = (d.status ?? 'pending').toLowerCase()
-      setWorkflowStatus(
-        st === 'converted' || st === 'cancelled' ? st : 'pending',
-      )
+      setWorkflowStatusEstiId((d.status_esti_id ?? '').trim())
+      const p0 = defaultVisitScheduleParts()
+      const wallRaw = d.scheduled_wall?.trim() ?? ''
+      const initialWall = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(wallRaw)
+        ? snapWallToQuarterMinutes(wallRaw)
+        : joinScheduledWall(p0.date, p0.hour12, p0.minute, p0.ampm)
+      setVisitWallDraft(initialWall)
+      setVisitWallApplied(initialWall)
+      setVisitTimeZone(coerceTimeZoneForApi(d.visit_time_zone?.trim() || 'UTC'))
+      setGuestEmails((d.visit_guest_emails ?? []).map((e) => e.trim()).filter(Boolean))
+      {
+        const wc: Record<string, string> = {}
+        const inc: Record<string, boolean> = {}
+        for (const b of blindsTypes ?? []) {
+          const line = (d.blinds_types ?? []).find((x) => x.id === b.id)
+          const raw = line?.window_count != null ? String(line.window_count) : ''
+          wc[b.id] = raw
+          inc[b.id] = raw.trim() !== '' && Number.parseInt(raw.trim(), 10) >= 1
+        }
+        setWindowCountByBlindsId(wc)
+        setBlindsIncluded(inc)
+      }
     } catch (err) {
       setSaveErr(err instanceof Error ? err.message : 'Restore failed')
     } finally {
@@ -329,21 +396,15 @@ export function EstimateEditPage() {
               Status
               <select
                 className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:opacity-60"
-                value={workflowStatus}
-                disabled={formDisabled}
-                onChange={(e) => setWorkflowStatus(e.target.value as WorkflowStatus)}
+                value={workflowStatusEstiId}
+                disabled={formDisabled || estimateStatusSelectOptions.length < 1}
+                onChange={(e) => setWorkflowStatusEstiId(e.target.value)}
               >
-                {(detail.status ?? 'pending').toLowerCase() === 'converted' ? (
-                  <>
-                    <option value="converted">Converted to order</option>
-                    <option value="cancelled">Cancelled</option>
-                  </>
-                ) : (
-                  <>
-                    <option value="pending">Pending</option>
-                    <option value="cancelled">Cancelled</option>
-                  </>
-                )}
+                {estimateStatusSelectOptions.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
               </select>
               {(detail.status ?? 'pending').toLowerCase() === 'converted' ? (
                 <p className="mt-1 text-xs text-slate-500">
@@ -351,11 +412,43 @@ export function EstimateEditPage() {
                 </p>
               ) : null}
             </label>
-            <label className="block text-sm font-medium text-slate-700">
-              Time zone
+            <div className="block text-sm font-medium text-slate-700">
+              <span className="block">Visit start</span>
+              <div className="mt-1 flex flex-wrap items-end gap-2">
+                <input
+                  type="datetime-local"
+                  step={900}
+                  className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:opacity-60"
+                  value={visitWallDraft}
+                  disabled={formDisabled}
+                  onChange={(e) => setVisitWallDraft(e.target.value)}
+                  onBlur={() => {
+                    const w = visitWallDraft.trim()
+                    if (isValidScheduledWall(w)) setVisitWallDraft(snapWallToQuarterMinutes(w))
+                  }}
+                  aria-label="Visit start date and time"
+                />
+                <button
+                  type="button"
+                  disabled={formDisabled || !visitSetEnabled}
+                  onClick={() => {
+                    if (!isValidScheduledWall(visitWallDraft)) return
+                    const s = snapWallToQuarterMinutes(visitWallDraft)
+                    setVisitWallApplied(s)
+                    setVisitWallDraft(s)
+                    setSaveErr(null)
+                  }}
+                  className="shrink-0 rounded-lg bg-teal-600 px-3 py-2 text-xs font-semibold text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Set
+                </button>
+              </div>
+            </div>
+            <label className="block text-sm font-medium text-slate-600">
+              <span>Time zone</span>
               <select
                 required
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                className="mt-1 w-full rounded-lg border border-slate-100 bg-slate-50/90 px-3 py-2 text-sm text-slate-800 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
                 value={visitTimeZone}
                 disabled={formDisabled}
                 onChange={(e) => setVisitTimeZone(e.target.value)}
@@ -370,48 +463,71 @@ export function EstimateEditPage() {
                 ))}
               </select>
             </label>
-            <label className="block text-sm font-medium text-slate-700">
-              Visit start
-              <input
-                required
-                type="datetime-local"
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                value={scheduledLocal}
-                disabled={formDisabled}
-                onChange={(e) => setScheduledLocal(e.target.value)}
-              />
-            </label>
           </div>
 
-          <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-            <div>
-              <span className="font-medium text-slate-800">Customer address</span>
-              <span className="ml-1">{customerAddressView}</span>
+          <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2 text-sm text-slate-700">
+            <p className="font-semibold text-slate-800">Organizer & employees</p>
+            <p className="text-xs text-slate-500">
+              Calendar invite list. Customer address for the visit:{' '}
+              <span className="font-medium text-slate-700">{customerAddressView}</span>
+            </p>
+            <div className="max-h-36 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2">
+              <div className="flex items-start gap-2 rounded px-1 py-1 text-sm">
+                <input
+                  type="checkbox"
+                  checked
+                  disabled
+                  className="mt-1 h-3.5 w-3.5 shrink-0 cursor-not-allowed rounded border-slate-300 text-teal-600 opacity-70"
+                  aria-label="Organizer (always included)"
+                />
+                <span className="min-w-0 leading-snug">
+                  <span className="font-medium text-slate-800">
+                    {detail.visit_organizer_name || createContext?.organizer_name || 'Organizer'}
+                  </span>
+                  <span className="ml-1 align-middle rounded bg-teal-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-teal-900">
+                    Organizer
+                  </span>
+                  {detail.visit_organizer_email || createContext?.organizer_email ? (
+                    <span className="block text-xs text-slate-500">
+                      {detail.visit_organizer_email || createContext?.organizer_email}
+                    </span>
+                  ) : (
+                    <span className="block text-xs text-slate-400">No organizer email on file</span>
+                  )}
+                </span>
+              </div>
+              {employeeGuestOptions.length === 0 ? (
+                <span className="text-xs text-slate-400">No additional team contacts.</span>
+              ) : (
+                employeeGuestOptions.map((g) => {
+                  const checked = guestEmails.some((e) => e.toLowerCase() === g.email.toLowerCase())
+                  return (
+                    <label
+                      key={g.email.toLowerCase()}
+                      className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 text-sm hover:bg-slate-50"
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-teal-600"
+                        checked={checked}
+                        disabled={formDisabled}
+                        onChange={() => {
+                          setGuestEmails((prev) =>
+                            checked
+                              ? prev.filter((e) => e.toLowerCase() !== g.email.toLowerCase())
+                              : [...prev, g.email.trim()],
+                          )
+                        }}
+                      />
+                      <span className="min-w-0 leading-snug">
+                        <span className="font-medium text-slate-800">{g.label}</span>
+                        <span className="block text-xs text-slate-500">{g.email}</span>
+                      </span>
+                    </label>
+                  )
+                })
+              )}
             </div>
-            <div>
-              <span className="font-medium text-slate-800">Organizer</span>
-              <span className="ml-1">
-                {detail.visit_organizer_name || createContext?.organizer_name || '—'}
-                {(detail.visit_organizer_email || createContext?.organizer_email) &&
-                  ` · ${detail.visit_organizer_email || createContext?.organizer_email}`}
-              </span>
-            </div>
-            <label className="block">
-              <span className="font-medium text-slate-800">Guest</span>
-              <select
-                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                value={guestEmail}
-                disabled={formDisabled}
-                onChange={(e) => setGuestEmail(e.target.value)}
-              >
-                <option value="">None</option>
-                {guestSelectOptions.map((g) => (
-                  <option key={g.email.toLowerCase()} value={g.email}>
-                    {g.label} ({g.email})
-                  </option>
-                ))}
-              </select>
-            </label>
           </div>
 
           <label className="block text-sm font-medium text-slate-700">
@@ -428,42 +544,49 @@ export function EstimateEditPage() {
 
           <fieldset className="rounded-xl border border-slate-200 p-3" disabled={formDisabled}>
             <legend className="px-1 text-sm font-medium text-slate-800">Blinds types</legend>
+            <p className="mt-1 text-xs text-slate-500">
+              Optional — enter a window count only for types you want on this estimate.
+            </p>
             <div className="mt-2 grid max-h-56 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
               {(blindsTypes ?? []).map((b) => {
-                const checked = selectedBlindsIds.includes(b.id)
+                const checked = Boolean(blindsIncluded[b.id])
                 return (
-                  <div
+                  <label
                     key={b.id}
-                    className={`flex flex-wrap items-center gap-2 rounded-lg border px-2 py-2 text-sm ${
-                      checked ? 'border-teal-200 bg-teal-50/40' : 'border-transparent'
-                    }`}
+                    className="flex flex-wrap items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-sm hover:bg-slate-50/80"
                   >
-                    <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className="h-3.5 w-3.5 rounded border-slate-300 text-teal-600"
-                        checked={checked}
-                        onChange={() => toggleBlinds(b.id)}
-                      />
-                      <span className="font-medium text-slate-800">{b.name}</span>
-                    </label>
-                    {checked ? (
-                      <input
-                        type="number"
-                        min={1}
-                        placeholder="Windows"
-                        className="w-20 rounded border border-slate-200 px-2 py-1 text-xs outline-none focus:border-teal-500"
-                        value={windowCountByBlindsId[b.id] ?? ''}
-                        onChange={(ev) => setWindowInputFor(b.id, ev.target.value)}
-                      />
-                    ) : null}
-                  </div>
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-teal-600"
+                      checked={checked}
+                      disabled={formDisabled}
+                      onChange={(ev) => {
+                        const on = ev.target.checked
+                        setBlindsIncluded((prev) => ({ ...prev, [b.id]: on }))
+                        if (!on) setWindowCountByBlindsId((wt) => ({ ...wt, [b.id]: '' }))
+                      }}
+                      aria-label={`Include ${b.name}`}
+                    />
+                    <span className="min-w-0 flex-1 font-medium text-slate-800">{b.name}</span>
+                    <input
+                      type="number"
+                      min={1}
+                      placeholder="Qty"
+                      title="Windows"
+                      disabled={formDisabled || !checked}
+                      className="w-20 rounded border border-slate-200 px-2 py-1 text-xs outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
+                      value={windowCountByBlindsId[b.id] ?? ''}
+                      onChange={(ev) => {
+                        const v = ev.target.value
+                        setWindowInputFor(b.id, v)
+                        const n = Number.parseInt(v.trim(), 10)
+                        if (!Number.isNaN(n) && n >= 1) setBlindsIncluded((prev) => ({ ...prev, [b.id]: true }))
+                      }}
+                    />
+                  </label>
                 )
               })}
             </div>
-            {selectedBlindsIds.length === 0 ? (
-              <p className="mt-2 text-xs text-amber-700">Choose at least one type.</p>
-            ) : null}
           </fieldset>
 
           <label className="block text-sm font-medium text-slate-700">
@@ -492,7 +615,7 @@ export function EstimateEditPage() {
             </Link>
             <button
               type="submit"
-              disabled={formDisabled || saving || selectedBlindsIds.length < 1}
+              disabled={formDisabled || saving}
               className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
             >
               {saving ? 'Saving…' : 'Save changes'}

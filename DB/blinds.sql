@@ -307,6 +307,7 @@ CREATE TABLE IF NOT EXISTS status_order (
   id          VARCHAR(16) NOT NULL,
   name        TEXT        NOT NULL,
   active      BOOLEAN     NOT NULL DEFAULT TRUE,
+  sort_order  INTEGER     NOT NULL DEFAULT 0,
   PRIMARY KEY (company_id, id)
 );
 

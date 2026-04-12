@@ -53,6 +53,13 @@ export function LookupsHubPage() {
             filters stay consistent.
           </p>
         </section>
+        <section className="space-y-2 border-t border-slate-100 pt-6">
+          <h2 className="text-base font-semibold text-slate-900">Estimate statuses</h2>
+          <p className="text-sm text-slate-600">
+            Same idea as order statuses: add labels, rename, deactivate or restore. Built-in rows still drive
+            new estimates, conversion when an order is linked, and cancellation filters; extra labels are optional.
+          </p>
+        </section>
       </div>
     </div>
   )

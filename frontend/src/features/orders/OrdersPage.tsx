@@ -26,7 +26,7 @@ type OrderPrefill = {
   blinds_summary: string | null
   blinds_lines: Array<{ id: string; name: string; window_count?: number | null; category?: string | null }>
   schedule_summary: string | null
-  estimate_status: string
+  estimate_status: string | null
   company_tax_rate_percent?: string | number | null
 }
 
@@ -86,7 +86,7 @@ type OrderDetail = {
   attachments?: OrderAttachmentRow[]
 }
 
-type OrderStatusOpt = { id: string; name: string }
+type OrderStatusOpt = { id: string; name: string; sort_order?: number }
 
 type EditDraft = {
   downpayment: string
@@ -197,21 +197,49 @@ function newBlindsLineForType(id: string, name: string, opts: BlindsOrderOptions
   }
   for (const row of lineAttributeRows(opts)) {
     const allowed = allowedIdsForAttributeRow(row, id)
-    line[row.json_key] = allowed.length ? allowed[0]! : null
+    line[row.json_key] = allowed.length ? String(allowed[0]).trim().toLowerCase() : null
   }
   return line
 }
 
+/** Prefill / API lines may omit category; select must match an allowed option id. */
+function hydrateBlindsLinesDefaults(
+  lines: BlindsLineState[],
+  opts: BlindsOrderOptions | null,
+): BlindsLineState[] {
+  if (!opts) return lines
+  return lines.map((line) => {
+    const next: BlindsLineState = { ...line }
+    for (const row of lineAttributeRows(opts)) {
+      const allowed = allowedIdsForAttributeRow(row, line.id)
+      if (!allowed.length) continue
+      const allowedLc = new Set(allowed.map((a) => a.toLowerCase()))
+      const raw = next[row.json_key]
+      const cur = raw != null && String(raw).trim() ? String(raw).trim().toLowerCase() : ''
+      if (!cur || !allowedLc.has(cur)) {
+        next[row.json_key] = String(allowed[0]).trim().toLowerCase()
+      }
+    }
+    return next
+  })
+}
+
+function todayDateInput(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 function normalizeBlindsLineFromApi(raw: Record<string, unknown>): BlindsLineState {
+  const lineAmountRaw =
+    raw.line_amount != null && raw.line_amount !== '' ? sanitizeLineAmountInput(String(raw.line_amount)) : ''
+  const lineAmountParsed = lineAmountRaw ? parseOptionalDecimal(lineAmountRaw) : null
   const line: BlindsLineState = {
     id: String(raw.id ?? ''),
     name: String(raw.name ?? ''),
     window_count: normalizeWindowCountFromApi(raw.window_count),
     line_note: raw.line_note != null ? String(raw.line_note) : '',
-    line_amount:
-      raw.line_amount != null && raw.line_amount !== ''
-        ? sanitizeLineAmountInput(String(raw.line_amount))
-        : '',
+    line_amount: lineAmountParsed !== null && lineAmountParsed !== 0 ? lineAmountRaw : '',
   }
   for (const [k, v] of Object.entries(raw)) {
     if (
@@ -861,7 +889,7 @@ export function OrdersPage() {
   const [blindsLines, setBlindsLines] = useState<BlindsLineState[]>([])
   const [taxBaseAmount, setTaxBaseAmount] = useState('')
   const [downpayment, setDownpayment] = useState('')
-  const [agreementDate, setAgreementDate] = useState('')
+  const [agreementDate, setAgreementDate] = useState(() => todayDateInput())
   const [orderNote, setOrderNote] = useState('')
   const [companyTaxRatePercent, setCompanyTaxRatePercent] = useState<number | null>(null)
 
@@ -1318,7 +1346,9 @@ export function OrdersPage() {
           setErr(
             p.estimate_status === 'converted'
               ? 'This estimate is already converted. Find the order in the list below.'
-              : 'Only pending estimates can be turned into an order.',
+              : p.estimate_status === 'cancelled'
+                ? 'Cancelled estimates cannot be turned into an order.'
+                : 'Only pending estimates can be turned into an order.',
           )
           setSearchParams({}, { replace: true })
           return
@@ -1326,8 +1356,12 @@ export function OrdersPage() {
         setCustomerId(p.customer_id)
         setLinkedEstimateId(fromEstimateQ)
         setBlindsLines(
-          (p.blinds_lines ?? []).map((x) => normalizeBlindsLineFromApi(x as Record<string, unknown>)),
+          hydrateBlindsLinesDefaults(
+            (p.blinds_lines ?? []).map((x) => normalizeBlindsLineFromApi(x as Record<string, unknown>)),
+            blindsOrderOptions,
+          ),
         )
+        setAgreementDate(todayDateInput())
         setOrderNote(p.visit_notes?.trim() ? p.visit_notes : '')
         const pr = parseTaxRatePercent(p.company_tax_rate_percent)
         if (pr !== null) setCompanyTaxRatePercent(pr)
@@ -1345,13 +1379,18 @@ export function OrdersPage() {
     }
   }, [me, canView, fromEstimateQ, setSearchParams, blindsOrderOptions])
 
+  useEffect(() => {
+    if (!linkedEstimateId || !blindsOrderOptions) return
+    setBlindsLines((prev) => hydrateBlindsLinesDefaults(prev, blindsOrderOptions))
+  }, [linkedEstimateId, blindsOrderOptions])
+
   function resetCreateForm() {
     setCustomerId('')
     setLinkedEstimateId(null)
     setBlindsLines([])
     setTaxBaseAmount('')
     setDownpayment('')
-    setAgreementDate('')
+    setAgreementDate(todayDateInput())
     setOrderNote('')
     setCreatePendingAttachments([])
   }
@@ -1727,7 +1766,7 @@ export function OrdersPage() {
           </div>
         </div>
         <div className="w-full overflow-x-auto overscroll-x-contain">
-          <table className="w-full min-w-[52rem] text-left text-sm [word-break:break-word]">
+          <table className="w-full min-w-[46rem] text-left text-sm [word-break:break-word]">
             <thead className="border-b border-slate-100 bg-slate-50/80 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Customer</th>
@@ -1741,20 +1780,19 @@ export function OrdersPage() {
                 </th>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Down payment</th>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Balance</th>
-                <th className="whitespace-nowrap px-2 py-3 sm:px-4">Created</th>
                 <th className="whitespace-nowrap px-2 py-3 text-right sm:px-4">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-800">
               {loading || rows === null ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
                     Loading…
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
                     No orders yet. Use New order or Make order from an estimate.
                   </td>
                 </tr>
@@ -1785,7 +1823,6 @@ export function OrdersPage() {
                     <td className="px-2 py-3 sm:px-4">{orderListPaidDisplay(r)}</td>
                     <td className="px-2 py-3 sm:px-4">{fmtMoney(r.downpayment)}</td>
                     <td className="px-2 py-3 sm:px-4">{fmtMoney(r.balance)}</td>
-                    <td className="px-2 py-3 text-slate-600 sm:px-4">{fmtDisplayDate(r.created_at)}</td>
                     <td className="px-2 py-3 text-right sm:px-4">
                       <div className="inline-flex flex-wrap items-center justify-end gap-1">
                         <button

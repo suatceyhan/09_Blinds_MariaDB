@@ -353,7 +353,7 @@ def try_push_estimate_to_google_calendar(
                   e.id,
                   e.scheduled_start_at,
                   e.tarih_saat,
-                  e.status,
+                  se.slug AS status,
                   e.google_event_id,
                   e.visit_time_zone,
                   e.visit_address,
@@ -367,6 +367,7 @@ def try_push_estimate_to_google_calendar(
                   c.phone AS customer_phone
                 FROM estimate e
                 JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
+                LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
                 WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid AND e.is_deleted IS NOT TRUE
                 LIMIT 1
                 """
@@ -377,7 +378,8 @@ def try_push_estimate_to_google_calendar(
             reset_connection_rls_gucs(db)
             return
 
-        st = (est.get("status") or "pending").strip().lower()
+        raw_status = est.get("status")
+        st = str(raw_status).strip().lower() if raw_status is not None and str(raw_status).strip() else ""
         if st == "cancelled":
             reset_connection_rls_gucs(db)
             return

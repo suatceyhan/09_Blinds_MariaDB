@@ -23,6 +23,7 @@ import { BlindsProductCategoriesLookupPage } from '@/features/lookups/BlindsProd
 import { BlindsTypesLookupPage } from '@/features/lookups/BlindsTypesLookupPage'
 import { LookupsHubPage } from '@/features/lookups/LookupsHubPage'
 import { OrderStatusesLookupPage } from '@/features/lookups/OrderStatusesLookupPage'
+import { EstimateStatusesLookupPage } from '@/features/lookups/EstimateStatusesLookupPage'
 import { UsersPage } from '@/features/users/UsersPage'
 import { UserViewPage } from '@/features/users/UserViewPage'
 import { DashboardPage } from '@/features/dashboard/DashboardPage'
@@ -81,6 +82,7 @@ export function AppRoutes() {
         <Route path="lookups/blinds-product-categories" element={<BlindsProductCategoriesLookupPage />} />
         <Route path="lookups/blinds-extra-options/:kindId" element={<BlindsExtraOptionsLookupPage />} />
         <Route path="lookups/order-statuses" element={<OrderStatusesLookupPage />} />
+        <Route path="lookups/estimate-statuses" element={<EstimateStatusesLookupPage />} />
         <Route path="lookups" element={<LookupsHubPage />} />
         <Route path="companies/:companyId" element={<CompanyViewPage />} />
         <Route path="companies" element={<CompaniesPage />} />

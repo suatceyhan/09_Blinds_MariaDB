@@ -18,6 +18,7 @@ type CustomerOut = {
     scheduled_start_at?: string | null
     blinds_summary?: string | null
     status?: string | null
+    status_label?: string | null
   }>
   orders: Array<{
     id: string
@@ -34,13 +35,6 @@ function fmtDate(v?: string | null): string {
   const d = new Date(v)
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleString()
-}
-
-function estimateListStatusLabel(status: string | null | undefined): string {
-  const s = (status ?? 'pending').toLowerCase()
-  if (s === 'converted') return 'Order'
-  if (s === 'cancelled') return 'Cancelled'
-  return 'Pending'
 }
 
 export function CustomerViewPage() {
@@ -153,7 +147,7 @@ export function CustomerViewPage() {
                             {e.blinds_summary?.trim() ? e.blinds_summary : 'Estimate visit'}
                           </p>
                           <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-                            {estimateListStatusLabel(e.status)}
+                            {e.status_label?.trim() || '—'}
                           </span>
                         </div>
                         <p className="mt-0.5 text-xs text-slate-500">{fmtDate(e.scheduled_start_at ?? e.tarih_saat ?? null)}</p>

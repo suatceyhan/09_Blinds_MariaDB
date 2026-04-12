@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ListOrdered, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { ClipboardList, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { useAuthSession } from '@/app/authSession'
 import { getJson, patchJson, postJson } from '@/lib/api'
@@ -9,6 +9,7 @@ type Row = {
   company_id: string
   name: string
   active: boolean
+  workflow?: string | null
   sort_order?: number
 }
 
@@ -30,7 +31,7 @@ function ShowInactiveToggle(props: Readonly<{ checked: boolean; onChange: (v: bo
   )
 }
 
-export function OrderStatusesLookupPage() {
+export function EstimateStatusesLookupPage() {
   const me = useAuthSession()
   const canEdit = Boolean(me?.permissions.includes('lookups.edit'))
 
@@ -73,12 +74,12 @@ export function OrderStatusesLookupPage() {
       setLoading(true)
       setErr(null)
       try {
-        const list = await getJson<Row[]>(`/lookups/order-statuses?${listParams}`)
+        const list = await getJson<Row[]>(`/lookups/estimate-statuses?${listParams}`)
         if (!cancelled) setRows(list)
       } catch (e) {
         if (!cancelled) {
           setRows(null)
-          setErr(e instanceof Error ? e.message : 'Could not load order statuses')
+          setErr(e instanceof Error ? e.message : 'Could not load estimate statuses')
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -90,7 +91,7 @@ export function OrderStatusesLookupPage() {
   }, [me, listParams])
 
   async function refresh() {
-    const list = await getJson<Row[]>(`/lookups/order-statuses?${listParams}`)
+    const list = await getJson<Row[]>(`/lookups/estimate-statuses?${listParams}`)
     setRows(list)
   }
 
@@ -100,7 +101,7 @@ export function OrderStatusesLookupPage() {
     setSaving(true)
     setErr(null)
     try {
-      await postJson('/lookups/order-statuses', { name: name.trim() })
+      await postJson('/lookups/estimate-statuses', { name: name.trim() })
       setName('')
       setShowCreate(false)
       await refresh()
@@ -124,7 +125,7 @@ export function OrderStatusesLookupPage() {
     setErr(null)
     try {
       const so = Number.parseInt(editSortOrder.trim(), 10)
-      await patchJson(`/lookups/order-statuses/${editId}`, {
+      await patchJson(`/lookups/estimate-statuses/${editId}`, {
         name: editName.trim(),
         sort_order: Number.isNaN(so) ? 0 : so,
       })
@@ -142,7 +143,7 @@ export function OrderStatusesLookupPage() {
     setConfirmPending(true)
     setErr(null)
     try {
-      await patchJson(`/lookups/order-statuses/${pending.id}`, {
+      await patchJson(`/lookups/estimate-statuses/${pending.id}`, {
         active: pending.kind === 'restore',
       })
       setPending(null)
@@ -160,12 +161,12 @@ export function OrderStatusesLookupPage() {
     <div className="mx-auto max-w-6xl space-y-6">
       <ConfirmModal
         open={pending !== null}
-        title={pending?.kind === 'restore' ? 'Restore order status' : 'Deactivate order status'}
+        title={pending?.kind === 'restore' ? 'Restore estimate status' : 'Deactivate estimate status'}
         description={
           pending == null
             ? ''
             : pending.kind === 'deactivate'
-              ? `${pending.display} will be marked inactive (kept for existing orders).`
+              ? `${pending.display} will be marked inactive (kept for existing estimates).`
               : `Restore ${pending.display}?`
         }
         confirmLabel={pending?.kind === 'restore' ? 'Restore' : 'Deactivate'}
@@ -188,7 +189,7 @@ export function OrderStatusesLookupPage() {
             onSubmit={(e) => void onEditSave(e)}
             className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-5 shadow-xl"
           >
-            <h2 className="text-sm font-semibold text-slate-900">Edit order status</h2>
+            <h2 className="text-sm font-semibold text-slate-900">Edit estimate status</h2>
             <div className="mt-3 space-y-3">
               <label className="block text-sm text-slate-700">
                 <span className="mb-1 block font-medium">Name</span>
@@ -240,7 +241,7 @@ export function OrderStatusesLookupPage() {
             onSubmit={(e) => void onCreate(e)}
             className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-5 shadow-xl"
           >
-            <h2 className="text-sm font-semibold text-slate-900">New order status</h2>
+            <h2 className="text-sm font-semibold text-slate-900">New estimate status</h2>
             <div className="mt-3">
               <label className="block text-sm text-slate-700">
                 <span className="mb-1 block font-medium">Name</span>
@@ -275,13 +276,14 @@ export function OrderStatusesLookupPage() {
       <div className="flex flex-wrap items-start gap-4">
         <div className="flex min-w-0 flex-1 items-start gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
-            <ListOrdered className="h-5 w-5" strokeWidth={2} />
+            <ClipboardList className="h-5 w-5" strokeWidth={2} />
           </div>
           <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Order statuses</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Estimate statuses</h1>
             <p className="mt-1 text-sm text-slate-600">
-              Order workflow labels (status_order). Use sort order for chip and dropdown order on the orders list.
-              Inactive labels remain in the database for existing orders.
+              Labels for estimates (same pattern as order statuses). Sort order controls chip order on the Estimates
+              list. Built-in rows handle new visits, conversion from an order, and cancellation; you can add more labels
+              for your process. Inactive rows stay in the database for existing estimates.
             </p>
           </div>
         </div>
@@ -322,6 +324,7 @@ export function OrderStatusesLookupPage() {
               <tr>
                 <th className="px-4 py-3">Sort</th>
                 <th className="px-4 py-3">Name</th>
+                <th className="px-4 py-3">Workflow</th>
                 <th className="px-4 py-3">Status</th>
                 {canEdit ? <th className="px-4 py-3 text-right">Actions</th> : null}
               </tr>
@@ -334,6 +337,13 @@ export function OrderStatusesLookupPage() {
                 >
                   <td className="whitespace-nowrap px-4 py-3 text-slate-600">{r.sort_order ?? 0}</td>
                   <td className="px-4 py-3 font-medium text-slate-900">{r.name}</td>
+                  <td className="px-4 py-3 text-xs text-slate-600">
+                    {r.workflow ? (
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono">{r.workflow}</span>
+                    ) : (
+                      <span className="text-slate-500">Custom label</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <span
                       className={

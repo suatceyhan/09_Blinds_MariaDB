@@ -2,7 +2,7 @@ import json
 import re
 import secrets
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -20,8 +20,6 @@ from app.integrations.google_calendar_service import try_push_estimate_to_google
 
 
 router = APIRouter(prefix="/estimates", tags=["Estimates"])
-
-EstimateStatus = Literal["pending", "converted", "cancelled"]
 
 
 def _new_estimate_id() -> str:
@@ -129,6 +127,20 @@ class BlindsTypeOptionOut(BaseModel):
     name: str
 
 
+class EstimateStatusLookupOptOut(BaseModel):
+    """Active estimate status rows for list filters (same order as Lookups, `estimates.view`)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    sort_order: int = 0
+    workflow: str | None = Field(
+        default=None,
+        description="Built-in slug when set; null for custom labels.",
+    )
+
+
 class EstimateGuestOptionOut(BaseModel):
     email: str
     label: str
@@ -160,7 +172,9 @@ class EstimateListItemOut(BaseModel):
     customer_address: str | None = None
     blinds_types: list[EstimateBlindsLineOut]
     perde_sayisi: int | None = None
-    status: str = "pending"
+    status: str | None = None
+    status_label: str = "—"
+    status_esti_id: str
     is_deleted: bool = False
     scheduled_start_at: datetime | None = None
     tarih_saat: datetime | None = None
@@ -194,7 +208,9 @@ class EstimateDetailOut(BaseModel):
     visit_organizer_email: str | None = None
     visit_guest_emails: list[str] = Field(default_factory=list)
     visit_recurrence_rrule: str | None = None
-    status: str = "pending"
+    status: str | None = None
+    status_label: str = "—"
+    status_esti_id: str
     is_deleted: bool = False
     created_at: Any | None = None
     updated_at: Any | None = None
@@ -213,7 +229,7 @@ _WALL_SCHED_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$")
 
 class EstimateCreateIn(BaseModel):
     customer_id: str = Field(min_length=1, max_length=16)
-    blinds_lines: list[EstimateBlindsLineIn] = Field(min_length=1, max_length=24)
+    blinds_lines: list[EstimateBlindsLineIn] = Field(default_factory=list, max_length=24)
     scheduled_wall: str | None = Field(
         None,
         max_length=32,
@@ -324,7 +340,7 @@ class EstimatePatchIn(BaseModel):
     visit_organizer_email: EmailStr | None = None
     visit_guest_emails: list[EmailStr] | None = Field(None, max_length=20)
     blinds_lines: list[EstimateBlindsLineIn] | None = Field(None, max_length=24)
-    status: EstimateStatus | None = None
+    status_esti_id: str | None = Field(None, min_length=1, max_length=16)
 
     @field_validator("visit_organizer_email", mode="before")
     @classmethod
@@ -424,6 +440,34 @@ def list_blinds_types_for_estimates(
     return [BlindsTypeOptionOut(**dict(r)) for r in rows]
 
 
+@router.get("/lookup/estimate-statuses", response_model=list[EstimateStatusLookupOptOut])
+def list_estimate_statuses_for_estimates(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("estimates.view"))],
+):
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    rows = db.execute(
+        text(
+            """
+            SELECT se.id, se.name, se.sort_order, se.slug AS workflow
+            FROM status_estimate se
+            WHERE se.company_id = CAST(:cid AS uuid) AND se.active IS TRUE
+            ORDER BY se.sort_order ASC, se.name ASC
+            """
+        ),
+        {"cid": str(cid)},
+    ).mappings().all()
+    out: list[EstimateStatusLookupOptOut] = []
+    for r in rows:
+        d = dict(r)
+        wf = d.get("workflow")
+        d["workflow"] = str(wf).strip().lower() if wf else None
+        out.append(EstimateStatusLookupOptOut(**d))
+    return out
+
+
 @router.get("/lookup/create-context", response_model=EstimateCreateContextOut)
 def estimate_create_context(
     db: Annotated[Session, Depends(get_db)],
@@ -494,7 +538,11 @@ def list_estimates(
     limit: int = Query(200, ge=1, le=500),
     search: str | None = Query(None, max_length=200),
     schedule_filter: str | None = Query(None, description="all | upcoming | past"),
-    status_filter: str | None = Query(None, description="all | pending | converted | cancelled"),
+    status_esti_id: str | None = Query(None, max_length=16, description="Filter by lookup row id (same as order list)."),
+    status_filter: str | None = Query(
+        None,
+        description="Deprecated: use status_esti_id. If set without status_esti_id: pending|converted|cancelled only.",
+    ),
     customer_id: str | None = Query(None, max_length=16),
     include_deleted: bool = Query(False),
 ):
@@ -507,6 +555,7 @@ def list_estimates(
     st_raw = (status_filter or "all").strip().lower()
     if st_raw not in ("all", "pending", "converted", "cancelled"):
         st_raw = "all"
+    sid = (status_esti_id or "").strip()
     term = (search or "").strip()
     where = ["e.company_id = :company_id"]
     if not include_deleted:
@@ -523,9 +572,12 @@ def list_estimates(
     if cust:
         params["cust_id"] = cust
         where.append("e.customer_id = :cust_id")
-    if st_raw != "all":
+    if sid:
+        params["status_esti_id"] = sid
+        where.append("e.status_esti_id = :status_esti_id")
+    elif st_raw != "all":
         params["st"] = st_raw
-        where.append("COALESCE(e.status, 'pending') = :st")
+        where.append("se.slug = :st")
     if term:
         params["term"] = f"%{term}%"
         where.append(
@@ -554,13 +606,16 @@ def list_estimates(
               c.address AS customer_address,
               ( {_SQL_BLINDS_TYPES_JSON} ) AS blinds_types_json,
               e.perde_sayisi,
-              COALESCE(e.status, 'pending') AS status,
+              se.slug AS status,
+              COALESCE(NULLIF(trim(se.name), ''), '—') AS status_label,
+              e.status_esti_id AS status_esti_id,
               e.is_deleted,
               e.scheduled_start_at,
               e.tarih_saat,
               e.created_at
             FROM estimate e
             JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
+            LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
             WHERE {where_sql}
             ORDER BY COALESCE(e.scheduled_start_at, e.tarih_saat) DESC NULLS LAST, e.created_at DESC
             LIMIT :limit
@@ -610,6 +665,23 @@ def create_estimate(
     counts = [ln.window_count for ln in body.blinds_lines if ln.window_count is not None]
     estimate_perde = sum(counts) if counts else None
 
+    pend_row = db.execute(
+        text(
+            """
+            SELECT id FROM status_estimate
+            WHERE company_id = CAST(:cid AS uuid) AND slug = 'pending'
+            LIMIT 1
+            """
+        ),
+        {"cid": str(cid)},
+    ).mappings().first()
+    if not pend_row:
+        raise HTTPException(
+            status_code=500,
+            detail="Estimate status lookup is not initialized. Apply DB migration 19_status_estimate_lookup.sql.",
+        )
+    pending_status_id = str(pend_row["id"])
+
     for _ in range(5):
         new_id = _new_estimate_id()
         exists = db.execute(
@@ -627,6 +699,7 @@ def create_estimate(
                       tarih_saat, scheduled_start_at, scheduled_end_at,
                       visit_time_zone, visit_address, visit_notes,
                       visit_organizer_name, visit_organizer_email, visit_guest_emails,
+                      status_esti_id,
                       created_at, updated_at
                     )
                     VALUES (
@@ -634,6 +707,7 @@ def create_estimate(
                       :sched, :sched, NULL,
                       :vtz, :vaddr, :vnotes,
                       :org_name, :org_email, CAST(:guests AS jsonb),
+                      :status_esti_id,
                       NOW(), NOW()
                     )
                     """
@@ -650,6 +724,7 @@ def create_estimate(
                     "org_name": body.visit_organizer_name,
                     "org_email": org_email,
                     "guests": guest_json,
+                    "status_esti_id": pending_status_id,
                 },
             )
             for sort_i, ln in enumerate(body.blinds_lines):
@@ -723,12 +798,15 @@ def get_estimate(
               e.visit_organizer_email,
               e.visit_guest_emails,
               e.visit_recurrence_rrule,
-              COALESCE(e.status, 'pending') AS status,
+              se.slug AS status,
+              COALESCE(NULLIF(trim(se.name), ''), '—') AS status_label,
+              e.status_esti_id AS status_esti_id,
               e.is_deleted,
               e.created_at,
               e.updated_at
             FROM estimate e
             JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
+            LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
             WHERE e.company_id = :company_id AND e.id = :id
             LIMIT 1
             """
@@ -819,13 +897,43 @@ def patch_estimate(
         sets.append("visit_guest_emails = CAST(:guests AS jsonb)")
         params["guests"] = json.dumps([str(x) for x in payload.visit_guest_emails])
 
-    if payload.status is not None:
-        sets.append("status = :est_status")
-        params["est_status"] = payload.status
+    if payload.status_esti_id is not None:
+        new_st = db.execute(
+            text(
+                """
+                SELECT id, slug FROM status_estimate
+                WHERE company_id = CAST(:cid AS uuid) AND id = :sid AND active IS TRUE
+                LIMIT 1
+                """
+            ),
+            {"cid": str(cid), "sid": payload.status_esti_id.strip()},
+        ).mappings().first()
+        if not new_st:
+            raise HTTPException(status_code=400, detail="Invalid estimate status.")
+        cur_st = db.execute(
+            text(
+                """
+                SELECT se.slug AS slug
+                FROM estimate e
+                LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
+                WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid AND e.is_deleted IS NOT TRUE
+                LIMIT 1
+            """
+            ),
+            {"cid": str(cid), "eid": eid},
+        ).mappings().first()
+        cur_slug = (cur_st or {}).get("slug")
+        raw_new = new_st.get("slug")
+        new_slug = str(raw_new).strip().lower() if raw_new else None
+        if cur_slug == "converted" and new_slug not in ("converted", "cancelled"):
+            raise HTTPException(
+                status_code=400,
+                detail="Converted estimates can only be set to cancelled.",
+            )
+        sets.append("status_esti_id = :sest")
+        params["sest"] = str(new_st["id"]).strip()
 
     if payload.blinds_lines is not None:
-        if len(payload.blinds_lines) < 1:
-            raise HTTPException(status_code=400, detail="blinds_lines must include at least one type.")
         counts = [ln.window_count for ln in payload.blinds_lines if ln.window_count is not None]
         estimate_perde = sum(counts) if counts else None
         db.execute(
