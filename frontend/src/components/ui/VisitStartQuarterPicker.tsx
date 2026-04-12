@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { formatVisitDateShortFromYmd } from '@/lib/formatVisitDisplay'
 import {
   VISIT_MINUTE_QUARTERS,
   from24HourTo12,
@@ -28,15 +29,6 @@ function parseYmdToLocalDate(ymd: string): Date | null {
 
 function localDateToYmd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-/** Display like `12-Apr-2026` */
-function formatDateTrigger(ymd: string): string {
-  const d = parseYmdToLocalDate(ymd)
-  if (!d) return ymd
-  const day = d.getDate()
-  const mon = d.toLocaleDateString('en-GB', { month: 'short' })
-  return `${day}-${mon}-${d.getFullYear()}`
 }
 
 function formatTimeTrigger(hour12: string, minute: string, ampm: VisitAmPm): string {
@@ -360,7 +352,7 @@ export function VisitStartQuarterPicker({
           aria-expanded={open}
           aria-haspopup="dialog"
         >
-          {formatDateTrigger(parts.date)}
+          {formatVisitDateShortFromYmd(parts.date)}
         </button>
         <button
           type="button"

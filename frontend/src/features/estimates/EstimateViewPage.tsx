@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, CalendarDays, ShoppingBag } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
+import { formatVisitDateTimeList } from '@/lib/formatVisitDisplay'
 import { getJson, postJson } from '@/lib/api'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 
@@ -36,9 +37,7 @@ type EstimateDetail = {
 }
 
 function formatDt(raw: string | null | undefined): string {
-  if (!raw) return '—'
-  const dt = new Date(raw)
-  return Number.isNaN(dt.getTime()) ? raw : dt.toLocaleString()
+  return formatVisitDateTimeList(raw)
 }
 
 function workflowStatusLabel(status: string | null | undefined): string {

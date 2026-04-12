@@ -9,6 +9,7 @@ import {
   joinScheduledWall,
   snapWallToQuarterMinutes,
 } from '@/lib/visitSchedule'
+import { formatVisitDateTimeList } from '@/lib/formatVisitDisplay'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { VisitStartQuarterPicker } from '@/components/ui/VisitStartQuarterPicker'
 import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
@@ -85,10 +86,7 @@ const VISIT_TIME_ZONES: string[] = [
 ]
 
 function displayScheduled(r: EstimateRow): string {
-  const raw = r.scheduled_start_at ?? r.tarih_saat
-  if (!raw) return '—'
-  const dt = new Date(raw)
-  return Number.isNaN(dt.getTime()) ? raw : dt.toLocaleString()
+  return formatVisitDateTimeList(r.scheduled_start_at ?? r.tarih_saat)
 }
 
 function customerLabel(c: CustomerOpt): string {
