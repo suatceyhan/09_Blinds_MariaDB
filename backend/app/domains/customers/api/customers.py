@@ -8,9 +8,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from typing_extensions import Annotated
 
-from app.core.authorization import is_effective_superadmin
 from app.core.database import get_db
-from app.dependencies.auth import effective_company_id, require_permissions
+from app.dependencies.auth import effective_company_id, require_permissions, resolve_tenant_company_id
 from app.domains.user.models.users import Users
 
 
@@ -85,18 +84,11 @@ def list_customers(
     include_inactive: bool = Query(False),
     company_id: UUID | None = Query(None),
 ):
-    super_u = is_effective_superadmin(db, current_user.id, getattr(current_user, "active_role", None))
-    if not super_u:
-        # Ensure tenant context exists (RLS will enforce row-level access anyway)
-        cid = effective_company_id(current_user)
-        if not cid:
-            raise HTTPException(status_code=403, detail="No active company.")
-        if company_id is not None:
-            raise HTTPException(status_code=403, detail="company_id filter is superadmin-only.")
+    tenant_cid = resolve_tenant_company_id(db, current_user, company_id_param=company_id)
 
     term = (search or "").strip()
-    where = []
-    params: dict[str, Any] = {"limit": limit}
+    where = ["c.company_id = CAST(:tenant_cid AS uuid)"]
+    params: dict[str, Any] = {"limit": limit, "tenant_cid": str(tenant_cid)}
     if not include_inactive:
         where.append("c.active IS TRUE")
     if term:
@@ -104,9 +96,6 @@ def list_customers(
         where.append(
             "(c.name ILIKE :term OR COALESCE(c.surname,'') ILIKE :term OR COALESCE(c.phone,'') ILIKE :term OR COALESCE(c.email,'') ILIKE :term OR COALESCE(c.address,'') ILIKE :term)"
         )
-    if company_id is not None:
-        params["company_id"] = str(company_id)
-        where.append("c.company_id = :company_id::uuid")
 
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     rows = db.execute(

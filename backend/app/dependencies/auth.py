@@ -26,6 +26,38 @@ def effective_company_id(user: Users) -> Optional[UUID]:
     return user.company_id
 
 
+def resolve_tenant_company_id(
+    db: Session,
+    current_user: Users,
+    *,
+    company_id_param: Optional[UUID] = None,
+) -> UUID:
+    """Kiracı kapsamı: süperadmin `company_id` ile başka firmayı seçebilir; aksi halde aktif şirket.
+
+    Süperadmin için RLS bypass açık olduğundan, liste uçlarında **her zaman** bu değeri SQL ile
+    filtrelemek gerekir; aksi hâlde tüm firmaların verisi görünür.
+    """
+    from app.core.authorization import is_effective_superadmin
+
+    super_u = is_effective_superadmin(
+        db, current_user.id, getattr(current_user, "active_role", None)
+    )
+    if company_id_param is not None:
+        if not super_u:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="company_id filter is superadmin-only.",
+            )
+        return company_id_param
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No active company.",
+        )
+    return cid
+
+
 def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),

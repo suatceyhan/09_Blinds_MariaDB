@@ -158,7 +158,8 @@ export function AddressAutocompleteInput({
             </li>
           ))}
           <li className="border-t border-slate-100 px-2 py-1.5 text-[10px] text-slate-400">
-            Suggestions from OpenStreetMap (Photon). You can still type your own line.
+            OpenStreetMap (Photon): postal codes are often street segments, not door-specific. If you type a house
+            number, we merge duplicate street lines; confirm the postcode if it matters.
           </li>
         </ul>
       ) : null}

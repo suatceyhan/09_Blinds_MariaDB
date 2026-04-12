@@ -13,7 +13,7 @@ from app.core.authorization import (
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import hash_password
-from app.dependencies.auth import effective_company_id, get_current_user
+from app.dependencies.auth import effective_company_id, get_current_user, resolve_tenant_company_id
 from app.domains.company.models.company import Companies
 from app.domains.lookup.models.roles import Roles
 from app.domains.user.models.user_company_memberships import UserCompanyMembership
@@ -191,37 +191,18 @@ def list_users_for_admin(
             )
         )
 
-    if super:
-        if company_id:
-            q = (
-                q.join(
-                    UserCompanyMembership,
-                    UserCompanyMembership.user_id == Users.id,
-                )
-                .filter(
-                    UserCompanyMembership.company_id == company_id,
-                    UserCompanyMembership.is_deleted.is_(False),
-                )
-                .distinct()
-            )
-    else:
-        cid = effective_company_id(current_user)
-        if not cid:
-            raise HTTPException(
-                status_code=403,
-                detail="No active company. Join or select a company first.",
-            )
-        q = (
-            q.join(
-                UserCompanyMembership,
-                UserCompanyMembership.user_id == Users.id,
-            )
-            .filter(
-                UserCompanyMembership.company_id == cid,
-                UserCompanyMembership.is_deleted.is_(False),
-            )
-            .distinct()
+    tenant_cid = resolve_tenant_company_id(db, current_user, company_id_param=company_id)
+    q = (
+        q.join(
+            UserCompanyMembership,
+            UserCompanyMembership.user_id == Users.id,
         )
+        .filter(
+            UserCompanyMembership.company_id == tenant_cid,
+            UserCompanyMembership.is_deleted.is_(False),
+        )
+        .distinct()
+    )
 
     rows = q.order_by(Users.email).offset(skip).limit(limit).all()
 

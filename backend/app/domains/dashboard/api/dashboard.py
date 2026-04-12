@@ -1,14 +1,14 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from typing_extensions import Annotated
 
 from app.core.database import get_db
-from app.dependencies.auth import require_permissions
+from app.dependencies.auth import effective_company_id, require_permissions
 from app.domains.user.models.users import Users
 
 
@@ -52,12 +52,14 @@ def _utc_today_range() -> tuple[datetime, datetime]:
 @router.get("/summary", response_model=DashboardSummary)
 def get_dashboard_summary(
     db: Annotated[Session, Depends(get_db)],
-    _u: Annotated[Users, Depends(require_permissions("dashboard.view"))],
+    current_user: Annotated[Users, Depends(require_permissions("dashboard.view"))],
 ):
-    # NOTE: We rely on tenant RLS (app.tenant_company_id) to scope rows.
-    #       Superadmin bypass is handled by middleware/tenant_rls.
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
     start, end = _utc_today_range()
     week_end = start + timedelta(days=7)
+    est_params = {"start": start, "end": end, "cid": str(cid)}
 
     today_rows = db.execute(
         text(
@@ -94,7 +96,8 @@ def get_dashboard_summary(
             FROM estimate e
             JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
             LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
-            WHERE e.is_deleted IS NOT TRUE
+            WHERE e.company_id = CAST(:cid AS uuid)
+              AND e.is_deleted IS NOT TRUE
               AND (se.builtin_kind IS NULL OR se.builtin_kind <> 'cancelled')
               AND (
                 (e.scheduled_start_at >= :start AND e.scheduled_start_at < :end)
@@ -104,7 +107,7 @@ def get_dashboard_summary(
             LIMIT 50
             """
         ),
-        {"start": start, "end": end},
+        est_params,
     ).mappings().all()
 
     week_count = db.execute(
@@ -113,7 +116,8 @@ def get_dashboard_summary(
             SELECT COUNT(*)::int AS c
             FROM estimate e
             LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
-            WHERE e.is_deleted IS NOT TRUE
+            WHERE e.company_id = CAST(:cid AS uuid)
+              AND e.is_deleted IS NOT TRUE
               AND (se.builtin_kind IS NULL OR se.builtin_kind <> 'cancelled')
               AND (
                 (e.scheduled_start_at >= :start AND e.scheduled_start_at < :week_end)
@@ -121,7 +125,7 @@ def get_dashboard_summary(
               )
             """
         ),
-        {"start": start, "week_end": week_end},
+        {"start": start, "week_end": week_end, "cid": str(cid)},
     ).mappings().one()["c"]
 
     # Order aging by created_at (days since order created)
@@ -138,22 +142,24 @@ def get_dashboard_summary(
                 """
                 SELECT COUNT(*)::int AS c
                 FROM orders
-                WHERE created_at < (NOW() - (:lo || ' days')::interval)
+                WHERE company_id = CAST(:cid AS uuid)
+                  AND created_at < (NOW() - (:lo || ' days')::interval)
                   AND active IS TRUE
                 """
             )
-            c = db.execute(q, {"lo": lo}).mappings().one()["c"]
+            c = db.execute(q, {"lo": lo, "cid": str(cid)}).mappings().one()["c"]
         else:
             q = text(
                 """
                 SELECT COUNT(*)::int AS c
                 FROM orders
-                WHERE created_at >= (NOW() - (:hi || ' days')::interval)
+                WHERE company_id = CAST(:cid AS uuid)
+                  AND created_at >= (NOW() - (:hi || ' days')::interval)
                   AND created_at <  (NOW() - (:lo || ' days')::interval)
                   AND active IS TRUE
                 """
             )
-            c = db.execute(q, {"lo": lo, "hi": hi}).mappings().one()["c"]
+            c = db.execute(q, {"lo": lo, "hi": hi, "cid": str(cid)}).mappings().one()["c"]
         bucket_counts.append(AgingBucket(label=label, count=int(c)))
 
     # Ready orders waiting for installation: status_code ready_for_install, fallback to status_orde_id if status_code absent.
@@ -171,7 +177,8 @@ def get_dashboard_summary(
                 FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(ready_at, created_at))) / 86400)
               )::int AS waiting_days
             FROM orders
-            WHERE active IS TRUE
+            WHERE company_id = CAST(:cid AS uuid)
+              AND active IS TRUE
               AND (
                 COALESCE(status_code, '') = 'ready_for_install'
                 OR COALESCE(status_orde_id, '') ILIKE '%ready%'
@@ -179,7 +186,8 @@ def get_dashboard_summary(
             ORDER BY waiting_days DESC, COALESCE(ready_at, created_at) ASC
             LIMIT 50
             """
-        )
+        ),
+        {"cid": str(cid)},
     ).mappings().all()
 
     return DashboardSummary(

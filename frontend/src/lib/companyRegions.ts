@@ -96,15 +96,55 @@ export function findCompanySubnational(
   return listCompanySubnationals(countryCode).find((r) => r.code === rc)
 }
 
-export function photonStateMatchesCompanyRegion(
-  stateField: string | undefined,
+/**
+ * Match Photon/OSM subdivision: `statecode` (e.g. ON, CA-ON), `state` equals code, or full name in `state`.
+ */
+export function photonFeatureMatchesCompanyRegion(
+  pr: { state?: string; statecode?: string | number | null },
   countryCode: string,
   regionCode: string,
 ): boolean {
   const row = findCompanySubnational(countryCode, regionCode)
   if (!row) return false
-  const st = (stateField ?? '').toLowerCase()
+  const rc = regionCode.trim().toUpperCase()
+  const raw = pr.statecode
+  let code =
+    raw === undefined || raw === null ? '' : String(raw).trim().toUpperCase().replace(/^(CA|US)-/i, '')
+  if (code === rc) return true
+
+  const stTrim = (pr.state ?? '').trim()
+  if (stTrim.toUpperCase() === rc) return true
+
+  const st = stTrim.toLowerCase()
   return row.matchers.some((m) => st.includes(m))
+}
+
+/** @deprecated Prefer {@link photonFeatureMatchesCompanyRegion} when `statecode` is available. */
+export function photonStateMatchesCompanyRegion(
+  stateField: string | undefined,
+  countryCode: string,
+  regionCode: string,
+): boolean {
+  return photonFeatureMatchesCompanyRegion({ state: stateField }, countryCode, regionCode)
+}
+
+/** Bias Photon’s text index toward the selected province/state (so users need not type “ON”). */
+export function photonSearchQueryWithRegionContext(
+  rawQuery: string,
+  countryCode: string | null | undefined,
+  regionCode: string | null | undefined,
+): string {
+  const q = rawQuery.trim()
+  const cc = (countryCode ?? '').trim().toUpperCase()
+  const rc = (regionCode ?? '').trim().toUpperCase()
+  const row = findCompanySubnational(cc, rc)
+  if (!row || !q) return q
+  const ql = q.toLowerCase()
+  const labelLower = row.label.toLowerCase()
+  if (ql.includes(labelLower)) return q
+  if (cc === 'CA') return `${q}, ${row.label}, Canada`
+  if (cc === 'US') return `${q}, ${row.label}, United States`
+  return q
 }
 
 export type PhotonLocationBias = {

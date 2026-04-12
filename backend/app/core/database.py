@@ -64,5 +64,14 @@ def get_db() -> Generator[Session, None, None]:
         reset_connection_rls_gucs(db)
         yield db
     finally:
-        reset_connection_rls_gucs(db)
+        # Hatalı isteklerde transaction "aborted" kalır; reset öncesi rollback yoksa
+        # PostgreSQL bir sonraki set_config'te InFailedSqlTransaction verir.
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        try:
+            reset_connection_rls_gucs(db)
+        except Exception:
+            pass
         db.close()
