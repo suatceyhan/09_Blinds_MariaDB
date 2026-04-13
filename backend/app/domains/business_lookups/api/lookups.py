@@ -383,7 +383,7 @@ class EstimateStatusOut(BaseModel):
     sort_order: int = 0
     code: str | None = Field(
         default=None,
-        description="pending | converted | cancelled for built-in rows; null for custom labels.",
+        description="new | pending | converted | cancelled for built-in rows; null for custom labels.",
     )
 
 

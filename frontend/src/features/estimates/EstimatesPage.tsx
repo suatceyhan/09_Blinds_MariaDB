@@ -100,6 +100,8 @@ function statusPillClassesForCode(
 ): { base: string; active: string } {
   const w = (code ?? '').toLowerCase()
   switch (w) {
+    case 'new':
+      return { base: 'bg-sky-50 text-sky-800 ring-sky-100', active: 'bg-sky-600 text-white ring-sky-600' }
     case 'pending':
       return { base: 'bg-amber-50 text-amber-900 ring-amber-100', active: 'bg-amber-600 text-white ring-amber-600' }
     case 'converted':
@@ -136,6 +138,7 @@ function resolveEstimateStatusKind(
   apiStatus: string | null | undefined,
 ): EstimateStatusKind {
   const c = (code ?? '').toLowerCase()
+  if (c === 'new') return 'new'
   if (c === 'pending') return 'pending'
   if (c === 'converted') return 'converted'
   if (c === 'cancelled') return 'cancelled'
@@ -161,17 +164,15 @@ function estimateFilterChipClasses(
   code: string | null | undefined,
 ): { base: string; active: string } {
   const kind = resolveEstimateStatusKind(name, code, null)
-  if (kind === 'pending' || kind === 'converted' || kind === 'cancelled') {
+  if (kind === 'new' || kind === 'pending' || kind === 'converted' || kind === 'cancelled') {
     return statusPillClassesForCode(kind)
-  }
-  if (kind === 'new') {
-    return { base: 'bg-sky-50 text-sky-800 ring-sky-100', active: 'bg-sky-600 text-white ring-sky-600' }
   }
   return orderListStyleStatusPillClasses(name)
 }
 
 function estimateStatusLabel(status: string | null | undefined): string {
   const s = (status ?? '').toLowerCase()
+  if (s === 'new') return 'New Estimate'
   if (s === 'converted') return 'Converted to order'
   if (s === 'cancelled') return 'Cancelled'
   if (s === 'pending') return 'Pending'

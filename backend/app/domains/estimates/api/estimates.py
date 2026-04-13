@@ -131,7 +131,12 @@ class BlindsTypeOptionOut(BaseModel):
 
 
 class EstimateStatusLookupOptOut(BaseModel):
-    """Active estimate status rows for list filters (same order as Lookups, `estimates.view`)."""
+    """Active estimate statuses for Estimates list chips (`estimates.view`).
+
+    Built-in kinds are returned once each (even if the DB had duplicates). Custom rows (`code` null)
+    whose label matches a chosen built-in row's name (case-insensitive) are omitted so filters do
+    not show duplicate titles. Full rows remain under `/lookups/estimate-statuses`.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -140,7 +145,7 @@ class EstimateStatusLookupOptOut(BaseModel):
     sort_order: int = 0
     code: str | None = Field(
         default=None,
-        description="pending | converted | cancelled when row is built-in; null for custom labels.",
+        description="new | pending | converted | cancelled when row is built-in; null for custom labels.",
     )
 
 
@@ -454,10 +459,35 @@ def list_estimate_statuses_for_estimates(
     rows = db.execute(
         text(
             """
-            SELECT se.id, se.name, se.sort_order, se.builtin_kind AS code
-            FROM status_estimate se
-            WHERE se.company_id = CAST(:cid AS uuid) AND se.active IS TRUE
-            ORDER BY se.sort_order ASC, se.name ASC
+            WITH active AS (
+              SELECT se.id, se.name, se.sort_order, se.builtin_kind
+              FROM status_estimate se
+              WHERE se.company_id = CAST(:cid AS uuid) AND se.active IS TRUE
+            ),
+            chosen_builtin AS (
+              SELECT DISTINCT ON (a.builtin_kind)
+                a.id,
+                a.name,
+                a.sort_order,
+                a.builtin_kind AS code
+              FROM active a
+              WHERE a.builtin_kind IS NOT NULL
+              ORDER BY a.builtin_kind, a.sort_order ASC, a.name ASC, a.id ASC
+            ),
+            custom AS (
+              SELECT a.id, a.name, a.sort_order, NULL::text AS code
+              FROM active a
+              WHERE a.builtin_kind IS NULL
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM chosen_builtin b
+                  WHERE lower(trim(b.name)) = lower(trim(a.name))
+                )
+            )
+            SELECT id, name, sort_order, code FROM chosen_builtin
+            UNION ALL
+            SELECT id, name, sort_order, code FROM custom
+            ORDER BY sort_order ASC, name ASC
             """
         ),
         {"cid": str(cid)},
@@ -544,7 +574,7 @@ def list_estimates(
     status_esti_id: str | None = Query(None, max_length=16, description="Filter by lookup row id (same as order list)."),
     status_filter: str | None = Query(
         None,
-        description="Deprecated: use status_esti_id. If set without status_esti_id: pending|converted|cancelled only.",
+        description="Deprecated: use status_esti_id. If set without status_esti_id: new|pending|converted|cancelled.",
     ),
     customer_id: str | None = Query(None, max_length=16),
     include_deleted: bool = Query(False),
@@ -556,7 +586,7 @@ def list_estimates(
     if sf_raw not in ("all", "upcoming", "past"):
         sf_raw = "all"
     st_raw = (status_filter or "all").strip().lower()
-    if st_raw not in ("all", "pending", "converted", "cancelled"):
+    if st_raw not in ("all", "new", "pending", "converted", "cancelled"):
         st_raw = "all"
     sid = (status_esti_id or "").strip()
     term = (search or "").strip()

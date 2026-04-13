@@ -1342,13 +1342,13 @@ export function OrdersPage() {
       try {
         const p = await getJson<OrderPrefill>(`/orders/prefill-from-estimate/${fromEstimateQ}`)
         if (cancelled) return
-        if (p.estimate_status !== 'pending') {
+        if (p.estimate_status !== 'pending' && p.estimate_status !== 'new') {
           setErr(
             p.estimate_status === 'converted'
               ? 'This estimate is already converted. Find the order in the list below.'
               : p.estimate_status === 'cancelled'
                 ? 'Cancelled estimates cannot be turned into an order.'
-                : 'Only pending estimates can be turned into an order.',
+                : 'Only open estimates (pending or new) can be turned into an order.',
           )
           setSearchParams({}, { replace: true })
           return

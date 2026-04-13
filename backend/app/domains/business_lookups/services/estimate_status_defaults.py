@@ -1,7 +1,8 @@
-"""Built-in `status_estimate` rows per company (pending / converted / cancelled).
+"""Built-in `status_estimate` rows per company (new / pending / converted / cancelled).
 
-Migration **DB/19_status_estimate_lookup.sql** seeds existing companies only. New companies created
-later need the same rows — this module inserts them idempotently (same id formula as the migration).
+Migration **DB/19_status_estimate_lookup.sql** seeds existing companies with three slugs; **DB/26**
+adds **`new`**. New companies created later need these rows — this module inserts them idempotently
+(same id formula as the migration: `md5(company_id || ':est:' || kind)` first 16 hex).
 """
 
 from __future__ import annotations
@@ -21,7 +22,32 @@ def _builtin_estimate_status_id(company_id: UUID, kind: str) -> str:
 def ensure_default_estimate_statuses_for_company(db: Session, company_id: UUID) -> None:
     """Insert built-in estimate statuses when missing (safe to call multiple times)."""
     cid = str(company_id)
+    # Promote a legacy custom "New Estimate" row (NULL builtin_kind) before INSERT, max one per company.
+    db.execute(
+        text(
+            """
+            UPDATE status_estimate se
+            SET builtin_kind = 'new'
+            FROM (
+              SELECT se2.company_id, se2.id
+              FROM status_estimate se2
+              WHERE se2.company_id = CAST(:cid AS uuid)
+                AND se2.builtin_kind IS NULL
+                AND lower(trim(se2.name)) = 'new estimate'
+                AND NOT EXISTS (
+                  SELECT 1 FROM status_estimate x
+                  WHERE x.company_id = se2.company_id AND x.builtin_kind = 'new'
+                )
+              ORDER BY se2.sort_order ASC, se2.id ASC
+              LIMIT 1
+            ) pick
+            WHERE se.company_id = pick.company_id AND se.id = pick.id
+            """
+        ),
+        {"cid": cid},
+    )
     for builtin_kind, name, sort_order in (
+        ("new", "New Estimate", -1),
         ("pending", "Pending", 0),
         ("converted", "Converted to order", 1),
         ("cancelled", "Cancelled", 2),
