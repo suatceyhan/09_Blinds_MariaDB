@@ -63,7 +63,7 @@ export const appPages: PageConfig[] = [
     basePath: '/lookups/blinds-types',
     parent: 'lookups-root',
     module: 'lookups',
-    permissions: { view: 'lookups.view', edit: 'lookups.edit' },
+    permissions: { view: 'lookups.blinds_types.view', edit: 'lookups.blinds_types.edit' },
     showInNav: true,
   },
   {
@@ -72,7 +72,7 @@ export const appPages: PageConfig[] = [
     basePath: '/lookups/order-statuses',
     parent: 'lookups-root',
     module: 'lookups',
-    permissions: { view: 'lookups.view', edit: 'lookups.edit' },
+    permissions: { view: 'lookups.order_statuses.view', edit: 'lookups.order_statuses.edit' },
     showInNav: true,
   },
   {
@@ -81,7 +81,7 @@ export const appPages: PageConfig[] = [
     basePath: '/lookups/estimate-statuses',
     parent: 'lookups-root',
     module: 'lookups',
-    permissions: { view: 'lookups.view', edit: 'lookups.edit' },
+    permissions: { view: 'lookups.estimate_statuses.view', edit: 'lookups.estimate_statuses.edit' },
     showInNav: true,
   },
   {
@@ -90,7 +90,7 @@ export const appPages: PageConfig[] = [
     basePath: '/lookups/blinds-product-categories',
     parent: 'lookups-root',
     module: 'lookups',
-    permissions: { view: 'lookups.view', edit: 'lookups.edit' },
+    permissions: { view: 'lookups.product_categories.view', edit: 'lookups.product_categories.edit' },
     showInNav: true,
   },
   {
@@ -99,7 +99,10 @@ export const appPages: PageConfig[] = [
     basePath: '/lookups/blinds-extra-options/lifting_system',
     parent: 'lookups-root',
     module: 'lookups',
-    permissions: { view: 'lookups.view', edit: 'lookups.edit' },
+    permissions: {
+      view: 'lookups.blinds_extra_lifting_system.view',
+      edit: 'lookups.blinds_extra_lifting_system.edit',
+    },
     showInNav: true,
   },
   {
@@ -108,7 +111,10 @@ export const appPages: PageConfig[] = [
     basePath: '/lookups/blinds-extra-options/cassette_type',
     parent: 'lookups-root',
     module: 'lookups',
-    permissions: { view: 'lookups.view', edit: 'lookups.edit' },
+    permissions: {
+      view: 'lookups.blinds_extra_cassette_type.view',
+      edit: 'lookups.blinds_extra_cassette_type.edit',
+    },
     showInNav: true,
   },
   {
@@ -134,16 +140,6 @@ export const appPages: PageConfig[] = [
     module: 'reports',
     permissions: { view: 'reports.access.view', edit: 'reports.access.edit' },
     showInNav: true,
-  },
-  {
-    id: 'reports-overview',
-    name: 'Overview',
-    basePath: '/reports',
-    parent: 'reports-root',
-    module: 'reports',
-    permissions: { view: 'reports.access.view', edit: 'reports.access.edit' },
-    /** Same URL as Reports parent; hub content opens when you click the Reports row (no extra nav item). */
-    showInNav: false,
   },
   {
     id: 'reports-ops',
@@ -220,8 +216,8 @@ export const appPages: PageConfig[] = [
     id: 'permissions-group',
     name: 'Permissions',
     basePath: '/permissions',
-    module: 'settings',
-    permissions: { view: 'settings.access.view', edit: 'settings.access.edit' },
+    module: 'permissions',
+    permissions: { view: 'permissions.access.view', edit: 'permissions.access.edit' },
     showInNav: true,
   },
   {
@@ -305,7 +301,7 @@ export const appPages: PageConfig[] = [
     basePath: '/settings/company-info',
     parent: 'settings-group',
     module: 'settings',
-    permissions: { view: 'companies.view', edit: 'companies.edit' },
+    permissions: { view: 'settings.company_info.view', edit: 'settings.company_info.edit' },
     showInNav: true,
   },
   {
@@ -314,7 +310,7 @@ export const appPages: PageConfig[] = [
     basePath: '/settings/integrations',
     parent: 'settings-group',
     module: 'settings',
-    permissions: { view: 'companies.view', edit: 'companies.edit' },
+    permissions: { view: 'settings.integrations.view', edit: 'settings.integrations.edit' },
     showInNav: true,
   },
   {
@@ -323,7 +319,10 @@ export const appPages: PageConfig[] = [
     basePath: '/settings/blinds-line-matrices',
     parent: 'settings-group',
     module: 'settings',
-    permissions: { view: 'settings.access.view', edit: 'settings.access.edit' },
+    permissions: {
+      view: 'settings.blinds_line_matrices.view',
+      edit: 'settings.blinds_line_matrices.edit',
+    },
     showInNav: true,
   },
   {

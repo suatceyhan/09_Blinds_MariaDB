@@ -1,5 +1,16 @@
 import type { PageConfig } from '@/config/appPages'
 
+/** Row that was toggled (nav page id); required when several pages share the same permission key. */
+function resolvePageForToggle(
+  pages: PageConfig[],
+  permKey: string,
+  kind: 'view' | 'edit',
+  pageId?: string | null,
+): PageConfig | undefined {
+  if (pageId) return pages.find((p) => p.id === pageId)
+  return pages.find((p) => p.permissions[kind] === permKey)
+}
+
 export function findParentKey(pages: PageConfig[], permKey: string, type: 'view' | 'edit'): string | null {
   const page = pages.find((p) => p.permissions[type] === permKey)
   const parentPage = pages.find((p) => p.id === page?.parent)
@@ -55,7 +66,8 @@ function turnOnAncestors(page: PageConfig | undefined, pages: PageConfig[], upda
   }
 }
 
-function turnOnAncestorsIncludingEdit(
+/** Granting edit: only ancestor **view** bits (menu path); do not flip parent edit switches. */
+function turnOnAncestorViewsForEdit(
   page: PageConfig | undefined,
   pages: PageConfig[],
   updated: Record<string, boolean>,
@@ -67,7 +79,6 @@ function turnOnAncestorsIncludingEdit(
     const parentPage = pages.find((p) => p.id === parentId)
     if (!parentPage) break
     if (parentPage.permissions.view) updated[parentPage.permissions.view] = true
-    if (parentPage.permissions.edit) updated[parentPage.permissions.edit] = true
     cur = parentPage
   }
 }
@@ -80,35 +91,39 @@ export function applyRoleMatrixToggle(
   value: boolean,
   allKeys?: string[],
   _type?: 'is_granted' | 'override',
+  /** Nav row id from the tree — disambiguates pages that still share a permission key. */
+  pageId?: string | null,
 ): Record<string, boolean> {
   const updated = { ...prev }
   const isViewPermission = permKey.endsWith('.view')
   const isEditPermission = permKey.endsWith('.edit')
+  /** True when the UI sent a subtree (parent row), not only the row’s own key (duplicate keys can dedupe to 1). */
+  const subtreeFromUi = (allKeys?.length ?? 0) > 1
 
   if (value) {
     if (allKeys != null && allKeys.length > 0) {
-      allKeys.forEach((key) => {
+      for (const key of new Set(allKeys)) {
         updated[key] = true
-      })
+      }
     } else {
       updated[permKey] = true
     }
     if (isViewPermission) {
-      const currentPage = pages.find((p) => p.permissions.view === permKey)
+      const currentPage = resolvePageForToggle(pages, permKey, 'view', pageId)
       turnOnAncestors(currentPage, pages, updated)
     } else if (isEditPermission) {
-      const currentPage = pages.find((p) => p.permissions.edit === permKey)
-      turnOnAncestorsIncludingEdit(currentPage, pages, updated)
+      const currentPage = resolvePageForToggle(pages, permKey, 'edit', pageId)
+      turnOnAncestorViewsForEdit(currentPage, pages, updated)
     }
-  } else if (allKeys != null && allKeys.length > 1) {
-    allKeys.forEach((key) => {
+  } else if (subtreeFromUi && allKeys != null) {
+    for (const key of new Set(allKeys)) {
       updated[key] = false
-    })
-    /* OFF toplu: yalnızca listedeki anahtarlar; üst menülere dokunma */
+    }
+    /* OFF subtree: only keys listed in collectKeys; paired edits handled by role view row handler when needed */
   } else {
     updated[permKey] = false
     if (isViewPermission) {
-      const currentPage = pages.find((p) => p.permissions.view === permKey)
+      const currentPage = resolvePageForToggle(pages, permKey, 'view', pageId)
       const editKey = permKey.replace('.view', '.edit')
       updated[editKey] = false
       if (currentPage) {
@@ -118,7 +133,7 @@ export function applyRoleMatrixToggle(
         })
       }
     } else if (isEditPermission) {
-      const currentPage = pages.find((p) => p.permissions.edit === permKey)
+      const currentPage = resolvePageForToggle(pages, permKey, 'edit', pageId)
       if (currentPage) {
         getAllChildKeys(pages, currentPage.id).forEach(({ edit }) => {
           updated[edit] = false

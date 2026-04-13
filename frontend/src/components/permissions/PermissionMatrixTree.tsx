@@ -16,6 +16,7 @@ type Props = {
     value: boolean,
     allChildKeys?: string[],
     type?: 'is_granted' | 'override',
+    pageId?: string,
   ) => void
   /**
    * Rol matrisi: görüntüle satırı OFF olunca düz satırını da aynı state güncellemesinde kapatır
@@ -27,6 +28,7 @@ type Props = {
     checked: boolean,
     allViewKeys: string[],
     allEditKeys: string[],
+    pageId: string,
   ) => void
   level?: number
   mode?: 'role' | 'user'
@@ -112,10 +114,10 @@ export function PermissionMatrixTree({
           canEditDisabled={!userView}
           collapsed={hasChildren ? isCollapsed : undefined}
           toggleCollapse={hasChildren ? () => toggleCollapse(node.id) : undefined}
-          onViewToggle={(val) => onToggle(viewKey, val, undefined, 'is_granted')}
+          onViewToggle={(val) => onToggle(viewKey, val, undefined, 'is_granted', node.id)}
           onEditToggle={(val) => {
             if (!userView && val) return
-            onToggle(editKey, val, undefined, 'is_granted')
+            onToggle(editKey, val, undefined, 'is_granted', node.id)
           }}
           userOverride={userOverride}
           onOverrideToggle={() => onToggle(viewKey, !userOverride, undefined, 'override')}
@@ -155,15 +157,15 @@ export function PermissionMatrixTree({
           toggleCollapse={hasChildren ? () => toggleCollapse(node.id) : undefined}
           onViewToggle={(checked) => {
             if (onRoleViewRowToggle) {
-              onRoleViewRowToggle(viewKey, editKey, checked, allViewKeys, allEditKeys)
+              onRoleViewRowToggle(viewKey, editKey, checked, allViewKeys, allEditKeys, node.id)
             } else {
-              onToggle(viewKey, checked, allViewKeys, 'is_granted')
+              onToggle(viewKey, checked, allViewKeys, 'is_granted', node.id)
               if (!checked) {
-                onToggle(editKey, false, allEditKeys, 'is_granted')
+                onToggle(editKey, false, allEditKeys, 'is_granted', node.id)
               }
             }
           }}
-          onEditToggle={(checked) => onToggle(editKey, checked, allEditKeys, 'is_granted')}
+          onEditToggle={(checked) => onToggle(editKey, checked, allEditKeys, 'is_granted', node.id)}
           mode="role"
           level={nodeLevel}
           canEdit={canEdit}

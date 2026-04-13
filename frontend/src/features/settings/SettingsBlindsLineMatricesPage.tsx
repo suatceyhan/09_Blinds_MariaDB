@@ -25,8 +25,8 @@ function pairKey(a: string, b: string) {
 
 export function SettingsBlindsLineMatricesPage() {
   const me = useAuthSession()
-  const canView = Boolean(me?.permissions.includes('settings.access.view'))
-  const canEdit = Boolean(me?.permissions.includes('settings.access.edit'))
+  const canView = Boolean(me?.permissions.includes('settings.blinds_line_matrices.view'))
+  const canEdit = Boolean(me?.permissions.includes('settings.blinds_line_matrices.edit'))
 
   const [kinds, setKinds] = useState<KindBrief[]>([])
   const [catData, setCatData] = useState<CategoryMatrixOut | null>(null)

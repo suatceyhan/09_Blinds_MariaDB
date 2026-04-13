@@ -22,8 +22,8 @@ export function SettingsIntegrationsPage() {
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
 
-  const canView = Boolean(me?.permissions.includes('companies.view'))
-  const canEdit = Boolean(me?.permissions.includes('companies.edit'))
+  const canView = Boolean(me?.permissions.includes('settings.integrations.view'))
+  const canEdit = Boolean(me?.permissions.includes('settings.integrations.edit'))
 
   const loadStatus = useCallback(async () => {
     setErr(null)

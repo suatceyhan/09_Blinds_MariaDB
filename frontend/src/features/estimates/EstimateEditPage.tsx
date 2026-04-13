@@ -635,11 +635,11 @@ export function EstimateEditPage() {
                 return (
                   <label
                     key={b.id}
-                    className="flex flex-wrap items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-sm hover:bg-slate-50/80"
+                    className="grid grid-cols-[auto_minmax(0,1fr)_3.5rem_4rem] items-center gap-x-2 gap-y-1 rounded-lg border border-transparent px-2 py-2 text-sm hover:bg-slate-50/80"
                   >
                     <input
                       type="checkbox"
-                      className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-teal-600"
+                      className="h-3.5 w-3.5 shrink-0 self-center rounded border-slate-300 text-teal-600"
                       checked={checked}
                       disabled={formDisabled}
                       onChange={(ev) => {
@@ -652,14 +652,14 @@ export function EstimateEditPage() {
                       }}
                       aria-label={`Include ${b.name}`}
                     />
-                    <span className="min-w-0 max-w-[8rem] truncate font-medium text-slate-800">{b.name}</span>
+                    <span className="min-w-0 truncate font-medium text-slate-800">{b.name}</span>
                     <input
                       type="number"
                       min={1}
                       placeholder="Qty"
                       title="Windows"
                       disabled={formDisabled || !checked}
-                      className="w-16 rounded border border-slate-200 px-2 py-1 text-xs outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
+                      className="w-full min-w-0 rounded border border-slate-200 px-2 py-1 text-xs tabular-nums outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
                       value={windowCountByBlindsId[b.id] ?? ''}
                       onChange={(ev) => {
                         const v = ev.target.value
@@ -674,7 +674,7 @@ export function EstimateEditPage() {
                       placeholder="Amt"
                       title="Line amount (optional)"
                       disabled={formDisabled || !checked}
-                      className="w-16 rounded border border-slate-200 px-2 py-1 text-xs outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
+                      className="w-full min-w-0 rounded border border-slate-200 px-2 py-1 text-xs tabular-nums outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
                       value={lineAmountByBlindsId[b.id] ?? ''}
                       onChange={(ev) =>
                         setLineAmountByBlindsId((wt) => ({ ...wt, [b.id]: ev.target.value }))

@@ -15,6 +15,7 @@ Bu proje, **giriş, kayıt, şifre değiştirme, şifremi unuttum / sıfırlama*
 - Açık kayıt `.env` ile kapatılabilir: `PUBLIC_REGISTRATION_ENABLED=false`
 - Bootstrap `SUPER_ADMIN_*` ile ilk yönetici (opsiyonel)
 - İlk açılışta varsayılan **`user`** rolü oluşturulur (self-service kayıt için)
+- Menü / rol matrisi: **Ana menüler** birbirinden ayrı izin anahtarları kullanır (`app_nav_permissions.APP_PERMISSION_SEEDS` + `frontend/src/config/appPages.ts`). **Lookups** hub `lookups.view` / `lookups.edit`; alt sayfalar ayrı anahtarlar (örn. `lookups.blinds_types.view`, `lookups.order_statuses.view`, …) — matriste satır başına bağımsız toggle; API **granular veya** eski geniş anahtarı kabul eder. **Companies** (`companies.*`) yalnızca şirket dizini; **Settings → Company info / Integrations** sırasıyla `settings.company_info.*`, `settings.integrations.*`; **Blinds line matrices** `settings.blinds_line_matrices.*`; **Permissions** kökü `permissions.access.*` (**`settings.access.*` değil**). API’de geçiş için bazı uçlar yeni anahtarlarla **`companies.*` / `settings.access.*` OR** kabul eder; yeni izinler bootstrap’ta `permissions` tablosuna eklenir, şirket sahibi rolünde eksik satır varsa otomatik **grant** edilir; mevcut DB’ler için **`DB/29_lookup_subpage_permissions.sql`** backfill.
 
 ## Hızlı başlangıç
 

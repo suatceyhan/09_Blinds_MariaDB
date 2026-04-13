@@ -77,7 +77,7 @@ def _row_to_out(d: dict[str, Any], *, code_to_types: dict[str, list[str]]) -> di
 @router.get("/blinds-product-categories", response_model=list[BlindsProductCategoryOut])
 def list_blinds_product_categories(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("lookups.view"))],
+    current_user: Annotated[Users, Depends(require_permissions("lookups.product_categories.view", "lookups.view"))],
     search: str | None = Query(None, max_length=200),
     include_inactive: bool = Query(False),
     limit: int = Query(300, ge=1, le=500),
@@ -144,7 +144,7 @@ def _insert_category(
 def create_blinds_product_category(
     body: BlindsProductCategoryCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("lookups.edit"))],
+    current_user: Annotated[Users, Depends(require_permissions("lookups.product_categories.edit", "lookups.edit"))],
 ):
     cid = effective_company_id(current_user)
     if not cid:
@@ -177,7 +177,7 @@ def patch_blinds_product_category(
     category_id: str,
     body: BlindsProductCategoryPatch,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("lookups.edit"))],
+    current_user: Annotated[Users, Depends(require_permissions("lookups.product_categories.edit", "lookups.edit"))],
 ):
     cid = effective_company_id(current_user)
     if not cid:
@@ -243,7 +243,7 @@ def patch_blinds_product_category(
 def delete_blinds_product_category(
     category_id: str,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("lookups.edit"))],
+    current_user: Annotated[Users, Depends(require_permissions("lookups.product_categories.edit", "lookups.edit"))],
 ):
     """Soft-deactivate; clears type×category links for all companies (same as PATCH active=false)."""
     cid = effective_company_id(current_user)

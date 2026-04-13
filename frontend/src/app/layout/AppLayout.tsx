@@ -39,7 +39,7 @@ import { apiBase, getJson, postJson } from '@/lib/api'
 import { appTitle } from '@/lib/brand'
 import { clearTokens, getAccessToken, setTokens, touchLastActivity } from '@/lib/authStorage'
 import { useSessionIdleTimeout } from '@/lib/useSessionIdleTimeout'
-import { firstNavigableBasePath, pathRequiresViewPermission } from '@/lib/routePermissions'
+import { firstNavigableBasePath, routeViewAllowed } from '@/lib/routePermissions'
 import { AuthSessionProvider, REFRESH_SESSION_EVENT, type SessionUser } from '@/app/authSession'
 
 type Me = SessionUser
@@ -77,6 +77,14 @@ const pageIcons: Record<string, LucideIcon> = {
 
 function canSeeNav(me: Me, viewPerm: string): boolean {
   return me.permissions.includes(viewPerm)
+}
+
+/** Lookups accordion header: hub key or any submenu .view */
+function canSeeLookupsAccordion(me: Me): boolean {
+  if (canSeeNav(me, 'lookups.view')) return true
+  return appPages.some(
+    (p) => p.parent === 'lookups-root' && p.showInNav !== false && canSeeNav(me, p.permissions.view),
+  )
 }
 
 /** Sidebar accordion ids (single expanded group + route sync in `AppLayout`). */
@@ -127,6 +135,7 @@ function CollapsibleNavGroup({
   open,
   sectionId,
   setExpandedNavId,
+  headerVisible,
   children,
 }: {
   page: PageNode
@@ -134,11 +143,14 @@ function CollapsibleNavGroup({
   open: boolean
   sectionId: AccordionNavSectionId
   setExpandedNavId: Dispatch<SetStateAction<AccordionNavSectionId | null>>
+  /** When set, replaces ``canSeeNav(me, page.permissions.view)`` for the section header row. */
+  headerVisible?: (session: Me) => boolean
   children: React.ReactNode
 }) {
   const navigate = useNavigate()
   const location = useLocation()
-  if (!canSeeNav(me, page.permissions.view)) return null
+  const showHeader = headerVisible ? headerVisible(me) : canSeeNav(me, page.permissions.view)
+  if (!showHeader) return null
   const Icon = pageIcons[page.id] ?? LayoutDashboard
   const to = page.basePath ?? '#'
   const base = to.replace(/\/$/, '') || '/'
@@ -445,8 +457,7 @@ export function AppLayout() {
     if (!me) return
     const pathNorm = location.pathname.replace(/\/$/, '') || '/'
     if (me.must_change_password && pathNorm === '/account/password') return
-    const required = pathRequiresViewPermission(location.pathname)
-    if (!required || me.permissions.includes(required)) return
+    if (routeViewAllowed(location.pathname, me.permissions)) return
     const dest = firstNavigableBasePath(me.permissions)
     const destNorm = dest.replace(/\/$/, '') || '/'
     if (destNorm === pathNorm) return
@@ -529,6 +540,7 @@ export function AppLayout() {
               open={expandedNavId === 'lookups-root'}
               sectionId="lookups-root"
               setExpandedNavId={setExpandedNavId}
+              headerVisible={canSeeLookupsAccordion}
             >
               <NavSubtree nodes={lookupsRoot.children ?? []} me={me} depth={0} />
             </CollapsibleNavGroup>

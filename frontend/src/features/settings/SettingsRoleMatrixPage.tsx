@@ -101,9 +101,10 @@ export function SettingsRoleMatrixPage() {
     value: boolean,
     allChildKeys?: string[],
     _type?: 'is_granted' | 'override',
+    pageId?: string,
   ) => {
     setKeyMap((prev) =>
-      applyRoleMatrixToggle(appPages, prev, permKey, value, allChildKeys, 'is_granted'),
+      applyRoleMatrixToggle(appPages, prev, permKey, value, allChildKeys, 'is_granted', pageId),
     )
     setDirty(true)
   }
@@ -115,11 +116,12 @@ export function SettingsRoleMatrixPage() {
     checked: boolean,
     allViewKeys: string[],
     allEditKeys: string[],
+    pageId: string,
   ) {
     setKeyMap((prev) => {
-      let next = applyRoleMatrixToggle(appPages, prev, viewKey, checked, allViewKeys, 'is_granted')
+      let next = applyRoleMatrixToggle(appPages, prev, viewKey, checked, allViewKeys, 'is_granted', pageId)
       if (!checked) {
-        next = applyRoleMatrixToggle(appPages, next, editKey, false, allEditKeys, 'is_granted')
+        next = applyRoleMatrixToggle(appPages, next, editKey, false, allEditKeys, 'is_granted', pageId)
       }
       return next
     })

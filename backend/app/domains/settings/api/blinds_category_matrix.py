@@ -43,7 +43,9 @@ class BlindsCategoryMatrixUpdate(BaseModel):
 @router.get("/settings/blinds-category-matrix", response_model=BlindsCategoryMatrixPageOut)
 def get_blinds_category_matrix(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("settings.access.view"))],
+    current_user: Annotated[
+        Users, Depends(require_permissions("settings.blinds_line_matrices.view", "settings.access.view"))
+    ],
 ):
     cid = effective_company_id(current_user)
     if not cid:
@@ -100,7 +102,9 @@ def get_blinds_category_matrix(
 def put_blinds_category_matrix(
     body: BlindsCategoryMatrixUpdate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("settings.access.edit"))],
+    current_user: Annotated[
+        Users, Depends(require_permissions("settings.blinds_line_matrices.edit", "settings.access.edit"))
+    ],
 ):
     cid = effective_company_id(current_user)
     if not cid:

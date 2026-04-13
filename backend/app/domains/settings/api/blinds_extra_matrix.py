@@ -51,7 +51,9 @@ class BlindsExtraMatrixKindBrief(BaseModel):
 @router.get("/settings/blinds-extra-matrix-kinds", response_model=list[BlindsExtraMatrixKindBrief])
 def list_blinds_extra_matrix_kinds(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("settings.access.view"))],
+    current_user: Annotated[
+        Users, Depends(require_permissions("settings.blinds_line_matrices.view", "settings.access.view"))
+    ],
 ):
     """Active line-attribute kinds for matrix UIs (same rows as order form extras)."""
     rows = db.execute(
@@ -94,7 +96,9 @@ def _require_kind(db: Session, kind_id: str) -> dict:
 def get_blinds_extra_matrix(
     kind_id: str,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("settings.access.view"))],
+    current_user: Annotated[
+        Users, Depends(require_permissions("settings.blinds_line_matrices.view", "settings.access.view"))
+    ],
 ):
     cid = effective_company_id(current_user)
     if not cid:
@@ -158,7 +162,9 @@ def put_blinds_extra_matrix(
     kind_id: str,
     body: BlindsExtraMatrixUpdate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("settings.access.edit"))],
+    current_user: Annotated[
+        Users, Depends(require_permissions("settings.blinds_line_matrices.edit", "settings.access.edit"))
+    ],
 ):
     cid = effective_company_id(current_user)
     if not cid:

@@ -49,7 +49,9 @@ def _frontend_integrations_url(query: dict[str, str] | None = None) -> str:
 @router.get("/authorization-url", response_model=GoogleCalendarAuthUrlOut)
 def get_google_calendar_authorization_url(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("companies.edit"))],
+    current_user: Annotated[
+        Users, Depends(require_permissions("companies.edit", "settings.integrations.edit"))
+    ],
 ):
     if not google_calendar_oauth_configured():
         raise HTTPException(
@@ -97,7 +99,9 @@ def google_calendar_oauth_callback(
 @router.get("/status", response_model=GoogleCalendarStatusOut)
 def google_calendar_status(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("companies.view"))],
+    current_user: Annotated[
+        Users, Depends(require_permissions("companies.view", "settings.integrations.view"))
+    ],
 ):
     cid = effective_company_id(current_user)
     if not cid:
@@ -111,7 +115,9 @@ def google_calendar_status(
 @router.delete("/connection", status_code=204)
 def disconnect_google_calendar(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("companies.edit"))],
+    current_user: Annotated[
+        Users, Depends(require_permissions("companies.edit", "settings.integrations.edit"))
+    ],
 ):
     cid = effective_company_id(current_user)
     if not cid:

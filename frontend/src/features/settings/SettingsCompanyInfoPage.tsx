@@ -28,8 +28,8 @@ export function SettingsCompanyInfoPage() {
     [me?.active_company_id, me?.company_id],
   )
 
-  const canView = Boolean(me?.permissions.includes('companies.view'))
-  const canEdit = Boolean(me?.permissions.includes('companies.edit'))
+  const canView = Boolean(me?.permissions.includes('settings.company_info.view'))
+  const canEdit = Boolean(me?.permissions.includes('settings.company_info.edit'))
 
   const [row, setRow] = useState<CompanyOut | null>(null)
   const [name, setName] = useState('')

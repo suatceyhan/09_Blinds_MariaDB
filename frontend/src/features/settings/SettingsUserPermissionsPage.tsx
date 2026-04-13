@@ -160,6 +160,7 @@ export function SettingsUserPermissionsPage() {
     value: boolean,
     _all?: string[],
     type?: 'is_granted' | 'override',
+    _pageId?: string,
   ) => {
     setRows((prev) => applyUserPermissionToggle(appPages, prev, permKey, value, type))
   }

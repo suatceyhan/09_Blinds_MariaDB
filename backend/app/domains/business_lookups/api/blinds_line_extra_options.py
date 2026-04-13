@@ -10,6 +10,10 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.dependencies.auth import effective_company_id, require_permissions
+from app.domains.business_lookups.lookup_route_permissions import (
+    LOOKUPS_KIND_EXTRA_VIEW_KEYS,
+    require_lookup_extra_options,
+)
 from app.domains.user.models.users import Users
 
 router = APIRouter()
@@ -72,7 +76,7 @@ def _insert_option(db: Session, *, kind_id: str, code: str, name: str, sort_orde
 @router.get("/blinds-extra-option-kinds", response_model=list[ExtraKindOut])
 def list_blinds_extra_option_kinds(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("lookups.view"))],
+    current_user: Annotated[Users, Depends(require_permissions(*LOOKUPS_KIND_EXTRA_VIEW_KEYS))],
 ):
     cid = effective_company_id(current_user)
     if not cid:
@@ -94,7 +98,7 @@ def list_blinds_extra_option_kinds(
 def list_blinds_extra_options(
     kind_id: str,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("lookups.view"))],
+    current_user: Annotated[Users, Depends(require_lookup_extra_options("view"))],
     include_inactive: bool = Query(False),
     search: str | None = Query(None, max_length=200),
     limit: int = Query(300, ge=1, le=500),
@@ -132,7 +136,7 @@ def create_blinds_extra_option(
     kind_id: str,
     body: ExtraOptionCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("lookups.edit"))],
+    current_user: Annotated[Users, Depends(require_lookup_extra_options("edit"))],
 ):
     cid = effective_company_id(current_user)
     if not cid:
@@ -166,7 +170,7 @@ def patch_blinds_extra_option(
     option_id: str,
     body: ExtraOptionPatch,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("lookups.edit"))],
+    current_user: Annotated[Users, Depends(require_lookup_extra_options("edit"))],
 ):
     cid = effective_company_id(current_user)
     if not cid:

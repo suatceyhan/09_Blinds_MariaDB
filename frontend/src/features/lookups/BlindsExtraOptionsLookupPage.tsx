@@ -34,7 +34,13 @@ function ShowInactiveToggle(props: Readonly<{ checked: boolean; onChange: (v: bo
 export function BlindsExtraOptionsLookupPage() {
   const { kindId = '' } = useParams<{ kindId: string }>()
   const me = useAuthSession()
-  const canEdit = Boolean(me?.permissions.includes('lookups.edit'))
+  const kid = kindId.trim()
+  let granularEditKey: string | null = null
+  if (kid === 'lifting_system') granularEditKey = 'lookups.blinds_extra_lifting_system.edit'
+  else if (kid === 'cassette_type') granularEditKey = 'lookups.blinds_extra_cassette_type.edit'
+  const canEdit = Boolean(
+    (granularEditKey && me?.permissions.includes(granularEditKey)) || me?.permissions.includes('lookups.edit'),
+  )
 
   const [kindName, setKindName] = useState<string>('')
   const [rows, setRows] = useState<Row[] | null>(null)

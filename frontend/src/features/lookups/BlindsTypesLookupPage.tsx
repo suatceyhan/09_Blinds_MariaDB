@@ -44,7 +44,9 @@ function ShowInactiveToggle(props: Readonly<{ checked: boolean; onChange: (v: bo
 
 export function BlindsTypesLookupPage() {
   const me = useAuthSession()
-  const canEdit = Boolean(me?.permissions.includes('lookups.edit'))
+  const canEdit = Boolean(
+    me?.permissions.includes('lookups.blinds_types.edit') || me?.permissions.includes('lookups.edit'),
+  )
 
   const [rows, setRows] = useState<Row[] | null>(null)
   const [err, setErr] = useState<string | null>(null)

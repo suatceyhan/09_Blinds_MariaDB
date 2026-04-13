@@ -58,7 +58,7 @@ class BlindsTypePatchIn(BaseModel):
 @router.get("/blinds-types", response_model=list[BlindsTypeOut])
 def list_blinds_types(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("lookups.view"))],
+    current_user: Annotated[Users, Depends(require_permissions("lookups.blinds_types.view", "lookups.view"))],
     search: str | None = Query(None, max_length=200),
     include_inactive: bool = Query(False),
     limit: int = Query(300, ge=1, le=500),
@@ -94,7 +94,7 @@ def list_blinds_types(
 def create_blinds_type(
     body: BlindsTypeCreateIn,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("lookups.edit"))],
+    current_user: Annotated[Users, Depends(require_permissions("lookups.blinds_types.edit", "lookups.edit"))],
 ):
     cid = effective_company_id(current_user)
     if not cid:
@@ -145,7 +145,7 @@ def patch_blinds_type(
     blinds_type_id: str,
     body: BlindsTypePatchIn,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("lookups.edit"))],
+    current_user: Annotated[Users, Depends(require_permissions("lookups.blinds_types.edit", "lookups.edit"))],
 ):
     cid = effective_company_id(current_user)
     if not cid:
@@ -210,7 +210,7 @@ class OrderStatusOut(BaseModel):
 @router.get("/order-statuses", response_model=list[OrderStatusOut])
 def list_order_statuses(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("lookups.view"))],
+    current_user: Annotated[Users, Depends(require_permissions("lookups.order_statuses.view", "lookups.view"))],
     search: str | None = Query(None, max_length=200),
     include_inactive: bool = Query(False),
     limit: int = Query(300, ge=1, le=500),
@@ -277,7 +277,7 @@ def _estimate_status_row_out(row: dict[str, Any]) -> EstimateStatusOut:
 @router.get("/estimate-statuses", response_model=list[EstimateStatusOut])
 def list_estimate_statuses(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("lookups.view"))],
+    current_user: Annotated[Users, Depends(require_permissions("lookups.estimate_statuses.view", "lookups.view"))],
     search: str | None = Query(None, max_length=200),
     include_inactive: bool = Query(False),
     limit: int = Query(300, ge=1, le=500),

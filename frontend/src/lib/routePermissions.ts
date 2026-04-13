@@ -1,5 +1,24 @@
 import { appPages, type PageConfig } from '@/config/appPages'
 
+/** Hub ``/lookups``: any child lookup .view is enough (parent row may stay ``lookups.view`` only). */
+export function routeViewAllowed(pathname: string, permissions: string[]): boolean {
+  const normalized = pathname.replace(/\/$/, '') || '/'
+  if (normalized === '/lookups') {
+    if (permissions.includes('lookups.view')) return true
+    return appPages.some(
+      (p) => p.parent === 'lookups-root' && permissions.includes(p.permissions.view),
+    )
+  }
+  if (normalized.startsWith('/lookups/')) {
+    if (permissions.includes('lookups.view')) return true
+    const required = pathRequiresViewPermission(pathname)
+    return Boolean(required && permissions.includes(required))
+  }
+  const required = pathRequiresViewPermission(pathname)
+  if (!required) return true
+  return permissions.includes(required)
+}
+
 /** Geçerli path için menü/erişimde kullanılan .view izin anahtarı (en uzun basePath eşlemesi). */
 export function pathRequiresViewPermission(pathname: string): string | null {
   const normalized = pathname.replace(/\/$/, '') || '/'

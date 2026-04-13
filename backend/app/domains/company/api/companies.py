@@ -315,7 +315,9 @@ def list_companies(
 def get_company(
     company_id: UUID,
     db: Session = Depends(get_db),
-    current_user: Users = Depends(require_permissions("companies.view")),
+    current_user: Users = Depends(
+        require_permissions("companies.view", "settings.company_info.view")
+    ),
 ):
     row = _company_base_query(db).filter(Companies.id == company_id).first()
     if not row:
@@ -388,7 +390,9 @@ def patch_company(
     company_id: UUID,
     body: CompanyPatch,
     db: Session = Depends(get_db),
-    current_user: Users = Depends(require_permissions("companies.edit")),
+    current_user: Users = Depends(
+        require_permissions("companies.edit", "settings.company_info.edit")
+    ),
 ):
     row = db.query(Companies).filter(Companies.id == company_id).first()
     if not row:
