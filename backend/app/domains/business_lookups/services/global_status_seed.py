@@ -43,12 +43,17 @@ def ensure_global_estimate_catalog_seeded(db: Session) -> None:
         (ESTIMATE_BUILTIN_IDS["cancelled"], "Cancelled", 2, "cancelled"),
     ]
     for sid, name, so, bk in rows:
+        # Match on id OR builtin_kind: migrated DBs may use different ids but uq_status_estimate_global_builtin_nn
+        # still blocks a second row with the same builtin_kind.
         db.execute(
             text(
                 """
                 INSERT INTO status_estimate (id, name, active, sort_order, builtin_kind)
                 SELECT :id, :name, TRUE, :so, :bk
-                WHERE NOT EXISTS (SELECT 1 FROM status_estimate WHERE id = :id)
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM status_estimate se
+                  WHERE se.id = :id OR se.builtin_kind = :bk
+                )
                 """
             ),
             {"id": sid, "name": name, "so": so, "bk": bk},

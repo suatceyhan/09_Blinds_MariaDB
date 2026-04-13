@@ -219,12 +219,15 @@ def list_order_statuses(
     if not cid:
         raise HTTPException(status_code=403, detail="No active company.")
     term = (search or "").strip()
+    # Single predicate: do not split EXISTS across list items (join uses " AND ").
     where = [
-        "EXISTS (",
-        "  SELECT 1 FROM company_status_order_matrix m",
-        "  WHERE m.company_id = CAST(:company_id AS uuid)",
-        "    AND m.status_order_id = so.id",
-        ")",
+        """
+        EXISTS (
+          SELECT 1 FROM company_status_order_matrix m
+          WHERE m.company_id = CAST(:company_id AS uuid)
+            AND m.status_order_id = so.id
+        )
+        """.strip(),
     ]
     params: dict[str, Any] = {"company_id": str(cid), "limit": limit}
     if not include_inactive:
@@ -284,11 +287,13 @@ def list_estimate_statuses(
         raise HTTPException(status_code=403, detail="No active company.")
     term = (search or "").strip()
     where = [
-        "EXISTS (",
-        "  SELECT 1 FROM company_status_estimate_matrix m",
-        "  WHERE m.company_id = CAST(:company_id AS uuid)",
-        "    AND m.status_estimate_id = se.id",
-        ")",
+        """
+        EXISTS (
+          SELECT 1 FROM company_status_estimate_matrix m
+          WHERE m.company_id = CAST(:company_id AS uuid)
+            AND m.status_estimate_id = se.id
+        )
+        """.strip(),
     ]
     params: dict[str, Any] = {"company_id": str(cid), "limit": limit}
     if not include_inactive:
