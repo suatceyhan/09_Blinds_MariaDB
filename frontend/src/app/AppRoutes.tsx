@@ -39,6 +39,8 @@ import { SettingsRoleMatrixPage } from '@/features/settings/SettingsRoleMatrixPa
 import { SettingsRolesPage } from '@/features/settings/SettingsRolesPage'
 import { SettingsUserPermissionsPage } from '@/features/settings/SettingsUserPermissionsPage'
 import { SettingsPendingApplicationsPage } from '@/features/settings/SettingsPendingApplicationsPage'
+import { PermissionsEstimateStatusMatrixPage } from '@/features/settings/PermissionsEstimateStatusMatrixPage'
+import { PermissionsOrderStatusMatrixPage } from '@/features/settings/PermissionsOrderStatusMatrixPage'
 import { SettingsBlindsLineMatricesPage } from '@/features/settings/SettingsBlindsLineMatricesPage'
 import { SettingsCompanyInfoPage } from '@/features/settings/SettingsCompanyInfoPage'
 import { SettingsIntegrationsPage } from '@/features/settings/SettingsIntegrationsPage'
@@ -107,6 +109,8 @@ export function AppRoutes() {
         <Route path="permissions/role-matrix" element={<SettingsRoleMatrixPage />} />
         <Route path="permissions/user-roles" element={<SettingsUserRolesPage />} />
         <Route path="permissions/user-permissions" element={<SettingsUserPermissionsPage />} />
+        <Route path="permissions/estimate-status-matrix" element={<PermissionsEstimateStatusMatrixPage />} />
+        <Route path="permissions/order-status-matrix" element={<PermissionsOrderStatusMatrixPage />} />
         <Route path="account" element={<AccountProfilePage />} />
         <Route path="account/password" element={<ChangePasswordPage />} />
         <Route path="reports" element={<ReportsHubPage />} />

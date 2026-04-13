@@ -223,7 +223,7 @@ def get_customer(
                 )
               ) AS blinds_summary
             FROM estimate e
-            LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
+            LEFT JOIN status_estimate se ON se.id = e.status_esti_id
             WHERE e.company_id = :company_id AND e.customer_id = :cid AND e.is_deleted IS NOT TRUE
             ORDER BY COALESCE(e.scheduled_start_at, e.tarih_saat) DESC NULLS LAST
             LIMIT 50

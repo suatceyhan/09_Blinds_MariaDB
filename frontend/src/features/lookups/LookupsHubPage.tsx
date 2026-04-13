@@ -48,16 +48,16 @@ export function LookupsHubPage() {
         <section className="space-y-2 border-t border-slate-100 pt-6">
           <h2 className="text-base font-semibold text-slate-900">Order statuses</h2>
           <p className="text-sm text-slate-600">
-            Configure labels and ordering for order workflow states. Typical actions: list and search
-            statuses, add or edit labels, and manage active versus inactive rows so the order grid and
-            filters stay consistent.
+            Read-only list of global labels enabled for your company. Who may use which status is configured
+            under Permissions → Order status matrix; superadmins add custom global statuses there.
           </p>
         </section>
         <section className="space-y-2 border-t border-slate-100 pt-6">
           <h2 className="text-base font-semibold text-slate-900">Estimate statuses</h2>
           <p className="text-sm text-slate-600">
-            Same idea as order statuses: add labels, rename, deactivate or restore. Built-in rows still drive
-            new estimates, conversion when an order is linked, and cancellation filters; extra labels are optional.
+            Same pattern: browse enabled global labels here; matrix and custom globals live under Permissions
+            → Estimate status matrix. Built-in workflow kinds still drive new estimates, conversion, and
+            cancellation behavior.
           </p>
         </section>
       </div>

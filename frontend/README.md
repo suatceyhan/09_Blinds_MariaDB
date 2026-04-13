@@ -48,7 +48,7 @@ Yeni modüller: `src/features` altına ek sayfalar ve `AppRoutes` + `appPages.ts
 
 **Sidebar accordions** (Lookups, Reports, Settings, Permissions): one row (chevron + icon + label). **First click** opens the subtree and navigates to that group’s hub (`/lookups`, `/reports`, `/settings`, `/permissions`). **Second click** (while open) collapses the accordion without changing route until you pick a child link.
 
-**Lookups:** `/lookups` — static overview; **`/lookups/blinds-types`** (description supports line breaks; list wraps text), **`/lookups/blinds-product-categories`**, **`/lookups/blinds-extra-options/:kindId`** (e.g. `lifting_system`, `cassette_type`), **`/lookups/order-statuses`** — list, search, show inactive, create, edit (**sort order** for chip sequence), deactivate/restore (`lookups.view` / `lookups.edit`). **`/lookups/estimate-statuses`** — same pattern (`GET`/`POST`/`PATCH`); optional JSON **`code`** (`new` \| `pending` \| `converted` \| `cancelled` or **`null`**) for built-in vs custom; **Estimate statuses** settings table does not show a workflow/slug column. DB: **`builtin_kind`** (migrations **`22`**, **`26`**), plus **`20_`**, **`21_`**. Estimate edit saves **`status_esti_id`**.
+**Lookups:** `/lookups` — static overview; **`/lookups/blinds-types`** (description supports line breaks; list wraps text), **`/lookups/blinds-product-categories`**, **`/lookups/blinds-extra-options/:kindId`** (e.g. `lifting_system`, `cassette_type`), **`/lookups/order-statuses`** — read-only list (search, show inactive); statuses are global; per-company enablement is **Permissions → Order status matrix** (`settings.order_status_matrix.*`). **`/lookups/estimate-statuses`** — same read-only pattern; optional response **`code`** for built-in workflow; matrix under **Permissions → Estimate status matrix** (`settings.estimate_status_matrix.*`). DB migration **`27`** (global catalogs + matrix). Estimate edit saves **`status_esti_id`**.
 
 **Reports:** `/reports` hub has **no** separate “Overview” nav row (same URL as the parent). Sub-nav: **Operational** → **Quarterly summary** → **Detail view** (toolbar demo). Hub pages are text-only; use the sidebar to drill in.
 
@@ -56,7 +56,7 @@ Yeni modüller: `src/features` altına ek sayfalar ve `AppRoutes` + `appPages.ts
 
 **Settings → Blinds line matrices:** **`/settings/blinds-line-matrices`** — stacked matrices on one page: **product category** plus every active extra line attribute (e.g. lifting system, cassette type). Rows = options, columns = blinds types; **Save all changes**. Legacy **`/settings/blinds-category-matrix`** and **`/settings/blinds-extra-matrix/:kindId`** redirect here.
 
-**Permissions hub:** `/permissions` — static overview; **Roles**, **Role permissions**, **User roles**, **User permissions**. Legacy `/settings/roles` (and related paths) **redirect** to `/permissions/…`.
+**Permissions hub:** `/permissions` — static overview; **Roles**, **Role permissions**, **User roles**, **User permissions**, **Estimate status matrix**, **Order status matrix** (checkbox grid: companies × global statuses). Legacy `/settings/roles` (and related paths) **redirect** to `/permissions/…`.
 
 **Settings → Company info:** `/settings/company-info` — active company (header switcher) için ad, iletişim, adres ve **default sales tax (%)**; siparişte **taxable base** × bu oran = **tax amount** (sunucuda `orders.tax_amount`). Kayıt **`PATCH /companies/{id}`** (`companies.view` / `companies.edit`).
 

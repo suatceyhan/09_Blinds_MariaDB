@@ -34,6 +34,7 @@ from app.integrations.google_calendar_router import router as google_calendar_ro
 from app.domains.business_lookups.api import business_lookups_router
 from app.domains.settings.api.blinds_category_matrix import router as settings_blinds_matrix_router
 from app.domains.settings.api.blinds_extra_matrix import router as settings_blinds_extra_matrix_router
+from app.domains.settings.api.status_matrices import router as status_matrices_router
 from app.domains.company.api import companies_router, pending_company_registrations_router
 from app.domains.lookup.api.permissions import router as permissions_router
 from app.domains.lookup.api.roles import router as roles_router
@@ -121,6 +122,7 @@ app.include_router(google_calendar_router)
 app.include_router(business_lookups_router)
 app.include_router(settings_blinds_matrix_router)
 app.include_router(settings_blinds_extra_matrix_router)
+app.include_router(status_matrices_router)
 app.include_router(user_audit_logs_router)
 app.include_router(system_audit_logs_router)
 app.include_router(roles_router)

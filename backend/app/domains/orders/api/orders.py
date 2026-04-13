@@ -283,13 +283,23 @@ def _normalize_order_note(raw: str | None, max_len: int = 4000) -> str | None:
 
 
 def _ensure_default_order_status_id(db: Session, *, company_id: UUID) -> str | None:
-    """Default label: 'New order' (status_order). Creates it if missing."""
+    """Resolve global 'New order' status for the company (matrix + catalog)."""
+    from app.domains.business_lookups.services.global_status_seed import (
+        DEFAULT_ORDER_STATUS_ID,
+        ensure_company_order_matrix_defaults,
+        ensure_global_catalog_seeded,
+    )
+
+    ensure_global_catalog_seeded(db)
+    ensure_company_order_matrix_defaults(db, company_id)
     row = db.execute(
         text(
             """
-            SELECT id
-            FROM status_order
-            WHERE company_id = CAST(:cid AS uuid) AND active IS TRUE AND lower(name) = 'new order'
+            SELECT so.id
+            FROM status_order so
+            INNER JOIN company_status_order_matrix m
+              ON m.status_order_id = so.id AND m.company_id = CAST(:cid AS uuid)
+            WHERE so.active IS TRUE AND lower(trim(so.name)) = 'new order'
             LIMIT 1
             """
         ),
@@ -297,33 +307,7 @@ def _ensure_default_order_status_id(db: Session, *, company_id: UUID) -> str | N
     ).mappings().first()
     if row:
         return str(row["id"])
-    new_id = _new_row_id()
-    try:
-        db.execute(
-            text(
-                """
-                INSERT INTO status_order (company_id, id, name, active)
-                VALUES (CAST(:cid AS uuid), :id, 'New order', TRUE)
-                """
-            ),
-            {"cid": str(company_id), "id": new_id},
-        )
-        db.commit()
-        return new_id
-    except IntegrityError:
-        db.rollback()
-        row2 = db.execute(
-            text(
-                """
-                SELECT id
-                FROM status_order
-                WHERE company_id = CAST(:cid AS uuid) AND active IS TRUE AND lower(name) = 'new order'
-                LIMIT 1
-                """
-            ),
-            {"cid": str(company_id)},
-        ).mappings().first()
-        return str(row2["id"]) if row2 else None
+    return DEFAULT_ORDER_STATUS_ID
 
 
 class OrderPrefillOut(BaseModel):
@@ -562,7 +546,7 @@ def prefill_from_estimate(
             FROM estimate e
             JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
             JOIN companies co ON co.id = e.company_id
-            LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
+            LEFT JOIN status_estimate se ON se.id = e.status_esti_id
             WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid
             LIMIT 1
             """
@@ -608,10 +592,12 @@ def list_order_statuses_for_orders(
     rows = db.execute(
         text(
             """
-            SELECT id, name, sort_order
-            FROM status_order
-            WHERE company_id = CAST(:cid AS uuid) AND active IS TRUE
-            ORDER BY sort_order ASC, name ASC
+            SELECT so.id, so.name, so.sort_order
+            FROM status_order so
+            INNER JOIN company_status_order_matrix m
+              ON m.status_order_id = so.id AND m.company_id = CAST(:cid AS uuid)
+            WHERE so.active IS TRUE
+            ORDER BY so.sort_order ASC, so.name ASC
             """
         ),
         {"cid": str(cid)},
@@ -733,7 +719,7 @@ def list_orders(
               o.active
             FROM orders o
             JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
-            LEFT JOIN status_order so ON so.company_id = o.company_id AND so.id = o.status_orde_id
+            LEFT JOIN status_order so ON so.id = o.status_orde_id
             WHERE {w}
             ORDER BY o.created_at DESC NULLS LAST
             LIMIT :limit
@@ -1014,7 +1000,7 @@ def get_order(
               o.active
             FROM orders o
             JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
-            LEFT JOIN status_order so ON so.company_id = o.company_id AND so.id = o.status_orde_id
+            LEFT JOIN status_order so ON so.id = o.status_orde_id
             WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid
             LIMIT 1
             """
@@ -1164,7 +1150,7 @@ def create_order(
                 """
                 SELECT e.customer_id, se.builtin_kind AS st, COALESCE(e.is_deleted, FALSE) AS is_deleted
                 FROM estimate e
-                LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
+                LEFT JOIN status_estimate se ON se.id = e.status_esti_id
                 WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid
                 LIMIT 1
                 """
@@ -1357,8 +1343,11 @@ def patch_order(
             ok = db.execute(
                 text(
                     """
-                    SELECT 1 FROM status_order
-                    WHERE company_id = CAST(:cid AS uuid) AND id = :sid AND active IS TRUE
+                    SELECT 1
+                    FROM status_order so
+                    INNER JOIN company_status_order_matrix m
+                      ON m.status_order_id = so.id AND m.company_id = CAST(:cid AS uuid)
+                    WHERE so.id = :sid AND so.active IS TRUE
                     LIMIT 1
                     """
                 ),

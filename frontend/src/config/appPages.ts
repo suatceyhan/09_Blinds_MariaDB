@@ -264,6 +264,30 @@ export const appPages: PageConfig[] = [
     showInNav: true,
   },
   {
+    id: 'permissions-estimate-status-matrix',
+    name: 'Estimate status matrix',
+    basePath: '/permissions/estimate-status-matrix',
+    parent: 'permissions-group',
+    module: 'settings',
+    permissions: {
+      view: 'settings.estimate_status_matrix.view',
+      edit: 'settings.estimate_status_matrix.edit',
+    },
+    showInNav: true,
+  },
+  {
+    id: 'permissions-order-status-matrix',
+    name: 'Order status matrix',
+    basePath: '/permissions/order-status-matrix',
+    parent: 'permissions-group',
+    module: 'settings',
+    permissions: {
+      view: 'settings.order_status_matrix.view',
+      edit: 'settings.order_status_matrix.edit',
+    },
+    showInNav: true,
+  },
+  {
     id: 'settings-pending-applications',
     name: 'Pending applications',
     basePath: '/settings/pending-applications',

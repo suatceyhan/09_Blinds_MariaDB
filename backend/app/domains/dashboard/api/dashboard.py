@@ -95,7 +95,7 @@ def get_dashboard_summary(
               e.tarih_saat
             FROM estimate e
             JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
-            LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
+            LEFT JOIN status_estimate se ON se.id = e.status_esti_id
             WHERE e.company_id = CAST(:cid AS uuid)
               AND e.is_deleted IS NOT TRUE
               AND (se.builtin_kind IS NULL OR se.builtin_kind <> 'cancelled')
@@ -115,7 +115,7 @@ def get_dashboard_summary(
             """
             SELECT COUNT(*)::int AS c
             FROM estimate e
-            LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
+            LEFT JOIN status_estimate se ON se.id = e.status_esti_id
             WHERE e.company_id = CAST(:cid AS uuid)
               AND e.is_deleted IS NOT TRUE
               AND (se.builtin_kind IS NULL OR se.builtin_kind <> 'cancelled')

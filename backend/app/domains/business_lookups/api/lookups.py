@@ -202,22 +202,9 @@ class OrderStatusOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    company_id: UUID
     name: str
     active: bool
     sort_order: int = 0
-
-
-class OrderStatusCreateIn(BaseModel):
-    name: str = Field(min_length=1, max_length=500)
-
-
-class OrderStatusPatchIn(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    name: str | None = Field(None, min_length=1, max_length=500)
-    active: bool | None = None
-    sort_order: int | None = Field(None, ge=0, le=9_999_999)
 
 
 @router.get("/order-statuses", response_model=list[OrderStatusOut])
@@ -232,7 +219,13 @@ def list_order_statuses(
     if not cid:
         raise HTTPException(status_code=403, detail="No active company.")
     term = (search or "").strip()
-    where = ["so.company_id = :company_id"]
+    where = [
+        "EXISTS (",
+        "  SELECT 1 FROM company_status_order_matrix m",
+        "  WHERE m.company_id = CAST(:company_id AS uuid)",
+        "    AND m.status_order_id = so.id",
+        ")",
+    ]
     params: dict[str, Any] = {"company_id": str(cid), "limit": limit}
     if not include_inactive:
         where.append("so.active IS TRUE")
@@ -243,7 +236,7 @@ def list_order_statuses(
     rows = db.execute(
         text(
             f"""
-            SELECT so.company_id, so.id, so.name, so.active, so.sort_order
+            SELECT so.id, so.name, so.active, so.sort_order
             FROM status_order so
             WHERE {w}
             ORDER BY so.sort_order ASC, so.active DESC, so.name ASC
@@ -255,121 +248,6 @@ def list_order_statuses(
     return [OrderStatusOut(**dict(r)) for r in rows]
 
 
-@router.post("/order-statuses", response_model=OrderStatusOut, status_code=status.HTTP_201_CREATED)
-def create_order_status(
-    body: OrderStatusCreateIn,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("lookups.edit"))],
-):
-    cid = effective_company_id(current_user)
-    if not cid:
-        raise HTTPException(status_code=403, detail="No active company.")
-    for _ in range(5):
-        new_id = _new_row_id()
-        exists = db.execute(
-            text("SELECT 1 FROM status_order WHERE company_id = :c AND id = :id LIMIT 1"),
-            {"c": str(cid), "id": new_id},
-        ).first()
-        if exists:
-            continue
-        try:
-            next_so = db.execute(
-                text(
-                    """
-                    SELECT COALESCE(MAX(sort_order), -1) + 1 AS n
-                    FROM status_order
-                    WHERE company_id = CAST(:cid AS uuid)
-                    """
-                ),
-                {"cid": str(cid)},
-            ).scalar()
-            db.execute(
-                text(
-                    """
-                    INSERT INTO status_order (company_id, id, name, active, sort_order)
-                    VALUES (:company_id, :id, :name, TRUE, :sort_order)
-                    """
-                ),
-                {
-                    "company_id": str(cid),
-                    "id": new_id,
-                    "name": body.name.strip(),
-                    "sort_order": int(next_so or 0),
-                },
-            )
-            db.commit()
-        except IntegrityError:
-            db.rollback()
-            raise HTTPException(status_code=400, detail="Could not create order status.")
-        row = db.execute(
-            text(
-                """
-                SELECT company_id, id, name, active, sort_order
-                FROM status_order
-                WHERE company_id = :company_id AND id = :id
-                """
-            ),
-            {"company_id": str(cid), "id": new_id},
-        ).mappings().one()
-        return OrderStatusOut(**dict(row))
-    raise HTTPException(status_code=500, detail="Could not allocate id, try again.")
-
-
-@router.patch("/order-statuses/{status_id}", response_model=OrderStatusOut)
-def patch_order_status(
-    status_id: str,
-    body: OrderStatusPatchIn,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("lookups.edit"))],
-):
-    cid = effective_company_id(current_user)
-    if not cid:
-        raise HTTPException(status_code=403, detail="No active company.")
-    current = db.execute(
-        text(
-            """
-            SELECT company_id, id, name, active, sort_order
-            FROM status_order
-            WHERE company_id = :company_id AND id = :id
-            """
-        ),
-        {"company_id": str(cid), "id": status_id},
-    ).mappings().first()
-    if not current:
-        raise HTTPException(status_code=404, detail="Order status not found.")
-    name = current["name"] if body.name is None else body.name.strip()
-    active = current["active"] if body.active is None else body.active
-    sort_order = current["sort_order"] if body.sort_order is None else body.sort_order
-    db.execute(
-        text(
-            """
-            UPDATE status_order
-            SET name = :name, active = :active, sort_order = :sort_order
-            WHERE company_id = :company_id AND id = :id
-            """
-        ),
-        {
-            "company_id": str(cid),
-            "id": status_id,
-            "name": name,
-            "active": active,
-            "sort_order": int(sort_order or 0),
-        },
-    )
-    db.commit()
-    row = db.execute(
-        text(
-            """
-            SELECT company_id, id, name, active, sort_order
-            FROM status_order
-            WHERE company_id = :company_id AND id = :id
-            """
-        ),
-        {"company_id": str(cid), "id": status_id},
-    ).mappings().one()
-    return OrderStatusOut(**dict(row))
-
-
 # --- Estimate status (status_estimate): same UX as order statuses; optional builtin_kind in DB (not "slug") ---
 
 
@@ -377,7 +255,6 @@ class EstimateStatusOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    company_id: UUID
     name: str
     active: bool
     sort_order: int = 0
@@ -385,18 +262,6 @@ class EstimateStatusOut(BaseModel):
         default=None,
         description="new | pending | converted | cancelled for built-in rows; null for custom labels.",
     )
-
-
-class EstimateStatusCreateIn(BaseModel):
-    name: str = Field(min_length=1, max_length=500)
-
-
-class EstimateStatusPatchIn(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    name: str | None = Field(None, min_length=1, max_length=500)
-    active: bool | None = None
-    sort_order: int | None = Field(None, ge=0, le=9_999_999)
 
 
 def _estimate_status_row_out(row: dict[str, Any]) -> EstimateStatusOut:
@@ -418,7 +283,13 @@ def list_estimate_statuses(
     if not cid:
         raise HTTPException(status_code=403, detail="No active company.")
     term = (search or "").strip()
-    where = ["se.company_id = :company_id"]
+    where = [
+        "EXISTS (",
+        "  SELECT 1 FROM company_status_estimate_matrix m",
+        "  WHERE m.company_id = CAST(:company_id AS uuid)",
+        "    AND m.status_estimate_id = se.id",
+        ")",
+    ]
     params: dict[str, Any] = {"company_id": str(cid), "limit": limit}
     if not include_inactive:
         where.append("se.active IS TRUE")
@@ -429,7 +300,7 @@ def list_estimate_statuses(
     rows = db.execute(
         text(
             f"""
-            SELECT se.company_id, se.id, se.builtin_kind, se.name, se.active, se.sort_order
+            SELECT se.id, se.builtin_kind, se.name, se.active, se.sort_order
             FROM status_estimate se
             WHERE {w}
             ORDER BY se.sort_order ASC, se.active DESC, se.name ASC
@@ -439,121 +310,6 @@ def list_estimate_statuses(
         params,
     ).mappings().all()
     return [_estimate_status_row_out(dict(r)) for r in rows]
-
-
-@router.post("/estimate-statuses", response_model=EstimateStatusOut, status_code=status.HTTP_201_CREATED)
-def create_estimate_status(
-    body: EstimateStatusCreateIn,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("lookups.edit"))],
-):
-    cid = effective_company_id(current_user)
-    if not cid:
-        raise HTTPException(status_code=403, detail="No active company.")
-    for _ in range(5):
-        new_id = _new_row_id()
-        exists = db.execute(
-            text("SELECT 1 FROM status_estimate WHERE company_id = :c AND id = :id LIMIT 1"),
-            {"c": str(cid), "id": new_id},
-        ).first()
-        if exists:
-            continue
-        try:
-            next_so = db.execute(
-                text(
-                    """
-                    SELECT COALESCE(MAX(sort_order), -1) + 1 AS n
-                    FROM status_estimate
-                    WHERE company_id = CAST(:cid AS uuid)
-                    """
-                ),
-                {"cid": str(cid)},
-            ).scalar()
-            db.execute(
-                text(
-                    """
-                    INSERT INTO status_estimate (company_id, id, builtin_kind, name, active, sort_order)
-                    VALUES (:company_id, :id, NULL, :name, TRUE, :sort_order)
-                    """
-                ),
-                {
-                    "company_id": str(cid),
-                    "id": new_id,
-                    "name": body.name.strip(),
-                    "sort_order": int(next_so or 0),
-                },
-            )
-            db.commit()
-        except IntegrityError:
-            db.rollback()
-            raise HTTPException(status_code=400, detail="Could not create estimate status.")
-        row = db.execute(
-            text(
-                """
-                SELECT company_id, id, builtin_kind, name, active, sort_order
-                FROM status_estimate
-                WHERE company_id = :company_id AND id = :id
-                """
-            ),
-            {"company_id": str(cid), "id": new_id},
-        ).mappings().one()
-        return _estimate_status_row_out(dict(row))
-    raise HTTPException(status_code=500, detail="Could not allocate id, try again.")
-
-
-@router.patch("/estimate-statuses/{status_id}", response_model=EstimateStatusOut)
-def patch_estimate_status(
-    status_id: str,
-    body: EstimateStatusPatchIn,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("lookups.edit"))],
-):
-    cid = effective_company_id(current_user)
-    if not cid:
-        raise HTTPException(status_code=403, detail="No active company.")
-    current = db.execute(
-        text(
-            """
-            SELECT company_id, id, builtin_kind, name, active, sort_order
-            FROM status_estimate
-            WHERE company_id = :company_id AND id = :id
-            """
-        ),
-        {"company_id": str(cid), "id": status_id},
-    ).mappings().first()
-    if not current:
-        raise HTTPException(status_code=404, detail="Estimate status not found.")
-    name = current["name"] if body.name is None else body.name.strip()
-    active = current["active"] if body.active is None else body.active
-    sort_order = current["sort_order"] if body.sort_order is None else body.sort_order
-    db.execute(
-        text(
-            """
-            UPDATE status_estimate
-            SET name = :name, active = :active, sort_order = :sort_order
-            WHERE company_id = :company_id AND id = :id
-            """
-        ),
-        {
-            "company_id": str(cid),
-            "id": status_id,
-            "name": name,
-            "active": active,
-            "sort_order": int(sort_order or 0),
-        },
-    )
-    db.commit()
-    row = db.execute(
-        text(
-            """
-            SELECT company_id, id, builtin_kind, name, active, sort_order
-            FROM status_estimate
-            WHERE company_id = :company_id AND id = :id
-            """
-        ),
-        {"company_id": str(cid), "id": status_id},
-    ).mappings().one()
-    return _estimate_status_row_out(dict(row))
 
 
 from app.domains.business_lookups.api.blinds_product_categories import (  # noqa: E402

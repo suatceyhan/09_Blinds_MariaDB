@@ -367,7 +367,7 @@ def try_push_estimate_to_google_calendar(
                   c.phone AS customer_phone
                 FROM estimate e
                 JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
-                LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
+                LEFT JOIN status_estimate se ON se.id = e.status_esti_id
                 WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid AND e.is_deleted IS NOT TRUE
                 LIMIT 1
                 """

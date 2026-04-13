@@ -462,7 +462,9 @@ def list_estimate_statuses_for_estimates(
             WITH active AS (
               SELECT se.id, se.name, se.sort_order, se.builtin_kind
               FROM status_estimate se
-              WHERE se.company_id = CAST(:cid AS uuid) AND se.active IS TRUE
+              INNER JOIN company_status_estimate_matrix m
+                ON m.status_estimate_id = se.id AND m.company_id = CAST(:cid AS uuid)
+              WHERE se.active IS TRUE
             ),
             chosen_builtin AS (
               SELECT DISTINCT ON (a.builtin_kind)
@@ -648,7 +650,7 @@ def list_estimates(
               e.created_at
             FROM estimate e
             JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
-            LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
+            LEFT JOIN status_estimate se ON se.id = e.status_esti_id
             WHERE {where_sql}
             ORDER BY COALESCE(e.scheduled_start_at, e.tarih_saat) DESC NULLS LAST, e.created_at DESC
             LIMIT :limit
@@ -701,8 +703,11 @@ def create_estimate(
     pend_row = db.execute(
         text(
             """
-            SELECT id FROM status_estimate
-            WHERE company_id = CAST(:cid AS uuid) AND builtin_kind = 'pending'
+            SELECT se.id
+            FROM status_estimate se
+            INNER JOIN company_status_estimate_matrix m
+              ON m.status_estimate_id = se.id AND m.company_id = CAST(:cid AS uuid)
+            WHERE se.builtin_kind = 'pending'
             LIMIT 1
             """
         ),
@@ -713,8 +718,11 @@ def create_estimate(
         pend_row = db.execute(
             text(
                 """
-                SELECT id FROM status_estimate
-                WHERE company_id = CAST(:cid AS uuid) AND builtin_kind = 'pending'
+                SELECT se.id
+                FROM status_estimate se
+                INNER JOIN company_status_estimate_matrix m
+                  ON m.status_estimate_id = se.id AND m.company_id = CAST(:cid AS uuid)
+                WHERE se.builtin_kind = 'pending'
                 LIMIT 1
                 """
             ),
@@ -851,7 +859,7 @@ def get_estimate(
               e.updated_at
             FROM estimate e
             JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
-            LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
+            LEFT JOIN status_estimate se ON se.id = e.status_esti_id
             WHERE e.company_id = :company_id AND e.id = :id
             LIMIT 1
             """
@@ -946,8 +954,11 @@ def patch_estimate(
         new_st = db.execute(
             text(
                 """
-                SELECT id, builtin_kind FROM status_estimate
-                WHERE company_id = CAST(:cid AS uuid) AND id = :sid AND active IS TRUE
+                SELECT se.id, se.builtin_kind
+                FROM status_estimate se
+                INNER JOIN company_status_estimate_matrix m
+                  ON m.status_estimate_id = se.id AND m.company_id = CAST(:cid AS uuid)
+                WHERE se.id = :sid AND se.active IS TRUE
                 LIMIT 1
                 """
             ),
@@ -960,7 +971,7 @@ def patch_estimate(
                 """
                 SELECT se.builtin_kind AS builtin_kind
                 FROM estimate e
-                LEFT JOIN status_estimate se ON se.company_id = e.company_id AND se.id = e.status_esti_id
+                LEFT JOIN status_estimate se ON se.id = e.status_esti_id
                 WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid AND e.is_deleted IS NOT TRUE
                 LIMIT 1
             """

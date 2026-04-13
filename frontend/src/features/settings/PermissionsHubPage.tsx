@@ -51,6 +51,14 @@ export function PermissionsHubPage() {
             individual flags alongside matrix defaults.
           </p>
         </section>
+        <section className="space-y-2 border-t border-slate-100 pt-6">
+          <h2 className="text-base font-semibold text-slate-900">Estimate &amp; order status matrices</h2>
+          <p className="text-sm text-slate-600">
+            Global status labels apply to every company; each matrix row is a company and each column is a
+            status. Checked cells allow that company to use the status in forms and lookups. Superadmins can
+            add custom global statuses from the matrix pages.
+          </p>
+        </section>
       </div>
     </div>
   )
