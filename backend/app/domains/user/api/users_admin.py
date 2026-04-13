@@ -191,18 +191,35 @@ def list_users_for_admin(
             )
         )
 
-    tenant_cid = resolve_tenant_company_id(db, current_user, company_id_param=company_id)
-    q = (
-        q.join(
-            UserCompanyMembership,
-            UserCompanyMembership.user_id == Users.id,
+    # Superadmin should be able to see the full directory across companies.
+    # Optional company filter still limits rows to that company's members.
+    if super:
+        if company_id is not None:
+            tenant_cid = resolve_tenant_company_id(db, current_user, company_id_param=company_id)
+            q = (
+                q.join(
+                    UserCompanyMembership,
+                    UserCompanyMembership.user_id == Users.id,
+                )
+                .filter(
+                    UserCompanyMembership.company_id == tenant_cid,
+                    UserCompanyMembership.is_deleted.is_(False),
+                )
+                .distinct()
+            )
+    else:
+        tenant_cid = resolve_tenant_company_id(db, current_user, company_id_param=company_id)
+        q = (
+            q.join(
+                UserCompanyMembership,
+                UserCompanyMembership.user_id == Users.id,
+            )
+            .filter(
+                UserCompanyMembership.company_id == tenant_cid,
+                UserCompanyMembership.is_deleted.is_(False),
+            )
+            .distinct()
         )
-        .filter(
-            UserCompanyMembership.company_id == tenant_cid,
-            UserCompanyMembership.is_deleted.is_(False),
-        )
-        .distinct()
-    )
 
     rows = q.order_by(Users.email).offset(skip).limit(limit).all()
 

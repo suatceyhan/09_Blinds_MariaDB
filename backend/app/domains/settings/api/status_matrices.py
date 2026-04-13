@@ -398,16 +398,6 @@ def create_global_estimate_status(
             ),
             {"id": new_id, "name": nm, "so": int(next_so or 0)},
         )
-        db.execute(
-            text(
-                """
-                INSERT INTO company_status_estimate_matrix (company_id, status_estimate_id)
-                SELECT id, :sid FROM companies WHERE is_deleted IS NOT TRUE
-                ON CONFLICT (company_id, status_estimate_id) DO NOTHING
-                """
-            ),
-            {"sid": new_id},
-        )
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -441,6 +431,23 @@ def patch_global_estimate_status(
     name = cur["name"] if body.name is None else body.name.strip()
     active = cur["active"] if body.active is None else body.active
     sort_order = cur["sort_order"] if body.sort_order is None else body.sort_order
+    if body.active is False:
+        used = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM company_status_estimate_matrix
+                WHERE status_estimate_id = :sid
+                LIMIT 1
+                """
+            ),
+            {"sid": status_id.strip()},
+        ).first()
+        if used:
+            raise HTTPException(
+                status_code=400,
+                detail="This status is enabled for at least one company. Disable it in the matrix first.",
+            )
     db.execute(
         text(
             """
@@ -493,16 +500,6 @@ def create_global_order_status(
             ),
             {"id": new_id, "name": nm, "so": int(next_so or 0)},
         )
-        db.execute(
-            text(
-                """
-                INSERT INTO company_status_order_matrix (company_id, status_order_id)
-                SELECT id, :sid FROM companies WHERE is_deleted IS NOT TRUE
-                ON CONFLICT (company_id, status_order_id) DO NOTHING
-                """
-            ),
-            {"sid": new_id},
-        )
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -535,6 +532,23 @@ def patch_global_order_status(
     name = cur["name"] if body.name is None else body.name.strip()
     active = cur["active"] if body.active is None else body.active
     sort_order = cur["sort_order"] if body.sort_order is None else body.sort_order
+    if body.active is False:
+        used = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM company_status_order_matrix
+                WHERE status_order_id = :sid
+                LIMIT 1
+                """
+            ),
+            {"sid": status_id.strip()},
+        ).first()
+        if used:
+            raise HTTPException(
+                status_code=400,
+                detail="This status is enabled for at least one company. Disable it in the matrix first.",
+            )
     db.execute(
         text(
             """

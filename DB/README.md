@@ -1,36 +1,6 @@
 # Veritabanı betikleri
 
 - **`blinds.sql`**: İlk kurulum / tam şema (idempotent parçalar). Auth/RBAC + kiracı iskeleti + blinds iş alanı tabloları (örn. `customers`, `orders`, `estimate`, `blinds_type*`, `status_*`) ve tenant RLS policy’leri.
-- **`NN_*.sql`**: Sırayla çalıştırılan migration’lar. Dosya adı: **iki haneli sıra + alt çizgi + kısa açıklama**, örn. `01_migrate_company_registration.sql`, `02_add_index_foo.sql`.
+- **`NN_*.sql`**: Yeni schema değişiklikleri için migration’lar. (Önceki **01..29** seti artık `blinds.sql` içinde konsolide.)
 
 Yeni migration eklerken mevcut en büyük numaradan bir sonrakini kullanın.
-
-## Yeni blinds iş akışı migration’ları
-
-- **`01_blinds_flow_core.sql`**: Lead → Estimate → Order → Installation akışı için ek tablolar/kolonlar (leads, order_items, payments, attachments) ve calendar sync alanları (app → Google, event id saklama).
-- **`02_estimate_to_order_link.sql`**: Estimate onayı ile oluşturulan order’da kaynak estimate referansı (`orders.estimate_id`).
-- **`03_estimate_multi_blinds.sql`**: Bir tahmine çoklu `blinds_type` (`estimate_blinds`); `estimate.blinds_id` opsiyonel yapılır ve mevcut tekili satırlar ilişki tablosuna kopyalanır.
-- **`04_estimate_blinds_window_count.sql`**: `estimate_blinds.perde_sayisi` (tip başına pencere sayısı); legacy `estimate.perde_sayisi` tek satırlı kayıtlara geri doldurulur.
-- **`05_company_google_calendar.sql`**: Şirket başına Google Calendar OAuth `refresh_token` + opsiyonel `google_account_email` (`company_google_calendar`); RLS `company_id` ile.
-- **`06_estimate_visit_calendar_fields.sql`**: Tahmin ziyareti / takvim: `visit_time_zone`, `visit_address`, `visit_notes`, `visit_organizer_*`, `visit_guest_emails` (JSONB), `visit_recurrence_rrule` (NULL = tekrar yok).
-- **`07_estimate_soft_delete.sql`**: `estimate.is_deleted` (liste/detay yalnızca aktif kayıtlar; silme API soft delete).
-- **`08_companies_updated_at.sql`**: `companies.updated_at` — `set_updated_at()` tetikleyicisi ile uyum (eski DB’lerde kolon yoksa hata alınırdı).
-- **`09_estimate_workflow_status.sql`**: `estimate.status` (`pending` | `converted` | `cancelled`); order oluşunca bağlı tahmin `converted` olur (tetikleyici). İptal için API/email senkronu `cancelled` durumunda atlanır.
-- **`10_orders_blinds_lines.sql`**: `orders.blinds_lines` (JSONB) — sipariş oluştururken seçilen blinds tipleri/adetleri (estimate’ten de taşınır).
-- **`11_company_tax_orders_tax_amount.sql`**: `companies.tax_rate_percent` (varsayılan KDV/satış vergisi %); `orders.tax_amount` — siparişte vergi tutarı (`tax_uygulanacak_miktar` × şirket oranı / 100, sunucuda hesaplanır).
-- **`12_orders_order_note.sql`**: `orders.order_note` (sipariş notu metni).
-- **`13_blinds_product_categories.sql`**: Global ürün kategorileri + şirket bazlı `blinds_type_category_allowed` matrisi; `blinds_lines[].category`.
-- **`14_migrate_product_category_to_global.sql`**: Eski tenant başına kategori şemasından global şemaya tek seferlik geçiş (gerekirse).
-- **`15_blinds_line_extra_attributes.sql`**: Ek sipariş satırı öznitelikleri (`lifting_system`, `cassette_type` vb.): `blinds_line_extra_kind`, `blinds_line_extra_option`, `blinds_type_extra_allowed`; JSON’da `blinds_lines[].<line_json_key>`.
-- **`16_order_payment_entries.sql`**: `order_payment_entries` — `POST /orders/{id}/record-payment` ile kaydedilen tutarlar (tutar + `created_at`); sipariş detayında geçmiş listesi için.
-- **`17_order_payment_entries_soft_delete.sql`**: `order_payment_entries.is_deleted` — ödeme satırı silme (soft); `final_payment` toplamı aktif satırlardan yeniden hesaplanır.
-- **`18_order_attachments.sql`**: `order_attachments` — siparişe foto / Excel dosyası (`kind` `photo` \| `excel`); soft delete.
-- **`19_status_estimate_lookup.sql`**: `status_estimate` (şirket başına `pending` / `converted` / `cancelled` slug’ları); `estimate.status_esti_id` FK; tetikleyici `converted` satırına günceller; `GET`/`PATCH` `/lookups/estimate-statuses`.
-- **`20_status_estimate_custom_rows.sql`**: `status_estimate.slug` isteğe bağlı (NULL = özel etiket); `(company_id, slug)` yalnızca `slug IS NOT NULL` iken benzersiz; `POST /lookups/estimate-statuses` ile yeni satır.
-- **`21_status_sort_order.sql`**: `status_order.sort_order` ve `status_estimate.sort_order` — liste / filtre chip sırası (`PATCH` ile düzenlenebilir); mevcut satırlar backfill.
-- **`22_status_estimate_builtin_kind.sql`**: `status_estimate.slug` kaldırılır; yerine **`builtin_kind`** (`pending` \| `converted` \| `cancelled` veya `NULL` özel etiket); tetikleyici `trg_orders_mark_estimate_converted` güncellenir.
-- **`25_status_estimate_backfill_builtin_kind_by_name.sql`**: (İsteğe bağlı) `builtin_kind` hâlâ NULL iken adı yerleşik akışla eşleşen satırlara kind yazar; şirkette o kind zaten varsa dokunmaz. Eski veri / eksik seed sonrası kullanın. **`new estimate`** → **`new`** (önce **`26_`** çalıştırın).
-- **`26_status_estimate_builtin_kind_add_new.sql`**: `status_estimate.builtin_kind` CHECK listesine **`new`** ekler (`new` \| `pending` \| `converted` \| `cancelled`).
-- **`27_global_status_tables_and_matrix.sql`**: `status_order` / `status_estimate` genel katalog (şirketsiz); şirket×durum **`company_status_order_matrix`** / **`company_status_estimate_matrix`**; eski tenant tabloları `*_legacy` olarak taşınır; `estimate` / `orders` FK’leri güncellenir. Migration sırası: **`26`** sonrası **`27`**.
-- **`28_estimate_prospect_line_amount_ready_install_status.sql`**: `estimate.customer_id` isteğe bağlı (NULL); **`prospect_*`** alanları (müşteri tablosuna yazılmadan tahmin); **`estimate_blinds.line_amount`**; global sipariş durumu **Ready for installation** (`4827ac7d03a3c7ae`) + matris. **`27`** sonrası çalıştırın.
-- **`29_lookup_subpage_permissions.sql`**: Lookups alt sayfaları için ayrı RBAC anahtarları (ör. `lookups.blinds_types.view`); rol / kullanıcı override backfill; hub için eski `lookups.view` / `lookups.edit` kalır. Backend aynı uçlarda granular **veya** legacy kabul eder.

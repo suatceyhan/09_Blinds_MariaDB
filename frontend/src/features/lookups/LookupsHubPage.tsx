@@ -45,21 +45,6 @@ export function LookupsHubPage() {
             Allowed combinations per blinds type are set in Settings → Blinds line matrices.
           </p>
         </section>
-        <section className="space-y-2 border-t border-slate-100 pt-6">
-          <h2 className="text-base font-semibold text-slate-900">Order statuses</h2>
-          <p className="text-sm text-slate-600">
-            Read-only list of global labels enabled for your company. Who may use which status is configured
-            under Permissions → Order status matrix; superadmins add custom global statuses there.
-          </p>
-        </section>
-        <section className="space-y-2 border-t border-slate-100 pt-6">
-          <h2 className="text-base font-semibold text-slate-900">Estimate statuses</h2>
-          <p className="text-sm text-slate-600">
-            Same pattern: browse enabled global labels here; matrix and custom globals live under Permissions
-            → Estimate status matrix. Built-in workflow kinds still drive new estimates, conversion, and
-            cancellation behavior.
-          </p>
-        </section>
       </div>
     </div>
   )

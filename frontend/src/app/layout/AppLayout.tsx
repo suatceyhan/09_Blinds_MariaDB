@@ -54,7 +54,6 @@ const pageIcons: Record<string, LucideIcon> = {
   'lookups-blinds-product-categories': Tag,
   'lookups-blinds-lifting-options': SlidersHorizontal,
   'lookups-blinds-cassette-options': SlidersHorizontal,
-  'lookups-order-statuses': ListOrdered,
   'companies-root': Building2,
   'users-root': Users,
   'reports-root': BarChart3,
