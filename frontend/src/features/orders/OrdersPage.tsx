@@ -20,7 +20,7 @@ type CustomerOpt = { id: string; name: string; surname?: string | null }
 
 type OrderPrefill = {
   estimate_id: string
-  customer_id: string
+  customer_id?: string | null
   customer_display: string
   visit_notes: string | null
   blinds_summary: string | null
@@ -78,6 +78,8 @@ type OrderDetail = {
   status_code: string
   status_orde_id?: string | null
   status_order_label: string | null
+  installation_scheduled_start_at?: string | null
+  installation_scheduled_end_at?: string | null
   created_at: string | null
   updated_at?: string | null
   active?: boolean
@@ -87,6 +89,28 @@ type OrderDetail = {
 }
 
 type OrderStatusOpt = { id: string; name: string; sort_order?: number }
+
+function isoToDatetimeLocalValue(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function datetimeLocalToIso(local: string): string | null {
+  const t = local.trim()
+  if (!t) return null
+  const d = new Date(t)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toISOString()
+}
+
+function isReadyForInstallationStatus(statusId: string, statuses: OrderStatusOpt[]): boolean {
+  const s = statuses.find((x) => x.id === statusId)
+  const n = (s?.name ?? '').toLowerCase()
+  return n.includes('ready') && n.includes('install')
+}
 
 type EditDraft = {
   downpayment: string
@@ -923,6 +947,8 @@ export function OrdersPage() {
   const [editLoading, setEditLoading] = useState(false)
   const [editSaving, setEditSaving] = useState(false)
   const [editExtraPaid, setEditExtraPaid] = useState(0)
+  const [editInstallationStart, setEditInstallationStart] = useState('')
+  const [editInstallationEnd, setEditInstallationEnd] = useState('')
   const [orderStatuses, setOrderStatuses] = useState<OrderStatusOpt[] | null>(null)
 
   const fromEstimateQ = useMemo(() => searchParams.get('fromEstimate')?.trim() ?? '', [searchParams])
@@ -1020,11 +1046,19 @@ export function OrdersPage() {
       setErr('Select a customer.')
       return
     }
+    const stSel = editDraft.status_orde_id.trim()
+    if (isReadyForInstallationStatus(stSel, orderStatuses ?? [])) {
+      const startIso = datetimeLocalToIso(editInstallationStart)
+      if (!startIso) {
+        setErr('Installation date and time are required when status is Ready for installation.')
+        return
+      }
+    }
     const oid = editOrderId
     setEditSaving(true)
     setErr(null)
     try {
-      await patchJson(`/orders/${oid}`, {
+      const body: Record<string, unknown> = {
         ...(editEstimateId ? {} : { customer_id: editCustomerId.trim() }),
         downpayment: parseOptionalDecimal(editDraft.downpayment),
         tax_uygulanacak_miktar: parseOptionalDecimal(editDraft.tax_base),
@@ -1033,15 +1067,24 @@ export function OrdersPage() {
           const n = editDraft.order_note.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
           return n ? n.slice(0, 4000) : null
         })(),
-        status_orde_id: editDraft.status_orde_id.trim(),
+        status_orde_id: stSel,
         blinds_lines: editBlindsLines.map((b) => blindsLineToPayload(b, blindsOrderOptions)),
-      })
+      }
+      if (isReadyForInstallationStatus(stSel, orderStatuses ?? [])) {
+        const startIso = datetimeLocalToIso(editInstallationStart)
+        if (startIso) body.installation_scheduled_start_at = startIso
+        const endIso = datetimeLocalToIso(editInstallationEnd)
+        if (endIso) body.installation_scheduled_end_at = endIso
+      }
+      await patchJson(`/orders/${oid}`, body)
       setEditOrderId(null)
       setEditDraft(null)
       setEditCustomerId('')
       setEditEstimateId(null)
       setEditBlindsLines([])
       setEditExtraPaid(0)
+      setEditInstallationStart('')
+      setEditInstallationEnd('')
       setEditAttachments([])
       await reloadList()
       if (viewOrderId === oid) {
@@ -1076,6 +1119,8 @@ export function OrdersPage() {
         setEditEstimateId(null)
         setEditBlindsLines([])
         setEditExtraPaid(0)
+        setEditInstallationStart('')
+        setEditInstallationEnd('')
         setEditAttachments([])
       }
     } catch (e) {
@@ -1217,6 +1262,8 @@ export function OrdersPage() {
       setEditEstimateId(null)
       setEditBlindsLines([])
       setEditExtraPaid(0)
+      setEditInstallationStart('')
+      setEditInstallationEnd('')
       setEditAttachments([])
       setEditLoading(false)
       return
@@ -1243,6 +1290,8 @@ export function OrdersPage() {
             status_order_label_fallback: d.status_order_label?.trim() ?? null,
           })
           setEditExtraPaid(safeRound2(parseMoneyAmount(d.final_payment) ?? 0))
+          setEditInstallationStart(isoToDatetimeLocalValue(d.installation_scheduled_start_at))
+          setEditInstallationEnd(isoToDatetimeLocalValue(d.installation_scheduled_end_at))
           setEditAttachments(d.attachments ?? [])
         }
       } catch {
@@ -1252,6 +1301,8 @@ export function OrdersPage() {
           setEditEstimateId(null)
           setEditBlindsLines([])
           setEditExtraPaid(0)
+          setEditInstallationStart('')
+          setEditInstallationEnd('')
           setEditAttachments([])
         }
       } finally {
@@ -1353,7 +1404,7 @@ export function OrdersPage() {
           setSearchParams({}, { replace: true })
           return
         }
-        setCustomerId(p.customer_id)
+        setCustomerId((p.customer_id ?? '').trim())
         setLinkedEstimateId(fromEstimateQ)
         setBlindsLines(
           hydrateBlindsLinesDefaults(
@@ -1478,7 +1529,8 @@ export function OrdersPage() {
 
   async function onCreate(e: React.FormEvent) {
     e.preventDefault()
-    if (!canEdit || !customerId.trim()) return
+    if (!canEdit) return
+    if (!linkedEstimateId && !customerId.trim()) return
     const taxBase = taxBaseParsed
     const dp = dpParsed
     setSaving(true)
@@ -1486,7 +1538,7 @@ export function OrdersPage() {
     const pendingAtt = [...createPendingAttachments]
     try {
       const created = await postJson<OrderDetail>('/orders', {
-        customer_id: customerId.trim(),
+        ...(customerId.trim() ? { customer_id: customerId.trim() } : {}),
         ...(linkedEstimateId ? { estimate_id: linkedEstimateId } : {}),
         ...(taxBase !== null ? { tax_uygulanacak_miktar: taxBase } : {}),
         ...(dp !== null ? { downpayment: dp } : {}),
@@ -1572,20 +1624,25 @@ export function OrdersPage() {
               <Link className="font-semibold underline" to={`/estimates/${linkedEstimateId}`}>
                 {linkedEstimateId}
               </Link>
-              . Customer is fixed to match the estimate.
+              .{' '}
+              {customerId.trim()
+                ? 'Customer is fixed to match the estimate.'
+                : 'No customer record yet — one is created from the estimate when you save this order.'}
             </p>
           ) : null}
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="block text-sm text-slate-700 sm:col-span-2">
               <span className="mb-1 block font-medium">Customer</span>
               <select
-                required
+                required={!linkedEstimateId}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:opacity-60"
                 value={customerId}
                 disabled={Boolean(linkedEstimateId)}
                 onChange={(e) => setCustomerId(e.target.value)}
               >
-                <option value="">Select…</option>
+                <option value="">
+                  {linkedEstimateId && !customerId.trim() ? 'Created from estimate on save' : 'Select…'}
+                </option>
                 {(customers ?? []).map((c) => (
                   <option key={c.id} value={c.id}>
                     {customerLabel(c)}
@@ -2129,6 +2186,8 @@ export function OrdersPage() {
                 setEditEstimateId(null)
                 setEditBlindsLines([])
                 setEditExtraPaid(0)
+                setEditInstallationStart('')
+                setEditInstallationEnd('')
                 setEditAttachments([])
               }
             }}
@@ -2148,6 +2207,8 @@ export function OrdersPage() {
                   setEditEstimateId(null)
                   setEditBlindsLines([])
                   setEditExtraPaid(0)
+                  setEditInstallationStart('')
+                  setEditInstallationEnd('')
                   setEditAttachments([])
                 }}
               >
@@ -2219,6 +2280,34 @@ export function OrdersPage() {
                         ))}
                       </select>
                     </label>
+                    {isReadyForInstallationStatus(editDraft.status_orde_id, orderStatuses ?? []) ? (
+                      <div className="sm:col-span-2 rounded-lg border border-amber-100 bg-amber-50/80 p-3">
+                        <p className="text-xs font-semibold text-amber-950">Installation schedule</p>
+                        <p className="mt-1 text-[11px] text-amber-900">
+                          Required for this status. Syncs to Google Calendar when the company calendar is connected.
+                        </p>
+                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                          <label className="block text-xs text-slate-800">
+                            <span className="mb-1 block font-medium">Start</span>
+                            <input
+                              type="datetime-local"
+                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-teal-500"
+                              value={editInstallationStart}
+                              onChange={(e) => setEditInstallationStart(e.target.value)}
+                            />
+                          </label>
+                          <label className="block text-xs text-slate-800">
+                            <span className="mb-1 block font-medium">End (optional)</span>
+                            <input
+                              type="datetime-local"
+                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-teal-500"
+                              value={editInstallationEnd}
+                              onChange={(e) => setEditInstallationEnd(e.target.value)}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    ) : null}
                     <fieldset className="min-w-0 rounded-lg border border-slate-200 bg-slate-50/60 p-3 sm:col-span-2">
                       <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Blinds types &amp; quantities
@@ -2336,6 +2425,8 @@ export function OrdersPage() {
                         setEditEstimateId(null)
                         setEditBlindsLines([])
                         setEditExtraPaid(0)
+                        setEditInstallationStart('')
+                        setEditInstallationEnd('')
                         setEditAttachments([])
                       }}
                     >

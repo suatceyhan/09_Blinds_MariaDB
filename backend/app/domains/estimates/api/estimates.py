@@ -2,6 +2,7 @@ import json
 import re
 import secrets
 from datetime import datetime, timezone
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -36,7 +37,8 @@ _SQL_BLINDS_TYPES_JSON = """
         json_build_object(
           'id', bt.id,
           'name', bt.name,
-          'window_count', eb.perde_sayisi
+          'window_count', eb.perde_sayisi,
+          'line_amount', eb.line_amount
         )
         ORDER BY eb.sort_order, bt.name
       )
@@ -50,7 +52,8 @@ _SQL_BLINDS_TYPES_JSON = """
           json_build_object(
             'id', bt.id,
             'name', bt.name,
-            'window_count', e.perde_sayisi
+            'window_count', e.perde_sayisi,
+            'line_amount', NULL
           )
         )
          FROM blinds_type bt
@@ -113,13 +116,24 @@ def _normalize_blinds_lines(raw: Any) -> list[dict[str, Any]]:
                 window_count = int(wc_raw)
             except (TypeError, ValueError):
                 window_count = None
-        out.append(
-            {
-                "id": str(item["id"]),
-                "name": str(item["name"]),
-                "window_count": window_count,
-            }
-        )
+        la_raw = item.get("line_amount")
+        line_amount: float | None = None
+        if la_raw is not None and la_raw != "":
+            try:
+                d = Decimal(str(la_raw)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                if d < 0:
+                    continue
+                line_amount = float(d)
+            except Exception:
+                line_amount = None
+        row: dict[str, Any] = {
+            "id": str(item["id"]),
+            "name": str(item["name"]),
+            "window_count": window_count,
+        }
+        if line_amount is not None:
+            row["line_amount"] = line_amount
+        out.append(row)
     return out
 
 
@@ -168,6 +182,7 @@ class EstimateBlindsLineOut(BaseModel):
     id: str
     name: str
     window_count: int | None = None
+    line_amount: float | None = None
 
 
 class EstimateListItemOut(BaseModel):
@@ -175,7 +190,7 @@ class EstimateListItemOut(BaseModel):
 
     id: str
     company_id: UUID
-    customer_id: str
+    customer_id: str | None = None
     customer_display: str
     customer_address: str | None = None
     blinds_types: list[EstimateBlindsLineOut]
@@ -194,9 +209,14 @@ class EstimateDetailOut(BaseModel):
 
     id: str
     company_id: UUID
-    customer_id: str
+    customer_id: str | None = None
     customer_display: str
     customer_address: str | None = None
+    prospect_name: str | None = None
+    prospect_surname: str | None = None
+    prospect_phone: str | None = None
+    prospect_email: str | None = None
+    prospect_address: str | None = None
     blinds_types: list[EstimateBlindsLineOut]
     perde_sayisi: int | None = None
     scheduled_wall: str | None = Field(
@@ -227,6 +247,7 @@ class EstimateDetailOut(BaseModel):
 class EstimateBlindsLineIn(BaseModel):
     blinds_id: str = Field(min_length=1, max_length=16)
     window_count: int | None = Field(None, ge=1)
+    line_amount: Decimal | None = Field(None, ge=0, max_digits=14, decimal_places=2)
 
 
 _IANA_TZ_RE = re.compile(r"^[A-Za-z0-9_\/+\-]+$")
@@ -236,7 +257,12 @@ _WALL_SCHED_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$")
 
 
 class EstimateCreateIn(BaseModel):
-    customer_id: str = Field(min_length=1, max_length=16)
+    customer_id: str | None = Field(None, max_length=16)
+    prospect_name: str | None = Field(None, max_length=500)
+    prospect_surname: str | None = Field(None, max_length=500)
+    prospect_phone: str | None = Field(None, max_length=100)
+    prospect_email: EmailStr | None = None
+    prospect_address: str | None = Field(None, max_length=2000)
     blinds_lines: list[EstimateBlindsLineIn] = Field(default_factory=list, max_length=24)
     scheduled_wall: str | None = Field(
         None,
@@ -330,10 +356,32 @@ class EstimateCreateIn(BaseModel):
             raise ValueError("Duplicate blinds types are not allowed.")
         return v
 
+    @field_validator("prospect_name", "prospect_surname", "prospect_phone", "prospect_address", mode="before")
+    @classmethod
+    def strip_prospect_str(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.strip()
+            return s or None
+        return v
+
     @model_validator(mode="after")
     def schedule_source(self) -> "EstimateCreateIn":
         if self.scheduled_wall is None and self.scheduled_at is None:
             raise ValueError("Provide scheduled_wall (with visit_time_zone) or scheduled_at.")
+        return self
+
+    @model_validator(mode="after")
+    def customer_or_prospect(self) -> "EstimateCreateIn":
+        cid = (self.customer_id or "").strip()
+        if cid:
+            self.customer_id = cid
+            return self
+        pn = (self.prospect_name or "").strip()
+        if not pn:
+            raise ValueError("Either customer_id or prospect_name is required.")
+        self.customer_id = None
         return self
 
 
@@ -349,6 +397,21 @@ class EstimatePatchIn(BaseModel):
     visit_guest_emails: list[EmailStr] | None = Field(None, max_length=20)
     blinds_lines: list[EstimateBlindsLineIn] | None = Field(None, max_length=24)
     status_esti_id: str | None = Field(None, min_length=1, max_length=16)
+    prospect_name: str | None = Field(None, max_length=500)
+    prospect_surname: str | None = Field(None, max_length=500)
+    prospect_phone: str | None = Field(None, max_length=100)
+    prospect_email: EmailStr | None = None
+    prospect_address: str | None = Field(None, max_length=2000)
+
+    @field_validator("prospect_name", "prospect_surname", "prospect_phone", "prospect_address", mode="before")
+    @classmethod
+    def strip_prospect_patch(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.strip()
+            return s or None
+        return v
 
     @field_validator("visit_organizer_email", mode="before")
     @classmethod
@@ -617,8 +680,11 @@ def list_estimates(
         params["term"] = f"%{term}%"
         where.append(
             "("
-            "c.name ILIKE :term OR COALESCE(c.surname,'') ILIKE :term OR "
+            "COALESCE(c.name,'') ILIKE :term OR COALESCE(c.surname,'') ILIKE :term OR "
             "COALESCE(c.address,'') ILIKE :term OR "
+            "COALESCE(e.prospect_name,'') ILIKE :term OR COALESCE(e.prospect_surname,'') ILIKE :term OR "
+            "COALESCE(e.prospect_phone,'') ILIKE :term OR COALESCE(e.prospect_email,'') ILIKE :term OR "
+            "COALESCE(e.prospect_address,'') ILIKE :term OR "
             "EXISTS ("
             "  SELECT 1 FROM estimate_blinds eb2"
             "  JOIN blinds_type btx ON btx.company_id = eb2.company_id AND btx.id = eb2.blinds_id"
@@ -637,8 +703,12 @@ def list_estimates(
               e.company_id,
               e.id,
               e.customer_id,
-              trim(concat_ws(' ', c.name, c.surname)) AS customer_display,
-              c.address AS customer_address,
+              COALESCE(
+                NULLIF(trim(concat_ws(' ', c.name, c.surname)), ''),
+                NULLIF(trim(concat_ws(' ', e.prospect_name, e.prospect_surname)), ''),
+                'Prospect'
+              ) AS customer_display,
+              COALESCE(c.address, e.prospect_address) AS customer_address,
               ( {_SQL_BLINDS_TYPES_JSON} ) AS blinds_types_json,
               e.perde_sayisi,
               se.builtin_kind AS status,
@@ -649,7 +719,7 @@ def list_estimates(
               e.tarih_saat,
               e.created_at
             FROM estimate e
-            JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
+            LEFT JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
             LEFT JOIN status_estimate se ON se.id = e.status_esti_id
             WHERE {where_sql}
             ORDER BY COALESCE(e.scheduled_start_at, e.tarih_saat) DESC NULLS LAST, e.created_at DESC
@@ -744,6 +814,7 @@ def create_estimate(
         if exists:
             continue
         try:
+            cust_sql = (body.customer_id or "").strip() or None
             db.execute(
                 text(
                     """
@@ -753,6 +824,7 @@ def create_estimate(
                       visit_time_zone, visit_address, visit_notes,
                       visit_organizer_name, visit_organizer_email, visit_guest_emails,
                       status_esti_id,
+                      prospect_name, prospect_surname, prospect_phone, prospect_email, prospect_address,
                       created_at, updated_at
                     )
                     VALUES (
@@ -761,6 +833,7 @@ def create_estimate(
                       :vtz, :vaddr, :vnotes,
                       :org_name, :org_email, CAST(:guests AS jsonb),
                       :status_esti_id,
+                      :pname, :psurname, :pphone, :pemail, :paddress,
                       NOW(), NOW()
                     )
                     """
@@ -768,7 +841,7 @@ def create_estimate(
                 {
                     "company_id": str(cid),
                     "id": new_id,
-                    "customer_id": body.customer_id.strip(),
+                    "customer_id": cust_sql,
                     "perde_sayisi": estimate_perde,
                     "sched": sched,
                     "vtz": body.visit_time_zone,
@@ -778,17 +851,26 @@ def create_estimate(
                     "org_email": org_email,
                     "guests": guest_json,
                     "status_esti_id": pending_status_id,
+                    "pname": (body.prospect_name or "").strip() or None if not cust_sql else None,
+                    "psurname": (body.prospect_surname or "").strip() or None if not cust_sql else None,
+                    "pphone": (body.prospect_phone or "").strip() or None if not cust_sql else None,
+                    "pemail": str(body.prospect_email).strip() if body.prospect_email and not cust_sql else None,
+                    "paddress": (body.prospect_address or "").strip() or None if not cust_sql else None,
                 },
             )
             for sort_i, ln in enumerate(body.blinds_lines):
+                la = ln.line_amount
+                la_val = None
+                if la is not None:
+                    la_val = float(Decimal(str(la)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
                 db.execute(
                     text(
                         """
                         INSERT INTO estimate_blinds (
-                          company_id, estimate_id, blinds_id, sort_order, perde_sayisi
+                          company_id, estimate_id, blinds_id, sort_order, perde_sayisi, line_amount
                         )
                         VALUES (
-                          :company_id, :estimate_id, :blinds_id, :sort_order, :perde_sayisi
+                          :company_id, :estimate_id, :blinds_id, :sort_order, :perde_sayisi, :line_amount
                         )
                         """
                     ),
@@ -798,6 +880,7 @@ def create_estimate(
                         "blinds_id": ln.blinds_id.strip(),
                         "sort_order": sort_i,
                         "perde_sayisi": ln.window_count,
+                        "line_amount": la_val,
                     },
                 )
             db.commit()
@@ -834,8 +917,17 @@ def get_estimate(
               e.company_id,
               e.id,
               e.customer_id,
-              trim(concat_ws(' ', c.name, c.surname)) AS customer_display,
-              c.address AS customer_address,
+              COALESCE(
+                NULLIF(trim(concat_ws(' ', c.name, c.surname)), ''),
+                NULLIF(trim(concat_ws(' ', e.prospect_name, e.prospect_surname)), ''),
+                'Prospect'
+              ) AS customer_display,
+              COALESCE(c.address, e.prospect_address) AS customer_address,
+              e.prospect_name,
+              e.prospect_surname,
+              e.prospect_phone,
+              e.prospect_email,
+              e.prospect_address,
               ( {_SQL_BLINDS_TYPES_JSON} ) AS blinds_types_json,
               e.perde_sayisi,
               e.scheduled_start_at,
@@ -858,7 +950,7 @@ def get_estimate(
               e.created_at,
               e.updated_at
             FROM estimate e
-            JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
+            LEFT JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
             LEFT JOIN status_estimate se ON se.id = e.status_esti_id
             WHERE e.company_id = :company_id AND e.id = :id
             LIMIT 1
@@ -896,7 +988,7 @@ def patch_estimate(
     cur = db.execute(
         text(
             """
-            SELECT visit_time_zone
+            SELECT visit_time_zone, customer_id
             FROM estimate
             WHERE company_id = CAST(:cid AS uuid) AND id = :eid AND is_deleted IS NOT TRUE
             LIMIT 1
@@ -906,6 +998,7 @@ def patch_estimate(
     ).mappings().first()
     if not cur:
         raise HTTPException(status_code=404, detail="Estimate not found.")
+    has_customer = bool((cur.get("customer_id") or "").strip())
 
     sets: list[str] = []
     params: dict[str, Any] = {"cid": str(cid), "eid": eid}
@@ -949,6 +1042,25 @@ def patch_estimate(
     if payload.visit_guest_emails is not None:
         sets.append("visit_guest_emails = CAST(:guests AS jsonb)")
         params["guests"] = json.dumps([str(x) for x in payload.visit_guest_emails])
+
+    patch_dump = payload.model_dump(exclude_unset=True)
+    if not has_customer:
+        if "prospect_name" in patch_dump:
+            sets.append("prospect_name = :prospect_name")
+            params["prospect_name"] = patch_dump["prospect_name"]
+        if "prospect_surname" in patch_dump:
+            sets.append("prospect_surname = :prospect_surname")
+            params["prospect_surname"] = patch_dump["prospect_surname"]
+        if "prospect_phone" in patch_dump:
+            sets.append("prospect_phone = :prospect_phone")
+            params["prospect_phone"] = patch_dump["prospect_phone"]
+        if "prospect_email" in patch_dump:
+            sets.append("prospect_email = :prospect_email")
+            pe = patch_dump["prospect_email"]
+            params["prospect_email"] = str(pe).strip() if pe else None
+        if "prospect_address" in patch_dump:
+            sets.append("prospect_address = :prospect_address")
+            params["prospect_address"] = patch_dump["prospect_address"]
 
     if payload.status_esti_id is not None:
         new_st = db.execute(
@@ -999,14 +1111,18 @@ def patch_estimate(
             {"cid": str(cid), "eid": eid},
         )
         for sort_i, ln in enumerate(payload.blinds_lines):
+            la = ln.line_amount
+            la_val = None
+            if la is not None:
+                la_val = float(Decimal(str(la)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
             db.execute(
                 text(
                     """
                     INSERT INTO estimate_blinds (
-                      company_id, estimate_id, blinds_id, sort_order, perde_sayisi
+                      company_id, estimate_id, blinds_id, sort_order, perde_sayisi, line_amount
                     )
                     VALUES (
-                      CAST(:cid AS uuid), :estimate_id, :blinds_id, :sort_order, :perde_sayisi
+                      CAST(:cid AS uuid), :estimate_id, :blinds_id, :sort_order, :perde_sayisi, :line_amount
                     )
                     """
                 ),
@@ -1016,6 +1132,7 @@ def patch_estimate(
                     "blinds_id": ln.blinds_id.strip(),
                     "sort_order": sort_i,
                     "perde_sayisi": ln.window_count,
+                    "line_amount": la_val,
                 },
             )
         sets.append("perde_sayisi = :perde")

@@ -17,11 +17,11 @@ import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
 
 type CustomerOpt = { id: string; name: string; surname?: string | null; address?: string | null }
 type BlindsOpt = { id: string; name: string }
-type BlindsLine = { id: string; name: string; window_count?: number | null }
+type BlindsLine = { id: string; name: string; window_count?: number | null; line_amount?: number | null }
 type EstimateRow = {
   id: string
   company_id: string
-  customer_id: string
+  customer_id?: string | null
   customer_display: string
   customer_address?: string | null
   blinds_types: BlindsLine[]
@@ -206,7 +206,7 @@ function TypesAndWindowsCell({ lines }: Readonly<{ lines: BlindsLine[] }>) {
   return (
     <ul className="max-w-md list-none space-y-0.5 text-slate-800">
       {lines.map((b) => (
-        <li key={b.id} className="flex items-start gap-1.5 text-sm">
+        <li key={b.id} className="flex flex-wrap items-start gap-1.5 text-sm">
           <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-600" strokeWidth={2.5} aria-hidden />
           <span className="font-medium">{b.name}</span>
           {b.window_count != null ? (
@@ -214,6 +214,9 @@ function TypesAndWindowsCell({ lines }: Readonly<{ lines: BlindsLine[] }>) {
           ) : (
             <span className="text-slate-400"> — —</span>
           )}
+          {b.line_amount != null && b.line_amount > 0 ? (
+            <span className="text-slate-600"> — ${Number(b.line_amount).toFixed(2)}</span>
+          ) : null}
         </li>
       ))}
     </ul>
@@ -250,8 +253,15 @@ export function EstimatesPage() {
   const [createContext, setCreateContext] = useState<CreateContext | null>(null)
   const [modalErr, setModalErr] = useState<string | null>(null)
 
+  const [entryMode, setEntryMode] = useState<'prospect' | 'customer'>('prospect')
   const [customerId, setCustomerId] = useState('')
+  const [prospectName, setProspectName] = useState('')
+  const [prospectSurname, setProspectSurname] = useState('')
+  const [prospectPhone, setProspectPhone] = useState('')
+  const [prospectEmail, setProspectEmail] = useState('')
+  const [prospectAddress, setProspectAddress] = useState('')
   const [windowCountByBlindsId, setWindowCountByBlindsId] = useState<Record<string, string>>({})
+  const [lineAmountByBlindsId, setLineAmountByBlindsId] = useState<Record<string, string>>({})
   const [blindsLineSelected, setBlindsLineSelected] = useState<Record<string, boolean>>({})
   const [visitWallDraft, setVisitWallDraft] = useState('')
   const [visitTimeZone, setVisitTimeZone] = useState(() => coerceTimeZoneForApi(defaultTimeZone()))
@@ -335,6 +345,13 @@ export function EstimatesPage() {
       }
       return next
     })
+    setLineAmountByBlindsId((prev) => {
+      const next = { ...prev }
+      for (const b of blindsTypes) {
+        if (next[b.id] === undefined) next[b.id] = ''
+      }
+      return next
+    })
   }, [blindsTypes])
 
   const employeeGuestOptions = useMemo(() => {
@@ -354,8 +371,15 @@ export function EstimatesPage() {
     setVisitTimeZone(coerceTimeZoneForApi(defaultTimeZone()))
     setGuestEmails([])
     setVisitNotes('')
+    setEntryMode('prospect')
     setCustomerId('')
+    setProspectName('')
+    setProspectSurname('')
+    setProspectPhone('')
+    setProspectEmail('')
+    setProspectAddress('')
     setWindowCountByBlindsId({})
+    setLineAmountByBlindsId({})
     setBlindsLineSelected({})
     setModalErr(null)
     setCreateContext(null)
@@ -379,7 +403,12 @@ export function EstimatesPage() {
 
   async function onCreate(e: React.FormEvent) {
     e.preventDefault()
-    if (!canEdit || !customerId) return
+    if (!canEdit) return
+    if (entryMode === 'customer' && !customerId) return
+    if (entryMode === 'prospect' && !prospectName.trim()) {
+      setModalErr('Enter a name for the prospect.')
+      return
+    }
     const wall = snapWallToQuarterMinutes(visitWallDraft).trim()
     if (!isValidScheduledWall(wall)) {
       setModalErr('Invalid date and time format.')
@@ -387,11 +416,14 @@ export function EstimatesPage() {
     }
     const tz = coerceTimeZoneForApi(visitTimeZone.trim())
 
-    const vaddr = (selectedCustomer?.address ?? '').trim()
+    const vaddr =
+      entryMode === 'customer'
+        ? (selectedCustomer?.address ?? '').trim()
+        : (prospectAddress ?? '').trim()
     const orgName = createContext?.organizer_name?.trim() || undefined
     const orgEmail = createContext?.organizer_email?.trim() || undefined
 
-    const blinds_lines: { blinds_id: string; window_count: number | null }[] = []
+    const blinds_lines: { blinds_id: string; window_count: number | null; line_amount?: number }[] = []
     for (const b of blindsTypes ?? []) {
       if (!blindsLineSelected[b.id]) continue
       const raw = (windowCountByBlindsId[b.id] ?? '').trim()
@@ -404,7 +436,22 @@ export function EstimatesPage() {
         setModalErr('Window counts must be positive integers.')
         return
       }
-      blinds_lines.push({ blinds_id: b.id, window_count: n })
+      const amtRaw = (lineAmountByBlindsId[b.id] ?? '').trim()
+      let line_amount: number | undefined
+      if (amtRaw !== '') {
+        const a = Number.parseFloat(amtRaw.replace(',', '.'))
+        if (Number.isNaN(a) || a < 0) {
+          setModalErr('Line amounts must be non-negative numbers.')
+          return
+        }
+        line_amount = Math.round(a * 100) / 100
+      }
+      const row: { blinds_id: string; window_count: number | null; line_amount?: number } = {
+        blinds_id: b.id,
+        window_count: n,
+      }
+      if (line_amount !== undefined) row.line_amount = line_amount
+      blinds_lines.push(row)
     }
 
     const guestList = guestEmails.map((e) => e.trim()).filter(Boolean)
@@ -412,8 +459,7 @@ export function EstimatesPage() {
     setSaving(true)
     setModalErr(null)
     try {
-      await postJson('/estimates', {
-        customer_id: customerId,
+      const baseBody = {
         blinds_lines,
         scheduled_wall: wall,
         visit_time_zone: tz,
@@ -422,7 +468,20 @@ export function EstimatesPage() {
         ...(orgName ? { visit_organizer_name: orgName } : {}),
         ...(orgEmail ? { visit_organizer_email: orgEmail } : {}),
         ...(guestList.length ? { visit_guest_emails: guestList } : {}),
-      })
+      }
+      await postJson(
+        '/estimates',
+        entryMode === 'customer'
+          ? { ...baseBody, customer_id: customerId }
+          : {
+              ...baseBody,
+              prospect_name: prospectName.trim(),
+              ...(prospectSurname.trim() ? { prospect_surname: prospectSurname.trim() } : {}),
+              ...(prospectPhone.trim() ? { prospect_phone: prospectPhone.trim() } : {}),
+              ...(prospectEmail.trim() ? { prospect_email: prospectEmail.trim() } : {}),
+              ...(prospectAddress.trim() ? { prospect_address: prospectAddress.trim() } : {}),
+            },
+      )
       setShowCreate(false)
       await refresh()
     } catch (err) {
@@ -504,7 +563,7 @@ export function EstimatesPage() {
         >
           <form
             onSubmit={(e) => void onCreate(e)}
-            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-xl"
+            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-xl"
           >
             <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-2">
               <h2 id="estimate-create-title" className="text-base font-semibold text-slate-900">
@@ -522,23 +581,97 @@ export function EstimatesPage() {
             </div>
 
             <div className="mt-3 space-y-2.5">
+              <fieldset className="rounded-md border border-slate-100 bg-slate-50/60 p-2">
+                <legend className="px-1 text-[11px] font-semibold text-slate-600">Who is this estimate for?</legend>
+                <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-700">
+                  <label className="inline-flex cursor-pointer items-center gap-1.5">
+                    <input
+                      type="radio"
+                      name="est-entry"
+                      checked={entryMode === 'prospect'}
+                      onChange={() => setEntryMode('prospect')}
+                      className="h-3.5 w-3.5 border-slate-300 text-teal-600"
+                    />
+                    <span>New prospect (no customer record until an order is saved)</span>
+                  </label>
+                  <label className="inline-flex cursor-pointer items-center gap-1.5">
+                    <input
+                      type="radio"
+                      name="est-entry"
+                      checked={entryMode === 'customer'}
+                      onChange={() => setEntryMode('customer')}
+                      className="h-3.5 w-3.5 border-slate-300 text-teal-600"
+                    />
+                    <span>Existing customer</span>
+                  </label>
+                </div>
+              </fieldset>
+
               <div className="grid gap-2 sm:grid-cols-2">
-                <label className="block text-xs font-medium text-slate-700 sm:col-span-2">
-                  Customer
-                  <select
-                    required
-                    className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                    value={customerId}
-                    onChange={(e) => setCustomerId(e.target.value)}
-                  >
-                    <option value="">Select…</option>
-                    {(customers ?? []).map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {customerLabel(c)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                {entryMode === 'customer' ? (
+                  <label className="block text-xs font-medium text-slate-700 sm:col-span-2">
+                    Customer
+                    <select
+                      required
+                      className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                      value={customerId}
+                      onChange={(e) => setCustomerId(e.target.value)}
+                    >
+                      <option value="">Select…</option>
+                      {(customers ?? []).map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {customerLabel(c)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <>
+                    <label className="block text-xs font-medium text-slate-700">
+                      First / given name
+                      <input
+                        required
+                        className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                        value={prospectName}
+                        onChange={(e) => setProspectName(e.target.value)}
+                        placeholder="Required"
+                      />
+                    </label>
+                    <label className="block text-xs font-medium text-slate-700">
+                      Last name
+                      <input
+                        className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                        value={prospectSurname}
+                        onChange={(e) => setProspectSurname(e.target.value)}
+                      />
+                    </label>
+                    <label className="block text-xs font-medium text-slate-700">
+                      Phone
+                      <input
+                        className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                        value={prospectPhone}
+                        onChange={(e) => setProspectPhone(e.target.value)}
+                      />
+                    </label>
+                    <label className="block text-xs font-medium text-slate-700">
+                      Email
+                      <input
+                        type="email"
+                        className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                        value={prospectEmail}
+                        onChange={(e) => setProspectEmail(e.target.value)}
+                      />
+                    </label>
+                    <label className="block text-xs font-medium text-slate-700 sm:col-span-2">
+                      Address (optional — also used as visit location hint)
+                      <input
+                        className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                        value={prospectAddress}
+                        onChange={(e) => setProspectAddress(e.target.value)}
+                      />
+                    </label>
+                  </>
+                )}
 
                 <div className="block text-xs font-medium text-slate-700">
                   <span className="block">Visit date</span>
@@ -641,15 +774,15 @@ export function EstimatesPage() {
               <fieldset className="rounded-md border border-slate-200 p-2">
                 <legend className="px-1 text-xs font-medium text-slate-800">Blinds types</legend>
                 <p className="mb-1 text-[10px] text-slate-500">
-                  Optional — enter a window count only for types you want on this estimate.
+                  Enter quantity for each type you include. Amount is optional per line.
                 </p>
-                <div className="mt-1 grid max-h-40 grid-cols-1 gap-1 overflow-y-auto sm:grid-cols-2">
+                <div className="mt-1 grid max-h-48 grid-cols-1 gap-1 overflow-y-auto sm:grid-cols-2">
                   {(blindsTypes ?? []).map((b) => {
                     const checked = Boolean(blindsLineSelected[b.id])
                     return (
                       <label
                         key={b.id}
-                        className="flex flex-wrap items-center gap-1.5 rounded border border-transparent px-1.5 py-1 text-xs hover:bg-slate-50/80"
+                        className="flex flex-wrap items-center gap-1 rounded border border-transparent px-1.5 py-1 text-xs hover:bg-slate-50/80"
                       >
                         <input
                           type="checkbox"
@@ -658,18 +791,21 @@ export function EstimatesPage() {
                           onChange={(ev) => {
                             const on = ev.target.checked
                             setBlindsLineSelected((prev) => ({ ...prev, [b.id]: on }))
-                            if (!on) setWindowCountByBlindsId((w) => ({ ...w, [b.id]: '' }))
+                            if (!on) {
+                              setWindowCountByBlindsId((w) => ({ ...w, [b.id]: '' }))
+                              setLineAmountByBlindsId((w) => ({ ...w, [b.id]: '' }))
+                            }
                           }}
                           aria-label={`Include ${b.name}`}
                         />
-                        <span className="min-w-0 flex-1 truncate font-medium text-slate-800">{b.name}</span>
+                        <span className="min-w-0 max-w-[7rem] truncate font-medium text-slate-800">{b.name}</span>
                         <input
                           type="number"
                           min={1}
                           placeholder="Qty"
                           title="Windows"
                           disabled={!checked}
-                          className="w-14 rounded border border-slate-200 px-1 py-0.5 text-xs outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
+                          className="w-12 rounded border border-slate-200 px-1 py-0.5 text-xs outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
                           value={windowCountByBlindsId[b.id] ?? ''}
                           onChange={(ev) => {
                             const v = ev.target.value
@@ -678,6 +814,18 @@ export function EstimatesPage() {
                             if (!Number.isNaN(n) && n >= 1)
                               setBlindsLineSelected((prev) => ({ ...prev, [b.id]: true }))
                           }}
+                        />
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          placeholder="Amt"
+                          title="Line amount (optional)"
+                          disabled={!checked}
+                          className="w-16 rounded border border-slate-200 px-1 py-0.5 text-xs outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
+                          value={lineAmountByBlindsId[b.id] ?? ''}
+                          onChange={(ev) =>
+                            setLineAmountByBlindsId((w) => ({ ...w, [b.id]: ev.target.value }))
+                          }
                         />
                       </label>
                     )
@@ -703,8 +851,8 @@ export function EstimatesPage() {
               </div>
             ) : null}
 
-            {customers?.length === 0 ? (
-              <p className="mt-2 text-[11px] text-amber-700">Add a customer first.</p>
+            {entryMode === 'customer' && customers?.length === 0 ? (
+              <p className="mt-2 text-[11px] text-amber-700">Add a customer under Customers, or use New prospect above.</p>
             ) : null}
             {blindsTypes?.length === 0 ? (
               <p className="mt-2 text-[11px] text-amber-700">Add blinds types under Lookups.</p>
@@ -720,7 +868,12 @@ export function EstimatesPage() {
               </button>
               <button
                 type="submit"
-                disabled={saving || !customerId || customers?.length === 0 || blindsTypes?.length === 0}
+                disabled={
+                  saving ||
+                  blindsTypes?.length === 0 ||
+                  (entryMode === 'customer' && (!customerId || customers?.length === 0)) ||
+                  (entryMode === 'prospect' && !prospectName.trim())
+                }
                 className="rounded-md bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
               >
                 {saving ? 'Saving…' : 'Create'}

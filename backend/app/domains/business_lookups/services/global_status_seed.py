@@ -20,6 +20,11 @@ ESTIMATE_BUILTIN_IDS: dict[str, str] = {
 
 DEFAULT_ORDER_STATUS_ID = "88efe5e3d3512afe"
 
+# md5('global:ord:builtin:ready_for_install')[:16] — matches DB/28_*.sql
+READY_FOR_INSTALL_ORDER_STATUS_ID = hashlib.md5(
+    b"global:ord:builtin:ready_for_install"
+).hexdigest()[:16]
+
 
 def custom_estimate_status_id(normalized_name_lower: str) -> str:
     return hashlib.md5(f"global:est:custom:{normalized_name_lower}".encode("utf-8")).hexdigest()[:16]
@@ -60,6 +65,16 @@ def ensure_global_order_catalog_seeded(db: Session) -> None:
             """
         ),
         {"id": DEFAULT_ORDER_STATUS_ID},
+    )
+    db.execute(
+        text(
+            """
+            INSERT INTO status_order (id, name, active, sort_order)
+            SELECT :id, 'Ready for installation', TRUE, 10
+            WHERE NOT EXISTS (SELECT 1 FROM status_order WHERE id = :id)
+            """
+        ),
+        {"id": READY_FOR_INSTALL_ORDER_STATUS_ID},
     )
 
 

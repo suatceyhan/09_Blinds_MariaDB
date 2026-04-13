@@ -4,6 +4,7 @@ import { Pencil, RotateCcw, SlidersHorizontal, Trash2 } from 'lucide-react'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { useAuthSession } from '@/app/authSession'
 import { getJson, patchJson, postJson } from '@/lib/api'
+import { LookupPageLayout, LookupSearchToolbar } from '@/features/lookups/LookupPageLayout'
 
 type Row = {
   id: string
@@ -196,7 +197,7 @@ export function BlindsExtraOptionsLookupPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <>
       <ConfirmModal
         open={pending !== null}
         title={pending?.kind === 'restore' ? 'Restore option' : 'Deactivate option'}
@@ -322,40 +323,38 @@ export function BlindsExtraOptionsLookupPage() {
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-start gap-4">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
-            <SlidersHorizontal className="h-5 w-5" strokeWidth={2} />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{kindName || kindId}</h1>
-            <p className="mt-1 text-sm text-slate-600">
-              Options for this line attribute (shared for all companies). Configure which blinds types can use
-              each value under Settings → Blinds type × {kindName || 'attribute'}.
-            </p>
-          </div>
-        </div>
-        {canEdit ? (
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700"
-          >
-            New option
-          </button>
-        ) : null}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <input
-          type="search"
-          placeholder="Filter by name…"
-          className="min-w-[200px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 sm:max-w-md"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <ShowInactiveToggle checked={showInactive} onChange={setShowInactive} />
-      </div>
+      <LookupPageLayout
+        icon={SlidersHorizontal}
+        wide
+        title={kindName || kindId}
+        description={
+          <p>
+            Options for this line attribute (shared for all companies). Configure which blinds types can use each
+            value under Settings → Blinds type × {kindName || 'attribute'}.
+          </p>
+        }
+        headerAside={
+          canEdit ? (
+            <button
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700"
+            >
+              New option
+            </button>
+          ) : null
+        }
+      >
+        <LookupSearchToolbar>
+          <input
+            type="search"
+            placeholder="Filter by name…"
+            className="min-w-[200px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 sm:max-w-md"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <ShowInactiveToggle checked={showInactive} onChange={setShowInactive} />
+        </LookupSearchToolbar>
 
       {err ? (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{err}</div>
@@ -438,6 +437,7 @@ export function BlindsExtraOptionsLookupPage() {
           </table>
         )}
       </div>
-    </div>
+      </LookupPageLayout>
+    </>
   )
 }

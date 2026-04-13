@@ -9,7 +9,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -24,6 +24,7 @@ from app.domains.business_lookups.services.blinds_catalog import (
     normalize_blinds_line_category_value,
     validate_blinds_lines_categories,
 )
+from app.integrations.google_calendar_service import try_push_order_installation_to_google_calendar
 
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
@@ -181,7 +182,8 @@ COALESCE(
       json_build_object(
         'id', bt.id,
         'name', bt.name,
-        'window_count', eb.perde_sayisi
+        'window_count', eb.perde_sayisi,
+        'line_amount', eb.line_amount
       )
       ORDER BY eb.sort_order, bt.name
     )
@@ -194,7 +196,8 @@ COALESCE(
       json_build_object(
         'id', bt2.id,
         'name', bt2.name,
-        'window_count', e.perde_sayisi
+        'window_count', e.perde_sayisi,
+        'line_amount', NULL
       )
     )
     FROM blinds_type bt2
@@ -310,9 +313,195 @@ def _ensure_default_order_status_id(db: Session, *, company_id: UUID) -> str | N
     return DEFAULT_ORDER_STATUS_ID
 
 
+def _new_customer_id_for_order() -> str:
+    return secrets.token_hex(8)
+
+
+def _ready_for_install_order_status_id(db: Session, company_id: UUID) -> str | None:
+    from app.domains.business_lookups.services.global_status_seed import (
+        READY_FOR_INSTALL_ORDER_STATUS_ID,
+    )
+
+    ok = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM status_order so
+            INNER JOIN company_status_order_matrix m
+              ON m.status_order_id = so.id AND m.company_id = CAST(:cid AS uuid)
+            WHERE so.id = :rid AND so.active IS TRUE
+            LIMIT 1
+            """
+        ),
+        {"cid": str(company_id), "rid": READY_FOR_INSTALL_ORDER_STATUS_ID},
+    ).first()
+    if ok:
+        return READY_FOR_INSTALL_ORDER_STATUS_ID
+    row = db.execute(
+        text(
+            """
+            SELECT so.id
+            FROM status_order so
+            INNER JOIN company_status_order_matrix m
+              ON m.status_order_id = so.id AND m.company_id = CAST(:cid AS uuid)
+            WHERE so.active IS TRUE AND lower(trim(so.name)) = 'ready for installation'
+            LIMIT 1
+            """
+        ),
+        {"cid": str(company_id)},
+    ).mappings().first()
+    return str(row["id"]) if row else None
+
+
+def _is_ready_for_install_order_status(
+    db: Session, company_id: UUID, status_orde_id: str | None
+) -> bool:
+    if not status_orde_id or not str(status_orde_id).strip():
+        return False
+    exp = _ready_for_install_order_status_id(db, company_id)
+    return bool(exp and exp == str(status_orde_id).strip())
+
+
+def _insert_customer_from_prospect_and_link_estimate(
+    db: Session,
+    company_id: UUID,
+    estimate_id: str,
+    est: dict[str, Any],
+) -> str:
+    name = (est.get("prospect_name") or "").strip()
+    if not name:
+        raise HTTPException(
+            status_code=400,
+            detail="This estimate has no customer record yet. Add prospect name on the estimate before creating an order.",
+        )
+    surname = (est.get("prospect_surname") or "").strip() or None
+    phone = (est.get("prospect_phone") or "").strip() or None
+    email = (est.get("prospect_email") or "").strip() or None
+    address = (est.get("prospect_address") or "").strip() or None
+    for _ in range(8):
+        new_id = _new_customer_id_for_order()
+        exists = db.execute(
+            text(
+                "SELECT 1 FROM customers WHERE company_id = CAST(:cid AS uuid) AND id = :id LIMIT 1"
+            ),
+            {"cid": str(company_id), "id": new_id},
+        ).first()
+        if exists:
+            continue
+        try:
+            db.execute(
+                text(
+                    """
+                    INSERT INTO customers (
+                      company_id, id, name, surname, phone, email, address, status_user_id, active
+                    )
+                    VALUES (
+                      CAST(:cid AS uuid), :id, :name, :surname, :phone, :email, :address, NULL, TRUE
+                    )
+                    """
+                ),
+                {
+                    "cid": str(company_id),
+                    "id": new_id,
+                    "name": name,
+                    "surname": surname,
+                    "phone": phone,
+                    "email": email,
+                    "address": address,
+                },
+            )
+            db.execute(
+                text(
+                    """
+                    UPDATE estimate
+                    SET
+                      customer_id = :nid,
+                      prospect_name = NULL,
+                      prospect_surname = NULL,
+                      prospect_phone = NULL,
+                      prospect_email = NULL,
+                      prospect_address = NULL,
+                      updated_at = NOW()
+                    WHERE company_id = CAST(:cid AS uuid) AND id = :eid
+                    """
+                ),
+                {"cid": str(company_id), "nid": new_id, "eid": estimate_id},
+            )
+            return new_id
+        except IntegrityError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Could not create customer (duplicate email or invalid data).",
+            ) from exc
+    raise HTTPException(status_code=500, detail="Could not allocate customer id.")
+
+
+def _resolve_customer_for_estimate_order(
+    db: Session,
+    company_id: UUID,
+    estimate_id: str,
+    body_customer_id: str | None,
+    *,
+    estimate_row: dict[str, Any],
+) -> str:
+    existing = (estimate_row.get("customer_id") or "").strip()
+    if existing:
+        bc = (body_customer_id or "").strip()
+        if bc and bc != existing:
+            raise HTTPException(status_code=400, detail="Customer must match the estimate.")
+        ok = db.execute(
+            text(
+                """
+                SELECT 1 FROM customers
+                WHERE company_id = CAST(:cid AS uuid) AND id = :cust AND active IS TRUE
+                LIMIT 1
+                """
+            ),
+            {"cid": str(company_id), "cust": existing},
+        ).first()
+        if not ok:
+            raise HTTPException(status_code=400, detail="Invalid or inactive customer.")
+        return existing
+    bc = (body_customer_id or "").strip()
+    if bc:
+        ok = db.execute(
+            text(
+                """
+                SELECT 1 FROM customers
+                WHERE company_id = CAST(:cid AS uuid) AND id = :cust AND active IS TRUE
+                LIMIT 1
+                """
+            ),
+            {"cid": str(company_id), "cust": bc},
+        ).first()
+        if not ok:
+            raise HTTPException(status_code=400, detail="Invalid or inactive customer.")
+        db.execute(
+            text(
+                """
+                UPDATE estimate
+                SET
+                  customer_id = :cust,
+                  prospect_name = NULL,
+                  prospect_surname = NULL,
+                  prospect_phone = NULL,
+                  prospect_email = NULL,
+                  prospect_address = NULL,
+                  updated_at = NOW()
+                WHERE company_id = CAST(:cid AS uuid) AND id = :eid
+                """
+            ),
+            {"cid": str(company_id), "cust": bc, "eid": estimate_id},
+        )
+        return bc
+    return _insert_customer_from_prospect_and_link_estimate(
+        db, company_id, estimate_id, estimate_row
+    )
+
+
 class OrderPrefillOut(BaseModel):
     estimate_id: str
-    customer_id: str
+    customer_id: str | None = None
     customer_display: str
     visit_notes: str | None = None
     blinds_summary: str | None = None
@@ -344,7 +533,7 @@ class OrderListItemOut(BaseModel):
 
 
 class OrderCreateIn(BaseModel):
-    customer_id: str = Field(min_length=1, max_length=16)
+    customer_id: str | None = Field(None, max_length=16)
     estimate_id: str | None = Field(None, max_length=16)
     tax_uygulanacak_miktar: Decimal | None = None
     total_amount: Decimal | None = None
@@ -353,6 +542,16 @@ class OrderCreateIn(BaseModel):
     # agree_data is assigned later when status moves to in_production
     blinds_lines: list[dict[str, Any]] = Field(default_factory=list)
     order_note: str | None = Field(None, max_length=4000)
+
+    @model_validator(mode="after")
+    def normalize_ids(self) -> "OrderCreateIn":
+        est = (self.estimate_id or "").strip() or None
+        self.estimate_id = est
+        c = (self.customer_id or "").strip() or None
+        self.customer_id = c
+        if not est and not c:
+            raise ValueError("customer_id is required when estimate_id is not set.")
+        return self
 
 
 class OrderAttachmentOut(BaseModel):
@@ -459,6 +658,8 @@ class OrderDetailOut(BaseModel):
     status_code: str
     status_orde_id: str | None = None
     status_order_label: str | None = None
+    installation_scheduled_start_at: datetime | None = None
+    installation_scheduled_end_at: datetime | None = None
     created_at: Any | None = None
     updated_at: Any | None = None
     active: bool = True
@@ -480,6 +681,8 @@ class OrderPatchIn(BaseModel):
     agreement_date: date | None = None
     order_note: str | None = Field(None, max_length=4000)
     blinds_lines: list[dict[str, Any]] | None = None
+    installation_scheduled_start_at: datetime | None = None
+    installation_scheduled_end_at: datetime | None = None
 
 
 class OrderStatusLookupOut(BaseModel):
@@ -535,7 +738,11 @@ def prefill_from_estimate(
             SELECT
               e.id AS estimate_id,
               e.customer_id,
-              trim(concat_ws(' ', c.name, c.surname)) AS customer_display,
+              COALESCE(
+                NULLIF(trim(concat_ws(' ', c.name, c.surname)), ''),
+                NULLIF(trim(concat_ws(' ', e.prospect_name, e.prospect_surname)), ''),
+                'Prospect'
+              ) AS customer_display,
               e.visit_notes,
               se.builtin_kind AS estimate_status,
               ( {_SQL_BLINDS_SUMMARY} ) AS blinds_summary,
@@ -544,7 +751,7 @@ def prefill_from_estimate(
               e.tarih_saat,
               co.tax_rate_percent AS company_tax_rate_percent
             FROM estimate e
-            JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
+            LEFT JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
             JOIN companies co ON co.id = e.company_id
             LEFT JOIN status_estimate se ON se.id = e.status_esti_id
             WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid
@@ -995,6 +1202,8 @@ def get_order(
               o.status_code,
               o.status_orde_id,
               so.name AS status_order_label,
+              o.installation_scheduled_start_at,
+              o.installation_scheduled_end_at,
               o.created_at,
               o.updated_at,
               o.active
@@ -1113,22 +1322,9 @@ def create_order(
     cid = effective_company_id(current_user)
     if not cid:
         raise HTTPException(status_code=403, detail="No active company.")
-    cust_id = body.customer_id.strip()
-
-    cust = db.execute(
-        text(
-            """
-            SELECT 1 FROM customers
-            WHERE company_id = CAST(:cid AS uuid) AND id = :cust AND active IS TRUE
-            LIMIT 1
-            """
-        ),
-        {"cid": str(cid), "cust": cust_id},
-    ).first()
-    if not cust:
-        raise HTTPException(status_code=400, detail="Invalid or inactive customer.")
-
     est_id = (body.estimate_id or "").strip() or None
+    cust_id: str | None = (body.customer_id or "").strip() or None
+
     if est_id:
         taken = db.execute(
             text(
@@ -1148,7 +1344,15 @@ def create_order(
         er = db.execute(
             text(
                 """
-                SELECT e.customer_id, se.builtin_kind AS st, COALESCE(e.is_deleted, FALSE) AS is_deleted
+                SELECT
+                  e.customer_id,
+                  e.prospect_name,
+                  e.prospect_surname,
+                  e.prospect_phone,
+                  e.prospect_email,
+                  e.prospect_address,
+                  se.builtin_kind AS st,
+                  COALESCE(e.is_deleted, FALSE) AS is_deleted
                 FROM estimate e
                 LEFT JOIN status_estimate se ON se.id = e.status_esti_id
                 WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid
@@ -1161,8 +1365,6 @@ def create_order(
             raise HTTPException(status_code=400, detail="Invalid estimate.")
         if er["is_deleted"]:
             raise HTTPException(status_code=400, detail="Estimate is deleted.")
-        if er["customer_id"] != cust_id:
-            raise HTTPException(status_code=400, detail="Customer must match the estimate.")
         if er["st"] == "converted":
             raise HTTPException(
                 status_code=409,
@@ -1173,6 +1375,28 @@ def create_order(
                 status_code=400,
                 detail="Cannot create an order from a cancelled estimate.",
             )
+        cust_id = _resolve_customer_for_estimate_order(
+            db,
+            cid,
+            est_id,
+            body.customer_id,
+            estimate_row=dict(er),
+        )
+    else:
+        if not cust_id:
+            raise HTTPException(status_code=400, detail="Invalid or inactive customer.")
+        cust = db.execute(
+            text(
+                """
+                SELECT 1 FROM customers
+                WHERE company_id = CAST(:cid AS uuid) AND id = :cust AND active IS TRUE
+                LIMIT 1
+                """
+            ),
+            {"cid": str(cid), "cust": cust_id},
+        ).first()
+        if not cust:
+            raise HTTPException(status_code=400, detail="Invalid or inactive customer.")
 
     status_ord = _ensure_default_order_status_id(db, company_id=cid)
     down = body.downpayment
@@ -1276,11 +1500,14 @@ def patch_order(
               o.estimate_id,
               o.customer_id,
               o.status_code,
+              o.status_orde_id,
               o.total_amount,
               o.downpayment,
               o.final_payment,
               o.tax_amount,
-              o.agree_data
+              o.agree_data,
+              o.installation_scheduled_start_at,
+              o.installation_scheduled_end_at
             FROM orders o
             WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid AND o.active IS TRUE
             LIMIT 1
@@ -1294,6 +1521,9 @@ def patch_order(
     sets: list[str] = []
     params: dict[str, Any] = {"cid": str(cid), "oid": oid}
     patch_fields = body.model_dump(exclude_unset=True)
+    final_status_ord_id: str | None = (cur.get("status_orde_id") or "").strip() or None
+    final_inst_start: Any = cur.get("installation_scheduled_start_at")
+    final_inst_end: Any = cur.get("installation_scheduled_end_at")
 
     eff_total: Any = cur.get("total_amount")
     eff_down: Any = cur.get("downpayment")
@@ -1338,6 +1568,7 @@ def patch_order(
         sid_raw = patch_fields["status_orde_id"]
         if sid_raw is None or not str(sid_raw).strip():
             sets.append("status_orde_id = NULL")
+            final_status_ord_id = None
         else:
             sid = str(sid_raw).strip()
             ok = db.execute(
@@ -1357,6 +1588,18 @@ def patch_order(
                 raise HTTPException(status_code=400, detail="Invalid or inactive order status.")
             sets.append("status_orde_id = :status_ord_id")
             params["status_ord_id"] = sid
+            final_status_ord_id = sid
+
+    if "installation_scheduled_start_at" in patch_fields:
+        inst_s = patch_fields["installation_scheduled_start_at"]
+        sets.append("installation_scheduled_start_at = :inst_start")
+        params["inst_start"] = inst_s
+        final_inst_start = inst_s
+    if "installation_scheduled_end_at" in patch_fields:
+        inst_e = patch_fields["installation_scheduled_end_at"]
+        sets.append("installation_scheduled_end_at = :inst_end")
+        params["inst_end"] = inst_e
+        final_inst_end = inst_e
 
     if "customer_id" in patch_fields:
         new_cust = (patch_fields["customer_id"] or "").strip()
@@ -1382,9 +1625,18 @@ def patch_order(
         sets.append("customer_id = :patched_customer_id")
         params["patched_customer_id"] = new_cust
 
-    if body.status_code is not None:
+    if _is_ready_for_install_order_status(db, cid, final_status_ord_id) and final_inst_start is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Installation date and time are required when status is Ready for installation.",
+        )
+
+    if "status_code" in patch_fields:
         sets.append("status_code = :sc")
-        params["sc"] = body.status_code
+        params["sc"] = patch_fields["status_code"]
+    elif _is_ready_for_install_order_status(db, cid, final_status_ord_id) and final_inst_start is not None:
+        sets.append("status_code = :auto_sc")
+        params["auto_sc"] = "install_scheduled"
 
     if "order_note" in patch_fields:
         sets.append("order_note = :order_note")
@@ -1397,7 +1649,12 @@ def patch_order(
     if not sets:
         raise HTTPException(status_code=400, detail="No changes submitted.")
 
-    next_sc = (body.status_code or cur.get("status_code") or "").strip()
+    next_sc = (
+        (patch_fields["status_code"] if "status_code" in patch_fields else None)
+        or cur.get("status_code")
+        or ""
+    )
+    next_sc = str(next_sc).strip()
     if next_sc == "in_production" and not (cur.get("agree_data") or "").strip():
         est_id = (cur.get("estimate_id") or "").strip()
         if est_id:
@@ -1405,13 +1662,17 @@ def patch_order(
                 text(
                     f"""
                     SELECT
-                      trim(concat_ws(' ', c.name, c.surname)) AS customer_display,
+                      COALESCE(
+                        NULLIF(trim(concat_ws(' ', c.name, c.surname)), ''),
+                        NULLIF(trim(concat_ws(' ', e.prospect_name, e.prospect_surname)), ''),
+                        'Prospect'
+                      ) AS customer_display,
                       e.visit_notes,
                       ( {_SQL_BLINDS_SUMMARY} ) AS blinds_summary,
                       e.scheduled_start_at,
                       e.tarih_saat
                     FROM estimate e
-                    JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
+                    LEFT JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
                     WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid
                     LIMIT 1
                     """
@@ -1449,4 +1710,10 @@ def patch_order(
         params,
     )
     db.commit()
+    try_push_order_installation_to_google_calendar(
+        db,
+        company_id=cid,
+        order_id=oid,
+        acting_user_id=current_user.id,
+    )
     return get_order(order_id=oid, db=db, current_user=current_user)

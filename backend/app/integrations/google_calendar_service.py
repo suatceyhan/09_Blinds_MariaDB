@@ -362,11 +362,15 @@ def try_push_estimate_to_google_calendar(
                   e.visit_organizer_email,
                   e.visit_guest_emails,
                   e.visit_recurrence_rrule,
-                  trim(concat_ws(' ', c.name, c.surname)) AS customer_display,
-                  c.address AS customer_address,
-                  c.phone AS customer_phone
+                  COALESCE(
+                    NULLIF(trim(concat_ws(' ', c.name, c.surname)), ''),
+                    NULLIF(trim(concat_ws(' ', e.prospect_name, e.prospect_surname)), ''),
+                    'Prospect'
+                  ) AS customer_display,
+                  COALESCE(c.address, e.prospect_address) AS customer_address,
+                  COALESCE(c.phone, e.prospect_phone) AS customer_phone
                 FROM estimate e
-                JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
+                LEFT JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
                 LEFT JOIN status_estimate se ON se.id = e.status_esti_id
                 WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid AND e.is_deleted IS NOT TRUE
                 LIMIT 1
@@ -523,6 +527,184 @@ def try_push_estimate_to_google_calendar(
         reset_connection_rls_gucs(db)
     except (HttpError, ProgrammingError, ValueError, KeyError, TypeError):
         logger.exception("Google Calendar sync failed for estimate %s", estimate_id)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        reset_connection_rls_gucs(db)
+
+
+def try_push_order_installation_to_google_calendar(
+    db: Session, *, company_id: UUID, order_id: str, acting_user_id: UUID
+) -> None:
+    """Create/update a Google Calendar event when an order has installation time and status Ready for installation."""
+    if not google_calendar_oauth_configured():
+        return
+    try:
+        reset_connection_rls_gucs(db)
+        _set_rls_for_company_user(db, company_id, acting_user_id)
+        cal_row = db.execute(
+            text(
+                """
+                SELECT refresh_token, calendar_id, google_account_email
+                FROM company_google_calendar
+                WHERE company_id = CAST(:cid AS uuid)
+                LIMIT 1
+                """
+            ),
+            {"cid": str(company_id)},
+        ).mappings().first()
+        if not cal_row:
+            reset_connection_rls_gucs(db)
+            return
+
+        ord_row = db.execute(
+            text(
+                """
+                SELECT
+                  o.installation_scheduled_start_at,
+                  o.installation_scheduled_end_at,
+                  o.installation_google_event_id,
+                  o.blinds_lines,
+                  o.status_orde_id,
+                  trim(concat_ws(' ', c.name, c.surname)) AS customer_display,
+                  c.address AS customer_address
+                FROM orders o
+                JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
+                WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid AND o.active IS TRUE
+                LIMIT 1
+                """
+            ),
+            {"cid": str(company_id), "oid": order_id},
+        ).mappings().first()
+        if not ord_row:
+            reset_connection_rls_gucs(db)
+            return
+
+        sid = ord_row.get("status_orde_id")
+        if sid is None or str(sid).strip() == "":
+            reset_connection_rls_gucs(db)
+            return
+        st_ok = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM status_order so
+                WHERE so.id = :sid AND lower(trim(so.name)) = 'ready for installation'
+                LIMIT 1
+                """
+            ),
+            {"sid": str(sid).strip()},
+        ).first()
+        if not st_ok:
+            reset_connection_rls_gucs(db)
+            return
+
+        start_dt = ord_row.get("installation_scheduled_start_at")
+        if start_dt is None:
+            reset_connection_rls_gucs(db)
+            return
+        if getattr(start_dt, "tzinfo", None) is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+
+        end_dt = ord_row.get("installation_scheduled_end_at")
+        if end_dt is None:
+            end_dt = start_dt + timedelta(hours=1)
+        elif getattr(end_dt, "tzinfo", None) is None:
+            end_dt = end_dt.replace(tzinfo=timezone.utc)
+
+        desc_lines: list[str] = []
+        raw_lines = ord_row.get("blinds_lines")
+        if isinstance(raw_lines, str):
+            try:
+                raw_lines = json.loads(raw_lines)
+            except json.JSONDecodeError:
+                raw_lines = []
+        if isinstance(raw_lines, list):
+            for item in raw_lines:
+                if not isinstance(item, dict):
+                    continue
+                nm = (item.get("name") or "").strip()
+                if not nm:
+                    continue
+                wc = item.get("window_count")
+                wtxt = f" ({wc} qty)" if wc is not None else ""
+                desc_lines.append(f"{nm}{wtxt}")
+        blinds_block = "\n".join(f"- {ln}" for ln in desc_lines) if desc_lines else "—"
+        customer_display = (ord_row.get("customer_display") or "Customer").strip()
+        addr = (ord_row.get("customer_address") or "").strip()
+        description = "\n".join(
+            [
+                f"Order: {order_id}",
+                "",
+                "Blinds:",
+                blinds_block,
+                *(["", f"Address: {addr}"] if addr else []),
+            ]
+        )
+
+        creds = _calendar_credentials(cal_row["refresh_token"])
+        creds.refresh(GoogleAuthRequest())
+        cal_id = (cal_row.get("calendar_id") or "primary").strip() or "primary"
+        service = build("calendar", "v3", credentials=creds, cache_discovery=False)
+        tzinfo = start_dt.tzinfo
+        tz_name = getattr(tzinfo, "key", None) if tzinfo else None
+        if not tz_name:
+            tz_name = "UTC"
+        start_payload, end_payload = _google_event_start_end(start_dt, end_dt, tz_name)
+        safe_name = customer_display.replace('"', "'")
+        body: dict[str, Any] = {
+            "summary": f'Installation for "{safe_name}"',
+            "description": description,
+            "start": start_payload,
+            "end": end_payload,
+        }
+        if addr:
+            body["location"] = addr
+
+        existing_geid = ord_row.get("installation_google_event_id")
+        existing_geid_s = str(existing_geid).strip() if existing_geid else ""
+
+        if existing_geid_s:
+            service.events().update(
+                calendarId=cal_id,
+                eventId=existing_geid_s,
+                body=body,
+            ).execute()
+            db.execute(
+                text(
+                    """
+                    UPDATE orders
+                    SET installation_calendar_last_synced_at = NOW(),
+                        installation_calendar_provider = 'google',
+                        updated_at = NOW()
+                    WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+                    """
+                ),
+                {"cid": str(company_id), "oid": order_id},
+            )
+            db.commit()
+        else:
+            ins = service.events().insert(calendarId=cal_id, body=body).execute()
+            geid = ins.get("id")
+            if geid:
+                db.execute(
+                    text(
+                        """
+                        UPDATE orders
+                        SET installation_google_event_id = :geid,
+                            installation_calendar_provider = 'google',
+                            installation_calendar_last_synced_at = NOW(),
+                            updated_at = NOW()
+                        WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+                        """
+                    ),
+                    {"geid": geid, "cid": str(company_id), "oid": order_id},
+                )
+                db.commit()
+        reset_connection_rls_gucs(db)
+    except (HttpError, ProgrammingError, ValueError, KeyError, TypeError):
+        logger.exception("Google Calendar sync failed for order installation %s", order_id)
         try:
             db.rollback()
         except Exception:

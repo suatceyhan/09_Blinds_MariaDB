@@ -52,6 +52,10 @@ Vite varsayılanı `http://localhost:5173`; API proxy `/api` → `127.0.0.1:8000
 
 **Frontend:** Token’lar tarayıcıda kalıcıdır; hareketsizlik çıkışı için `frontend/.env` içinde `VITE_IDLE_LOGOUT_MINUTES` (varsayılan 30; `0` ile kapalı). Ayrıntı: `frontend/README.md`. Şablon UI metinleri **İngilizce**; onaylar ortalanmış modal ile (`ConfirmModal`).
 
+**Tahmin / müşteri:** Tahmin oluştururken varsayılan olarak **yeni müşteri adayı (prospect)** girilebilir; kayıt `customers` tablosuna **sipariş kaydedilene kadar** yazılmaz. İsteğe bağlı **mevcut müşteri** seçimi de vardır. Tahmin satırlarında **tutar (line amount)** saklanır; siparişe aktarılır. DB: **`DB/28_estimate_prospect_line_amount_ready_install_status.sql`**.
+
+**Sipariş / kurulum:** Global durum **Ready for installation** seçildiğinde **kurulum başlangıç tarihi/saati** zorunludur; Google Calendar bağlıysa kurulum etkinliği oluşturulur/güncellenir.
+
 ## Klasör yapısı
 
 Modüler backend ve Vite React ön yüzü için bkz. [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md) (içerik proje evrimine göre güncellenebilir).

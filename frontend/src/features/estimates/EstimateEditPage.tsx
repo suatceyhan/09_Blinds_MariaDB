@@ -14,7 +14,7 @@ import { ADDRESS_FORMAT_HINT } from '@/components/ui/AddressMapLink'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { VisitStartQuarterPicker } from '@/components/ui/VisitStartQuarterPicker'
 
-type BlindsRef = { id: string; name: string; window_count?: number | null }
+type BlindsRef = { id: string; name: string; window_count?: number | null; line_amount?: number | null }
 type BlindsOpt = { id: string; name: string }
 
 type EstimateStatusOpt = {
@@ -27,9 +27,14 @@ type EstimateStatusOpt = {
 
 type EstimateDetail = {
   id: string
-  customer_id: string
+  customer_id?: string | null
   customer_display: string
   customer_address?: string | null
+  prospect_name?: string | null
+  prospect_surname?: string | null
+  prospect_phone?: string | null
+  prospect_email?: string | null
+  prospect_address?: string | null
   blinds_types: BlindsRef[]
   scheduled_wall: string | null
   visit_time_zone?: string | null
@@ -108,7 +113,13 @@ export function EstimateEditPage() {
   const [visitNotes, setVisitNotes] = useState('')
   const [guestEmails, setGuestEmails] = useState<string[]>([])
   const [windowCountByBlindsId, setWindowCountByBlindsId] = useState<Record<string, string>>({})
+  const [lineAmountByBlindsId, setLineAmountByBlindsId] = useState<Record<string, string>>({})
   const [blindsIncluded, setBlindsIncluded] = useState<Record<string, boolean>>({})
+  const [prospectName, setProspectName] = useState('')
+  const [prospectSurname, setProspectSurname] = useState('')
+  const [prospectPhone, setProspectPhone] = useState('')
+  const [prospectEmail, setProspectEmail] = useState('')
+  const [prospectAddress, setProspectAddress] = useState('')
 
   useEffect(() => {
     if (!me || !estimateId || !canEdit) return
@@ -141,15 +152,24 @@ export function EstimateEditPage() {
         setVisitNotes((d.visit_notes ?? '').trim())
         setGuestEmails((d.visit_guest_emails ?? []).map((e) => e.trim()).filter(Boolean))
         const wc: Record<string, string> = {}
+        const la: Record<string, string> = {}
         const inc: Record<string, boolean> = {}
         for (const b of bt ?? []) {
           const line = (d.blinds_types ?? []).find((x) => x.id === b.id)
           const raw = line?.window_count != null ? String(line.window_count) : ''
           wc[b.id] = raw
           inc[b.id] = raw.trim() !== '' && Number.parseInt(raw.trim(), 10) >= 1
+          const lam = line?.line_amount
+          la[b.id] = lam != null && lam > 0 ? String(lam) : ''
         }
         setWindowCountByBlindsId(wc)
+        setLineAmountByBlindsId(la)
         setBlindsIncluded(inc)
+        setProspectName((d.prospect_name ?? '').trim())
+        setProspectSurname((d.prospect_surname ?? '').trim())
+        setProspectPhone((d.prospect_phone ?? '').trim())
+        setProspectEmail((d.prospect_email ?? '').trim())
+        setProspectAddress((d.prospect_address ?? '').trim())
       } catch (e) {
         if (!cancelled) {
           setDetail(null)
@@ -223,7 +243,12 @@ export function EstimateEditPage() {
     }
     const tz = coerceTimeZoneForApi(visitTimeZone.trim())
 
-    const blinds_lines: { blinds_id: string; window_count: number | null }[] = []
+    if (!(detail?.customer_id ?? '').trim() && !prospectName.trim()) {
+      setSaveErr('Enter a name for the prospect.')
+      return
+    }
+
+    const blinds_lines: { blinds_id: string; window_count: number | null; line_amount?: number }[] = []
     for (const b of blindsTypes ?? []) {
       if (!blindsIncluded[b.id]) continue
       const raw = (windowCountByBlindsId[b.id] ?? '').trim()
@@ -236,7 +261,22 @@ export function EstimateEditPage() {
         setSaveErr('Window counts must be positive integers.')
         return
       }
-      blinds_lines.push({ blinds_id: b.id, window_count: n })
+      const amtRaw = (lineAmountByBlindsId[b.id] ?? '').trim()
+      let line_amount: number | undefined
+      if (amtRaw !== '') {
+        const a = Number.parseFloat(amtRaw.replace(',', '.'))
+        if (Number.isNaN(a) || a < 0) {
+          setSaveErr('Line amounts must be non-negative numbers.')
+          return
+        }
+        line_amount = Math.round(a * 100) / 100
+      }
+      const row: { blinds_id: string; window_count: number | null; line_amount?: number } = {
+        blinds_id: b.id,
+        window_count: n,
+      }
+      if (line_amount !== undefined) row.line_amount = line_amount
+      blinds_lines.push(row)
     }
 
     const statusEstiId = selectedStatusEstiId.trim()
@@ -248,7 +288,7 @@ export function EstimateEditPage() {
     setSaving(true)
     setSaveErr(null)
     try {
-      await patchJson<EstimateDetail>(`/estimates/${estimateId}`, {
+      const patchBody: Record<string, unknown> = {
         scheduled_wall: wall,
         visit_time_zone: tz,
         visit_address: visitAddress.trim() || null,
@@ -256,7 +296,15 @@ export function EstimateEditPage() {
         visit_guest_emails: guestEmails.map((e) => e.trim()).filter(Boolean),
         blinds_lines,
         status_esti_id: statusEstiId,
-      })
+      }
+      if (!(detail?.customer_id ?? '').trim()) {
+        patchBody.prospect_name = prospectName.trim() || null
+        patchBody.prospect_surname = prospectSurname.trim() || null
+        patchBody.prospect_phone = prospectPhone.trim() || null
+        patchBody.prospect_email = prospectEmail.trim() || null
+        patchBody.prospect_address = prospectAddress.trim() || null
+      }
+      await patchJson<EstimateDetail>(`/estimates/${estimateId}`, patchBody)
       navigate(`/estimates/${estimateId}`)
     } catch (err) {
       setSaveErr(err instanceof Error ? err.message : 'Save failed')
@@ -296,15 +344,24 @@ export function EstimateEditPage() {
       setGuestEmails((d.visit_guest_emails ?? []).map((e) => e.trim()).filter(Boolean))
       {
         const wc: Record<string, string> = {}
+        const la: Record<string, string> = {}
         const inc: Record<string, boolean> = {}
         for (const b of blindsTypes ?? []) {
           const line = (d.blinds_types ?? []).find((x) => x.id === b.id)
           const raw = line?.window_count != null ? String(line.window_count) : ''
           wc[b.id] = raw
           inc[b.id] = raw.trim() !== '' && Number.parseInt(raw.trim(), 10) >= 1
+          const lam = line?.line_amount
+          la[b.id] = lam != null && lam > 0 ? String(lam) : ''
         }
         setWindowCountByBlindsId(wc)
+        setLineAmountByBlindsId(la)
         setBlindsIncluded(inc)
+        setProspectName((d.prospect_name ?? '').trim())
+        setProspectSurname((d.prospect_surname ?? '').trim())
+        setProspectPhone((d.prospect_phone ?? '').trim())
+        setProspectEmail((d.prospect_email ?? '').trim())
+        setProspectAddress((d.prospect_address ?? '').trim())
       }
     } catch (err) {
       setSaveErr(err instanceof Error ? err.message : 'Restore failed')
@@ -351,10 +408,16 @@ export function EstimateEditPage() {
               <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Edit estimate</h1>
               <p className="mt-1 text-sm text-slate-500">
                 {detail.customer_display}
-                {' · '}
-                <Link to={`/customers/${detail.customer_id}`} className="text-teal-700 hover:underline">
-                  Customer profile
-                </Link>
+                {(detail.customer_id ?? '').trim() ? (
+                  <>
+                    {' · '}
+                    <Link to={`/customers/${detail.customer_id}`} className="text-teal-700 hover:underline">
+                      Customer profile
+                    </Link>
+                  </>
+                ) : (
+                  <span className="block text-xs text-slate-500">Prospect only — saved to Customers when an order is created.</span>
+                )}
               </p>
             </div>
           </div>
@@ -372,6 +435,59 @@ export function EstimateEditPage() {
               >
                 Restore estimate
               </button>
+            </div>
+          ) : null}
+
+          {!(detail.customer_id ?? '').trim() ? (
+            <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2">
+              <p className="text-sm font-medium text-slate-800 sm:col-span-2">Prospect</p>
+              <label className="block text-sm text-slate-700">
+                First name
+                <input
+                  required
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
+                  value={prospectName}
+                  disabled={formDisabled}
+                  onChange={(e) => setProspectName(e.target.value)}
+                />
+              </label>
+              <label className="block text-sm text-slate-700">
+                Last name
+                <input
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
+                  value={prospectSurname}
+                  disabled={formDisabled}
+                  onChange={(e) => setProspectSurname(e.target.value)}
+                />
+              </label>
+              <label className="block text-sm text-slate-700">
+                Phone
+                <input
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
+                  value={prospectPhone}
+                  disabled={formDisabled}
+                  onChange={(e) => setProspectPhone(e.target.value)}
+                />
+              </label>
+              <label className="block text-sm text-slate-700">
+                Email
+                <input
+                  type="email"
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
+                  value={prospectEmail}
+                  disabled={formDisabled}
+                  onChange={(e) => setProspectEmail(e.target.value)}
+                />
+              </label>
+              <label className="block text-sm text-slate-700 sm:col-span-2">
+                Address
+                <input
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
+                  value={prospectAddress}
+                  disabled={formDisabled}
+                  onChange={(e) => setProspectAddress(e.target.value)}
+                />
+              </label>
             </div>
           ) : null}
 
@@ -511,7 +627,7 @@ export function EstimateEditPage() {
           <fieldset className="rounded-xl border border-slate-200 p-3" disabled={formDisabled}>
             <legend className="px-1 text-sm font-medium text-slate-800">Blinds types</legend>
             <p className="mt-1 text-xs text-slate-500">
-              Optional — enter a window count only for types you want on this estimate.
+              Quantity required for each included type; amount is optional per line.
             </p>
             <div className="mt-2 grid max-h-56 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
               {(blindsTypes ?? []).map((b) => {
@@ -529,18 +645,21 @@ export function EstimateEditPage() {
                       onChange={(ev) => {
                         const on = ev.target.checked
                         setBlindsIncluded((prev) => ({ ...prev, [b.id]: on }))
-                        if (!on) setWindowCountByBlindsId((wt) => ({ ...wt, [b.id]: '' }))
+                        if (!on) {
+                          setWindowCountByBlindsId((wt) => ({ ...wt, [b.id]: '' }))
+                          setLineAmountByBlindsId((wt) => ({ ...wt, [b.id]: '' }))
+                        }
                       }}
                       aria-label={`Include ${b.name}`}
                     />
-                    <span className="min-w-0 flex-1 font-medium text-slate-800">{b.name}</span>
+                    <span className="min-w-0 max-w-[8rem] truncate font-medium text-slate-800">{b.name}</span>
                     <input
                       type="number"
                       min={1}
                       placeholder="Qty"
                       title="Windows"
                       disabled={formDisabled || !checked}
-                      className="w-20 rounded border border-slate-200 px-2 py-1 text-xs outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
+                      className="w-16 rounded border border-slate-200 px-2 py-1 text-xs outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
                       value={windowCountByBlindsId[b.id] ?? ''}
                       onChange={(ev) => {
                         const v = ev.target.value
@@ -548,6 +667,18 @@ export function EstimateEditPage() {
                         const n = Number.parseInt(v.trim(), 10)
                         if (!Number.isNaN(n) && n >= 1) setBlindsIncluded((prev) => ({ ...prev, [b.id]: true }))
                       }}
+                    />
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="Amt"
+                      title="Line amount (optional)"
+                      disabled={formDisabled || !checked}
+                      className="w-16 rounded border border-slate-200 px-2 py-1 text-xs outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
+                      value={lineAmountByBlindsId[b.id] ?? ''}
+                      onChange={(ev) =>
+                        setLineAmountByBlindsId((wt) => ({ ...wt, [b.id]: ev.target.value }))
+                      }
                     />
                   </label>
                 )

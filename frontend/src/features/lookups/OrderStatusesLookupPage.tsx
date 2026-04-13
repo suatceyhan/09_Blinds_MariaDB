@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { ListOrdered } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
 import { getJson } from '@/lib/api'
+import { LookupPageLayout, LookupSearchToolbar } from '@/features/lookups/LookupPageLayout'
 
 type Row = {
   id: string
@@ -73,30 +74,24 @@ export function OrderStatusesLookupPage() {
   }, [me, listParams])
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-4 py-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-700">
-            <ListOrdered className="h-5 w-5" strokeWidth={2} />
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Order statuses</h1>
-            <p className="mt-1 text-sm text-slate-600">
-              Global labels enabled for your company. Edit the matrix under{' '}
-              {canViewMatrix ? (
-                <Link className="font-medium text-teal-700 underline" to="/permissions/order-status-matrix">
-                  Permissions → Order status matrix
-                </Link>
-              ) : (
-                <span className="font-medium text-slate-700">Permissions → Order status matrix</span>
-              )}
-              . Superadmin adds custom global statuses there.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3">
+    <LookupPageLayout
+      icon={ListOrdered}
+      title="Order statuses"
+      description={
+        <p>
+          Global labels enabled for your company. Edit the matrix under{' '}
+          {canViewMatrix ? (
+            <Link className="font-medium text-teal-700 underline" to="/permissions/order-status-matrix">
+              Permissions → Order status matrix
+            </Link>
+          ) : (
+            <span className="font-medium text-slate-700">Permissions → Order status matrix</span>
+          )}
+          . Superadmin adds custom global statuses there.
+        </p>
+      }
+    >
+      <LookupSearchToolbar>
         <input
           type="search"
           placeholder="Filter by name…"
@@ -105,7 +100,7 @@ export function OrderStatusesLookupPage() {
           onChange={(e) => setSearch(e.target.value)}
         />
         <ShowInactiveToggle checked={showInactive} onChange={setShowInactive} />
-      </div>
+      </LookupSearchToolbar>
 
       {err ? (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{err}</div>
@@ -138,6 +133,6 @@ export function OrderStatusesLookupPage() {
           <p className="p-6 text-sm text-slate-500">No statuses for your company in the matrix.</p>
         ) : null}
       </div>
-    </div>
+    </LookupPageLayout>
   )
 }

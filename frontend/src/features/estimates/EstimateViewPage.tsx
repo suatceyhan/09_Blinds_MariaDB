@@ -7,14 +7,19 @@ import { getJson, postJson } from '@/lib/api'
 import { AddressMapLink } from '@/components/ui/AddressMapLink'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 
-type BlindsRef = { id: string; name: string; window_count?: number | null }
+type BlindsRef = { id: string; name: string; window_count?: number | null; line_amount?: number | null }
 
 type EstimateDetail = {
   id: string
   company_id: string
-  customer_id: string
+  customer_id?: string | null
   customer_display: string
   customer_address?: string | null
+  prospect_name?: string | null
+  prospect_surname?: string | null
+  prospect_phone?: string | null
+  prospect_email?: string | null
+  prospect_address?: string | null
   blinds_types: BlindsRef[]
   perde_sayisi: number | null
   status?: string | null
@@ -202,13 +207,26 @@ export function EstimateViewPage() {
             </div>
             <div>
               <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Customer</dt>
-              <dd className="mt-1">
-                <Link
-                  to={`/customers/${row.customer_id}`}
-                  className="font-medium text-teal-700 hover:underline"
-                >
-                  {row.customer_display || row.customer_id}
-                </Link>
+              <dd className="mt-1 space-y-1">
+                {(row.customer_id ?? '').trim() ? (
+                  <Link
+                    to={`/customers/${row.customer_id}`}
+                    className="font-medium text-teal-700 hover:underline"
+                  >
+                    {row.customer_display || row.customer_id}
+                  </Link>
+                ) : (
+                  <>
+                    <span className="font-medium text-slate-900">{row.customer_display?.trim() || 'Prospect'}</span>
+                    <p className="text-xs text-slate-500">Not saved to Customers until an order is created from this estimate.</p>
+                    {row.prospect_phone?.trim() ? (
+                      <p className="text-sm text-slate-700">{row.prospect_phone.trim()}</p>
+                    ) : null}
+                    {row.prospect_email?.trim() ? (
+                      <p className="text-sm text-slate-700">{row.prospect_email.trim()}</p>
+                    ) : null}
+                  </>
+                )}
               </dd>
             </div>
             <div className="sm:col-span-2">
@@ -230,6 +248,9 @@ export function EstimateViewPage() {
                         ) : (
                           <span className="text-slate-400"> — —</span>
                         )}
+                        {b.line_amount != null && b.line_amount > 0 ? (
+                          <span className="text-slate-600"> — ${Number(b.line_amount).toFixed(2)}</span>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
