@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, CalendarDays } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
 import { getJson, patchJson, postJson } from '@/lib/api'
+import { isValidCaPostalCode, normalizeCaPostalCode } from '@/lib/caPostalCode'
 import {
   defaultVisitScheduleParts,
   isValidScheduledWall,
@@ -30,15 +31,18 @@ type EstimateDetail = {
   customer_id?: string | null
   customer_display: string
   customer_address?: string | null
+  customer_postal_code?: string | null
   prospect_name?: string | null
   prospect_surname?: string | null
   prospect_phone?: string | null
   prospect_email?: string | null
   prospect_address?: string | null
+  prospect_postal_code?: string | null
   blinds_types: BlindsRef[]
   scheduled_wall: string | null
   visit_time_zone?: string | null
   visit_address?: string | null
+  visit_postal_code?: string | null
   visit_notes?: string | null
   visit_organizer_name?: string | null
   visit_organizer_email?: string | null
@@ -94,6 +98,7 @@ export function EstimateEditPage() {
   const navigate = useNavigate()
   const me = useAuthSession()
   const canEdit = Boolean(me?.permissions.includes('estimates.edit'))
+  const isCa = ((me?.active_company_country_code ?? '').trim().toUpperCase() || '') === 'CA'
 
   const [detail, setDetail] = useState<EstimateDetail | null>(null)
   const [blindsTypes, setBlindsTypes] = useState<BlindsOpt[] | null>(null)
@@ -110,6 +115,7 @@ export function EstimateEditPage() {
   const [visitWallDraft, setVisitWallDraft] = useState('')
   const [visitTimeZone, setVisitTimeZone] = useState('UTC')
   const [visitAddress, setVisitAddress] = useState('')
+  const [visitPostalCode, setVisitPostalCode] = useState('')
   const [visitNotes, setVisitNotes] = useState('')
   const [guestEmails, setGuestEmails] = useState<string[]>([])
   const [windowCountByBlindsId, setWindowCountByBlindsId] = useState<Record<string, string>>({})
@@ -120,6 +126,10 @@ export function EstimateEditPage() {
   const [prospectPhone, setProspectPhone] = useState('')
   const [prospectEmail, setProspectEmail] = useState('')
   const [prospectAddress, setProspectAddress] = useState('')
+  const [prospectPostalCode, setProspectPostalCode] = useState('')
+
+  const visitPostalErr = isCa && visitPostalCode.trim() !== '' && !isValidCaPostalCode(visitPostalCode)
+  const prospectPostalErr = isCa && prospectPostalCode.trim() !== '' && !isValidCaPostalCode(prospectPostalCode)
 
   useEffect(() => {
     if (!me || !estimateId || !canEdit) return
@@ -149,6 +159,7 @@ export function EstimateEditPage() {
         const tz = coerceTimeZoneForApi(d.visit_time_zone?.trim() || 'UTC')
         setVisitTimeZone(tz)
         setVisitAddress((d.visit_address ?? d.customer_address ?? '').trim())
+        setVisitPostalCode((d.visit_postal_code ?? d.customer_postal_code ?? '').trim())
         setVisitNotes((d.visit_notes ?? '').trim())
         setGuestEmails((d.visit_guest_emails ?? []).map((e) => e.trim()).filter(Boolean))
         const wc: Record<string, string> = {}
@@ -170,6 +181,7 @@ export function EstimateEditPage() {
         setProspectPhone((d.prospect_phone ?? '').trim())
         setProspectEmail((d.prospect_email ?? '').trim())
         setProspectAddress((d.prospect_address ?? '').trim())
+        setProspectPostalCode((d.prospect_postal_code ?? '').trim())
       } catch (e) {
         if (!cancelled) {
           setDetail(null)
@@ -284,6 +296,7 @@ export function EstimateEditPage() {
       setSaveErr('Could not resolve estimate status. Reload the page or check Lookups → Estimate statuses.')
       return
     }
+    if (visitPostalErr || prospectPostalErr) return
 
     setSaving(true)
     setSaveErr(null)
@@ -292,6 +305,7 @@ export function EstimateEditPage() {
         scheduled_wall: wall,
         visit_time_zone: tz,
         visit_address: visitAddress.trim() || null,
+        visit_postal_code: visitPostalCode.trim() || null,
         visit_notes: visitNotes.trim() || null,
         visit_guest_emails: guestEmails.map((e) => e.trim()).filter(Boolean),
         blinds_lines,
@@ -303,6 +317,7 @@ export function EstimateEditPage() {
         patchBody.prospect_phone = prospectPhone.trim() || null
         patchBody.prospect_email = prospectEmail.trim() || null
         patchBody.prospect_address = prospectAddress.trim() || null
+        patchBody.prospect_postal_code = prospectPostalCode.trim() || null
       }
       await patchJson<EstimateDetail>(`/estimates/${estimateId}`, patchBody)
       navigate(`/estimates/${estimateId}`)
@@ -488,6 +503,24 @@ export function EstimateEditPage() {
                   onChange={(e) => setProspectAddress(e.target.value)}
                 />
               </label>
+              <label className="block text-sm text-slate-700 sm:col-span-2">
+                Postal code (optional)
+                <input
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
+                  value={prospectPostalCode}
+                  disabled={formDisabled}
+                  onChange={(e) => setProspectPostalCode(e.target.value)}
+                  onBlur={() => {
+                    if (!isCa) return
+                    if (prospectPostalCode.trim()) setProspectPostalCode(normalizeCaPostalCode(prospectPostalCode))
+                  }}
+                />
+                {prospectPostalErr ? (
+                  <span className="mt-1 block text-xs text-red-700">
+                    Enter a valid Canadian postal code (e.g. A1A 1A1) or leave empty.
+                  </span>
+                ) : null}
+              </label>
             </div>
           ) : null}
 
@@ -622,6 +655,24 @@ export function EstimateEditPage() {
             <span id="estimate-edit-visit-address-hint" className="mt-1 block text-xs font-normal text-slate-500">
               Overrides the customer default for this visit. {ADDRESS_FORMAT_HINT}
             </span>
+          </label>
+          <label className="block text-sm font-medium text-slate-700">
+            Postal code (optional)
+            <input
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
+              value={visitPostalCode}
+              disabled={formDisabled}
+              onChange={(e) => setVisitPostalCode(e.target.value)}
+              onBlur={() => {
+                if (!isCa) return
+                if (visitPostalCode.trim()) setVisitPostalCode(normalizeCaPostalCode(visitPostalCode))
+              }}
+            />
+            {visitPostalErr ? (
+              <span className="mt-1 block text-xs text-red-700">
+                Enter a valid Canadian postal code (e.g. A1A 1A1) or leave empty.
+              </span>
+            ) : null}
           </label>
 
           <fieldset className="rounded-xl border border-slate-200 p-3" disabled={formDisabled}>

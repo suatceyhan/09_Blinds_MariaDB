@@ -37,7 +37,8 @@ function photonCountryCode(pr: PhotonFeatureProperties): string {
 
 /** Leading civic number the user typed (e.g. `405` from `405 fred mcla`). */
 export function parseLeadingHouseNumber(query: string): string | null {
-  const m = query.trim().match(/^(\d{1,6}[A-Za-z]?)\b/)
+  const re = /^(\d{1,6}[A-Za-z]?)\b/
+  const m = re.exec(query.trim())
   return m?.[1] ?? null
 }
 
@@ -45,8 +46,24 @@ function stripLeadingHouseNumberFromQuery(query: string): string {
   return query.trim().replace(/^\d{1,6}[A-Za-z]?\s+/, '').trim()
 }
 
+function hasStreetQueryTokens(queryRaw: string): boolean {
+  const rest = stripLeadingHouseNumberFromQuery(queryRaw)
+  if (!rest) return false
+  const tokens = rest.split(/\s+/).filter((t) => t.length >= 2)
+  return tokens.length > 0
+}
+
+function normalizeForPrefixMatch(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .replaceAll(/[^\p{L}\p{N}]+/gu, ' ')
+    .replaceAll(/\s+/g, ' ')
+    .trim()
+}
+
 function normalizeHouseToken(s: string): string {
-  return s.trim().toUpperCase().replace(/\s+/g, '')
+  return s.trim().toUpperCase().replaceAll(/\s+/g, '')
 }
 
 /** True if OSM `housenumber` equals `want`, or `want` lies in a range like `405-407`. */
@@ -59,7 +76,8 @@ export function houseNumberFieldMatchesWant(field: string | undefined, want: str
   for (const seg of segments) {
     const p = normalizeHouseToken(seg)
     if (p === w) return true
-    const range = seg.trim().match(/^(\d+)\s*-\s*(\d+)$/)
+    const rangeRe = /^(\d+)\s*-\s*(\d+)$/
+    const range = rangeRe.exec(seg.trim())
     if (range) {
       const lo = Number.parseInt(range[1], 10)
       const hi = Number.parseInt(range[2], 10)
@@ -91,7 +109,10 @@ function stripTrailingPostcodeFromAddressLine(line: string): string {
 }
 
 /** One postal-style line, e.g. `602 Frederick St, Ennismore, Ontario, K0L 1T0`. */
-export function formatAddressLineFromPhotonProperties(pr: PhotonFeatureProperties): string {
+export function formatAddressLineFromPhotonProperties(
+  pr: PhotonFeatureProperties,
+  options?: { includePostcode?: boolean },
+): string {
   const hn = (pr.housenumber ?? '').trim()
   const st = (pr.street ?? '').trim()
   const nm = (pr.name ?? '').trim()
@@ -105,7 +126,8 @@ export function formatAddressLineFromPhotonProperties(pr: PhotonFeaturePropertie
   const city = (pr.city ?? pr.town ?? pr.village ?? pr.district ?? '').trim()
   const state = (pr.state ?? '').trim()
   const pc = (pr.postcode ?? '').trim()
-  const parts = [line1, city, state, pc].filter(Boolean)
+  const includePostcode = options?.includePostcode ?? true
+  const parts = [line1, city, state, includePostcode ? pc : ''].filter(Boolean)
   return parts.join(', ')
 }
 
@@ -127,11 +149,13 @@ export function buildDisplayLineForSuggest(pr: PhotonFeatureProperties, queryRaw
     if (line1Street) {
       const city = (pr.city ?? pr.town ?? pr.village ?? pr.district ?? '').trim()
       const state = (pr.state ?? '').trim()
-      const pc = (pr.postcode ?? '').trim()
-      return [`${hnWant} ${line1Street}`, city, state, pc].filter(Boolean).join(', ')
+      // Photon often returns a street-level segment (no `housenumber`); its postcode can be approximate.
+      // If we're "prepending" the house number the user typed, omit postcode to avoid false precision.
+      return [`${hnWant} ${line1Street}`, city, state].filter(Boolean).join(', ')
     }
   }
-  return formatAddressLineFromPhotonProperties(pr)
+  const includePostcode = Boolean((pr.housenumber ?? '').trim())
+  return formatAddressLineFromPhotonProperties(pr, { includePostcode })
 }
 
 function scorePhotonFeature(
@@ -173,7 +197,12 @@ function applyHouseNumberScoring(
   if (!hnWant) return baseScore
   const h = (pr.housenumber ?? '').trim()
   if (h && !houseNumberFieldMatchesWant(h, hnWant)) return -1
-  if (houseNumberFieldMatchesWant(h, hnWant)) return baseScore + 800
+  if (houseNumberFieldMatchesWant(h, hnWant)) {
+    // If the user typed more than just a civic number (e.g. `134 mar`),
+    // require the remaining tokens to match the street/name to avoid unrelated `134 ...` results.
+    if (hasStreetQueryTokens(queryRaw) && !queryStreetMatchesFeature(pr, queryRaw)) return -1
+    return baseScore + 800
+  }
   if (queryStreetMatchesFeature(pr, queryRaw)) return baseScore + 120
   return baseScore
 }
@@ -223,8 +252,13 @@ function photonSuggestUrl(
 function collectDedupedLines(kept: ScoredPhoton[], q: string, hnWant: string | null, limit: number): string[] {
   const lines: string[] = []
   const seen = new Set<string>()
+  const qPrefix = normalizeForPrefixMatch(q)
   for (const { pr } of kept) {
     const line = buildDisplayLineForSuggest(pr, q)
+    if (qPrefix) {
+      const linePrefix = normalizeForPrefixMatch(line)
+      if (!linePrefix.startsWith(qPrefix)) continue
+    }
     const dedupeKey = hnWant ? stripTrailingPostcodeFromAddressLine(line).toLowerCase() : line.toLowerCase()
     if (!line || seen.has(dedupeKey)) continue
     seen.add(dedupeKey)

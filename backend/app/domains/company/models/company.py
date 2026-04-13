@@ -14,6 +14,7 @@ class Companies(Base):
     website = Column(String, nullable=True)
     email = Column(String, nullable=True)
     address = Column(String(2000), nullable=True)
+    postal_code = Column(String(32), nullable=True)
     country_code = Column(String(2), nullable=True)
     region_code = Column(String(8), nullable=True)
     maps_url = Column(String(2000), nullable=True)

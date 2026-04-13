@@ -9,6 +9,7 @@ import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
 import { useAuthSession } from '@/app/authSession'
 import { deleteJson, getJson, patchJson, postJson, postMultipartJson } from '@/lib/api'
+import { isValidCaPostalCode, normalizeCaPostalCode } from '@/lib/caPostalCode'
 type CompanyOwner = {
   id: string
   email: string
@@ -23,6 +24,7 @@ type CompanyRow = {
   website: string | null
   email: string | null
   address?: string | null
+  postal_code?: string | null
   country_code?: string | null
   region_code?: string | null
   maps_url?: string | null
@@ -74,6 +76,7 @@ export function CompaniesPage() {
   const [email, setEmail] = useState('')
   const [website, setWebsite] = useState('')
   const [address, setAddress] = useState('')
+  const [postalCode, setPostalCode] = useState('')
   const [createCountryCode, setCreateCountryCode] = useState('')
   const [createRegionCode, setCreateRegionCode] = useState('')
   const [ownerUserId, setOwnerUserId] = useState('')
@@ -89,6 +92,7 @@ export function CompaniesPage() {
   const [editEmail, setEditEmail] = useState('')
   const [editWebsite, setEditWebsite] = useState('')
   const [editAddress, setEditAddress] = useState('')
+  const [editPostalCode, setEditPostalCode] = useState('')
   const [editCountryCode, setEditCountryCode] = useState('')
   const [editRegionCode, setEditRegionCode] = useState('')
   const [editOwnerUserId, setEditOwnerUserId] = useState('')
@@ -98,6 +102,15 @@ export function CompaniesPage() {
 
   const [deleteTarget, setDeleteTarget] = useState<CompanyRow | null>(null)
   const [restoreId, setRestoreId] = useState<string | null>(null)
+
+  const createPostalErr =
+    createCountryCode.trim().toUpperCase() === 'CA' &&
+    postalCode.trim() !== '' &&
+    !isValidCaPostalCode(postalCode)
+  const editPostalErr =
+    editCountryCode.trim().toUpperCase() === 'CA' &&
+    editPostalCode.trim() !== '' &&
+    !isValidCaPostalCode(editPostalCode)
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300)
@@ -165,6 +178,7 @@ export function CompaniesPage() {
     setEditEmail(r.email ?? '')
     setEditWebsite(r.website ?? '')
     setEditAddress(r.address ?? '')
+    setEditPostalCode(r.postal_code ?? '')
     setEditCountryCode((r.country_code ?? '').trim().toUpperCase())
     setEditRegionCode((r.region_code ?? '').trim().toUpperCase())
     setEditOwnerUserId(r.owner_user_id ?? '')
@@ -179,6 +193,7 @@ export function CompaniesPage() {
   async function onSaveEdit(e: React.FormEvent) {
     e.preventDefault()
     if (!editing || !editName.trim()) return
+    if (editPostalErr) return
     setEditSaving(true)
     setErr(null)
     try {
@@ -193,6 +208,7 @@ export function CompaniesPage() {
         email: editEmail.trim() || null,
         website: editWebsite.trim() || null,
         address: editAddress.trim() || null,
+        postal_code: editPostalCode.trim() || null,
         country_code: cc,
         region_code: region,
         owner_user_id: editOwnerUserId.trim() ? editOwnerUserId.trim() : null,
@@ -209,6 +225,7 @@ export function CompaniesPage() {
   async function onCreate(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim()) return
+    if (createPostalErr) return
     setSaving(true)
     setErr(null)
     try {
@@ -223,6 +240,7 @@ export function CompaniesPage() {
         email: email.trim() || null,
         website: website.trim() || null,
         address: address.trim() || null,
+        postal_code: postalCode.trim() || null,
         country_code: cc,
         region_code: region,
         owner_user_id: ownerUserId.trim() || null,
@@ -237,6 +255,7 @@ export function CompaniesPage() {
       setEmail('')
       setWebsite('')
       setAddress('')
+      setPostalCode('')
       setCreateCountryCode((me?.active_company_country_code ?? '').trim().toUpperCase())
       setCreateRegionCode((me?.active_company_region_code ?? '').trim().toUpperCase())
       setOwnerUserId('')
@@ -459,6 +478,23 @@ export function CompaniesPage() {
                 </span>
               </label>
               <label className="block text-sm text-slate-700 sm:col-span-2">
+                <span className="mb-1 block font-medium">Postal code (optional)</span>
+                <input
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                  value={editPostalCode}
+                  onChange={(e) => setEditPostalCode(e.target.value)}
+                  onBlur={() => {
+                    if (editCountryCode.trim().toUpperCase() !== 'CA') return
+                    if (editPostalCode.trim()) setEditPostalCode(normalizeCaPostalCode(editPostalCode))
+                  }}
+                />
+                {editPostalErr ? (
+                  <span className="mt-1 block text-xs text-red-700">
+                    Enter a valid Canadian postal code (e.g. A1A 1A1) or leave empty.
+                  </span>
+                ) : null}
+              </label>
+              <label className="block text-sm text-slate-700 sm:col-span-2">
                 <span className="mb-1 block font-medium">Owner</span>
                 <select
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
@@ -670,6 +706,23 @@ export function CompaniesPage() {
               <span id="companies-new-address-hint" className="mt-1 block text-xs text-slate-500">
                 {ADDRESS_FORMAT_HINT} After create, a Google Maps link can be derived from this line.
               </span>
+            </label>
+            <label className="block text-sm text-slate-700 sm:col-span-2">
+              <span className="mb-1 block font-medium">Postal code (optional)</span>
+              <input
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                value={postalCode}
+                onChange={(e) => setPostalCode(e.target.value)}
+                onBlur={() => {
+                  if (createCountryCode.trim().toUpperCase() !== 'CA') return
+                  if (postalCode.trim()) setPostalCode(normalizeCaPostalCode(postalCode))
+                }}
+              />
+              {createPostalErr ? (
+                <span className="mt-1 block text-xs text-red-700">
+                  Enter a valid Canadian postal code (e.g. A1A 1A1) or leave empty.
+                </span>
+              ) : null}
             </label>
             <label className="block text-sm text-slate-700 sm:col-span-2">
               <span className="mb-1 block font-medium">Owner (optional)</span>

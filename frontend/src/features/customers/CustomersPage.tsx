@@ -6,6 +6,7 @@ import { ADDRESS_FORMAT_HINT, AddressMapLink } from '@/components/ui/AddressMapL
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { useAuthSession } from '@/app/authSession'
 import { deleteJson, getJson, patchJson, postJson } from '@/lib/api'
+import { isValidCaPostalCode, normalizeCaPostalCode } from '@/lib/caPostalCode'
 
 type CustomerRow = {
   id: string
@@ -15,6 +16,7 @@ type CustomerRow = {
   phone?: string | null
   email?: string | null
   address?: string | null
+  postal_code?: string | null
   active: boolean
 }
 
@@ -51,6 +53,9 @@ function ShowInactiveToggle(
 export function CustomersPage() {
   const me = useAuthSession()
   const canEdit = Boolean(me?.permissions.includes('customers.edit'))
+  const isCa = ((me?.active_company_country_code ?? '').trim().toUpperCase() || '') === 'CA'
+  const postalErr = isCa && postalCode.trim() !== '' && !isValidCaPostalCode(postalCode)
+  const editPostalErr = isCa && editPostalCode.trim() !== '' && !isValidCaPostalCode(editPostalCode)
 
   const [rows, setRows] = useState<CustomerRow[] | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -67,6 +72,7 @@ export function CustomersPage() {
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [address, setAddress] = useState('')
+  const [postalCode, setPostalCode] = useState('')
 
   const [editId, setEditId] = useState<string | null>(null)
   const [editSaving, setEditSaving] = useState(false)
@@ -75,6 +81,7 @@ export function CustomersPage() {
   const [editPhone, setEditPhone] = useState('')
   const [editEmail, setEditEmail] = useState('')
   const [editAddress, setEditAddress] = useState('')
+  const [editPostalCode, setEditPostalCode] = useState('')
 
   const [pending, setPending] = useState<PendingConfirm | null>(null)
   const [confirmPending, setConfirmPending] = useState(false)
@@ -123,6 +130,7 @@ export function CustomersPage() {
   async function onCreate(e: React.FormEvent) {
     e.preventDefault()
     if (!canEdit || !name.trim()) return
+    if (postalErr) return
     setSaving(true)
     setErr(null)
     try {
@@ -132,12 +140,14 @@ export function CustomersPage() {
         phone: phone.trim() || null,
         email: email.trim() || null,
         address: address.trim() || null,
+        postal_code: postalCode.trim() || null,
       })
       setName('')
       setSurname('')
       setPhone('')
       setEmail('')
       setAddress('')
+      setPostalCode('')
       setShowCreate(false)
       await refresh()
     } catch (e) {
@@ -154,11 +164,13 @@ export function CustomersPage() {
     setEditPhone(r.phone ?? '')
     setEditEmail(r.email ?? '')
     setEditAddress('')
+    setEditPostalCode('')
   }
 
   async function onEditSave(e: React.FormEvent) {
     e.preventDefault()
     if (!editId || !editName.trim()) return
+    if (editPostalErr) return
     setEditSaving(true)
     setErr(null)
     try {
@@ -168,6 +180,7 @@ export function CustomersPage() {
         phone: editPhone.trim() || null,
         email: editEmail.trim() || null,
         address: editAddress.trim() || null,
+        postal_code: editPostalCode.trim() || null,
       })
       setEditId(null)
       await refresh()
@@ -276,6 +289,21 @@ export function CustomersPage() {
                   {ADDRESS_FORMAT_HINT}
                 </span>
               </label>
+              <label className="block text-sm text-slate-700 sm:col-span-2">
+                <span className="mb-1 block font-medium">Postal code (optional)</span>
+                <input
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                  value={editPostalCode}
+                  onChange={(e) => setEditPostalCode(e.target.value)}
+                  onBlur={() => {
+                    if (!isCa) return
+                    if (editPostalCode.trim()) setEditPostalCode(normalizeCaPostalCode(editPostalCode))
+                  }}
+                />
+                {editPostalErr ? (
+                  <span className="mt-1 block text-xs text-red-700">Enter a valid Canadian postal code (e.g. A1A 1A1) or leave empty.</span>
+                ) : null}
+              </label>
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -376,6 +404,21 @@ export function CustomersPage() {
               <span id="customers-new-address-hint" className="mt-1 block text-xs text-slate-500">
                 {ADDRESS_FORMAT_HINT}
               </span>
+            </label>
+            <label className="block text-sm text-slate-700 sm:col-span-2">
+              <span className="mb-1 block font-medium">Postal code (optional)</span>
+              <input
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                value={postalCode}
+                onChange={(e) => setPostalCode(e.target.value)}
+                onBlur={() => {
+                  if (!isCa) return
+                  if (postalCode.trim()) setPostalCode(normalizeCaPostalCode(postalCode))
+                }}
+              />
+              {postalErr ? (
+                <span className="mt-1 block text-xs text-red-700">Enter a valid Canadian postal code (e.g. A1A 1A1) or leave empty.</span>
+              ) : null}
             </label>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">

@@ -20,6 +20,7 @@ class Customers(Base):
     phone = Column(Text, nullable=True)
     email = Column(Text, nullable=True)
     address = Column(Text, nullable=True)
+    postal_code = Column(Text, nullable=True)
     status_user_id = Column(String(16), nullable=True)
 
     active = Column(Boolean, nullable=False, server_default=text("TRUE"))

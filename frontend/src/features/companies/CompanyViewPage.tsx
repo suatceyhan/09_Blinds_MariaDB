@@ -23,6 +23,7 @@ type CompanyRow = {
   website: string | null
   email: string | null
   address?: string | null
+  postal_code?: string | null
   country_code?: string | null
   region_code?: string | null
   maps_url?: string | null
@@ -166,6 +167,9 @@ export function CompanyViewPage() {
                   <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" strokeWidth={2} aria-hidden />
                   <AddressMapLink address={row.address} mapsUrl={row.maps_url} lineClamp={false} />
                 </div>
+                {row.postal_code?.trim() ? (
+                  <p className="text-xs font-medium text-slate-600">Postal code: {row.postal_code.trim()}</p>
+                ) : null}
               </div>
             </div>
             <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:col-span-2">

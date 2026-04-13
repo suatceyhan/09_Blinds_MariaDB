@@ -12,6 +12,7 @@ type CustomerOut = {
   phone?: string | null
   email?: string | null
   address?: string | null
+  postal_code?: string | null
   active: boolean
   estimates: Array<{
     id: string
@@ -131,6 +132,9 @@ export function CustomerViewPage() {
               <div className="mt-2 text-sm text-slate-700">
                 <AddressMapLink address={row.address} lineClamp={false} />
               </div>
+              {row.postal_code?.trim() ? (
+                <div className="mt-1 text-xs font-medium text-slate-600">Postal code: {row.postal_code.trim()}</div>
+              ) : null}
             </div>
           </div>
 

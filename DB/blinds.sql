@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS companies (
   website      VARCHAR,
   email        VARCHAR,
   address      VARCHAR(2000),
+  postal_code  VARCHAR(32),
   maps_url     VARCHAR(2000),
   owner_user_id UUID REFERENCES users (id),
   logo_url     VARCHAR(500),
@@ -246,6 +247,7 @@ ALTER TABLE companies ADD COLUMN IF NOT EXISTS phone VARCHAR;
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS website VARCHAR;
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS email VARCHAR;
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS address VARCHAR(2000);
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS postal_code VARCHAR(32);
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS maps_url VARCHAR(2000);
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS owner_user_id UUID;
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS logo_url VARCHAR(500);
@@ -334,6 +336,7 @@ CREATE TABLE IF NOT EXISTS customers (
   phone           TEXT,
   email           TEXT,
   address         TEXT,
+  postal_code     TEXT,
   status_user_id  VARCHAR(16),
   active          BOOLEAN     NOT NULL DEFAULT TRUE,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -565,6 +568,7 @@ ALTER TABLE estimate ADD COLUMN IF NOT EXISTS calendar_last_synced_at TIMESTAMPT
 
 ALTER TABLE estimate ADD COLUMN IF NOT EXISTS visit_time_zone TEXT;
 ALTER TABLE estimate ADD COLUMN IF NOT EXISTS visit_address TEXT;
+ALTER TABLE estimate ADD COLUMN IF NOT EXISTS visit_postal_code TEXT;
 ALTER TABLE estimate ADD COLUMN IF NOT EXISTS visit_notes TEXT;
 ALTER TABLE estimate ADD COLUMN IF NOT EXISTS visit_organizer_name TEXT;
 ALTER TABLE estimate ADD COLUMN IF NOT EXISTS visit_organizer_email VARCHAR(320);
@@ -1545,6 +1549,7 @@ ALTER TABLE estimate ADD COLUMN IF NOT EXISTS visit_guest_emails JSONB NOT NULL 
 ALTER TABLE estimate ADD COLUMN IF NOT EXISTS visit_recurrence_rrule TEXT;
 COMMENT ON COLUMN estimate.visit_time_zone IS 'IANA timezone for calendar display (e.g. Europe/Istanbul).';
 COMMENT ON COLUMN estimate.visit_address IS 'Visit location override for calendar; falls back to customer address.';
+COMMENT ON COLUMN estimate.visit_postal_code IS 'Optional postal/ZIP code for visit_address; entered manually.';
 COMMENT ON COLUMN estimate.visit_notes IS 'User note; Google description also includes customer name and blinds lines.';
 COMMENT ON COLUMN estimate.visit_guest_emails IS 'Additional attendee emails (JSON array of strings).';
 COMMENT ON COLUMN estimate.visit_recurrence_rrule IS 'Google Calendar RRULE line(s); NULL = does not repeat.';
@@ -2356,6 +2361,7 @@ ALTER TABLE estimate ADD COLUMN IF NOT EXISTS prospect_surname TEXT;
 ALTER TABLE estimate ADD COLUMN IF NOT EXISTS prospect_phone TEXT;
 ALTER TABLE estimate ADD COLUMN IF NOT EXISTS prospect_email TEXT;
 ALTER TABLE estimate ADD COLUMN IF NOT EXISTS prospect_address TEXT;
+ALTER TABLE estimate ADD COLUMN IF NOT EXISTS prospect_postal_code TEXT;
 ALTER TABLE estimate_blinds ADD COLUMN IF NOT EXISTS line_amount NUMERIC(14, 2);
 -- Stable id: md5('global:ord:builtin:ready_for_install') first 16 hex = 4827ac7d03a3c7ae
 INSERT INTO public.status_order (id, name, active, sort_order)

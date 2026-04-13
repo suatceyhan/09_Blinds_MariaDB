@@ -31,6 +31,7 @@ class CustomerListItemOut(BaseModel):
     phone: str | None = None
     email: str | None = None
     address: str | None = None
+    postal_code: str | None = None
     active: bool
     created_at: Any | None = None
     updated_at: Any | None = None
@@ -46,6 +47,7 @@ class CustomerOut(BaseModel):
     phone: str | None = None
     email: str | None = None
     address: str | None = None
+    postal_code: str | None = None
     status_user_id: str | None = None
     active: bool
     created_at: Any | None = None
@@ -60,6 +62,7 @@ class CustomerCreateIn(BaseModel):
     phone: str | None = Field(None, max_length=100)
     email: EmailStr | None = None
     address: str | None = Field(None, max_length=2000)
+    postal_code: str | None = Field(None, max_length=32)
     status_user_id: str | None = Field(None, max_length=16)
 
 
@@ -71,6 +74,7 @@ class CustomerPatchIn(BaseModel):
     phone: str | None = Field(None, max_length=100)
     email: EmailStr | None = None
     address: str | None = Field(None, max_length=2000)
+    postal_code: str | None = Field(None, max_length=32)
     status_user_id: str | None = Field(None, max_length=16)
     active: bool | None = None
 
@@ -94,7 +98,11 @@ def list_customers(
     if term:
         params["term"] = f"%{term}%"
         where.append(
-            "(c.name ILIKE :term OR COALESCE(c.surname,'') ILIKE :term OR COALESCE(c.phone,'') ILIKE :term OR COALESCE(c.email,'') ILIKE :term OR COALESCE(c.address,'') ILIKE :term)"
+            "("
+            "c.name ILIKE :term OR COALESCE(c.surname,'') ILIKE :term OR COALESCE(c.phone,'') ILIKE :term OR "
+            "COALESCE(c.email,'') ILIKE :term OR COALESCE(c.address,'') ILIKE :term OR "
+            "COALESCE(c.postal_code,'') ILIKE :term"
+            ")"
         )
 
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
@@ -109,6 +117,7 @@ def list_customers(
               c.phone,
               c.email,
               c.address,
+              c.postal_code,
               c.active,
               c.created_at,
               c.updated_at
@@ -144,8 +153,10 @@ def create_customer(
         db.execute(
             text(
                 """
-                INSERT INTO customers (company_id, id, name, surname, phone, email, address, status_user_id, active)
-                VALUES (:cid, :id, :name, :surname, :phone, :email, :address, :status_user_id, TRUE)
+                INSERT INTO customers (
+                  company_id, id, name, surname, phone, email, address, postal_code, status_user_id, active
+                )
+                VALUES (:cid, :id, :name, :surname, :phone, :email, :address, :postal_code, :status_user_id, TRUE)
                 """
             ),
             {
@@ -156,6 +167,7 @@ def create_customer(
                 "phone": (body.phone.strip() if body.phone and body.phone.strip() else None),
                 "email": (str(body.email).strip() if body.email else None),
                 "address": (body.address.strip() if body.address and body.address.strip() else None),
+                "postal_code": (body.postal_code.strip() if body.postal_code and body.postal_code.strip() else None),
                 "status_user_id": (
                     body.status_user_id.strip() if body.status_user_id and body.status_user_id.strip() else None
                 ),
@@ -179,7 +191,9 @@ def get_customer(
     row = db.execute(
         text(
             """
-            SELECT company_id, id, name, surname, phone, email, address, status_user_id, active, created_at, updated_at
+            SELECT
+              company_id, id, name, surname, phone, email, address, postal_code,
+              status_user_id, active, created_at, updated_at
             FROM customers
             WHERE company_id = :company_id AND id = :id
             LIMIT 1
@@ -262,7 +276,7 @@ def patch_customer(
 
     sets = []
     params: dict[str, Any] = {"id": customer_id}
-    for key in ("name", "surname", "phone", "email", "address", "status_user_id", "active"):
+    for key in ("name", "surname", "phone", "email", "address", "postal_code", "status_user_id", "active"):
         if key not in raw:
             continue
         v = raw.get(key)

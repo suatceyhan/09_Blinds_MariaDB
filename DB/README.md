@@ -4,3 +4,7 @@
 - **`NN_*.sql`**: Yeni schema değişiklikleri için migration’lar. (Önceki **01..29** seti artık `blinds.sql` içinde konsolide.)
 
 Yeni migration eklerken mevcut en büyük numaradan bir sonrakini kullanın.
+
+## Son eklenen migration’lar
+
+- `30_postal_code_fields.sql`: Companies/Customers/Estimates için optional postal code alanları.

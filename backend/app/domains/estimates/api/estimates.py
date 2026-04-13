@@ -193,6 +193,7 @@ class EstimateListItemOut(BaseModel):
     customer_id: str | None = None
     customer_display: str
     customer_address: str | None = None
+    customer_postal_code: str | None = None
     blinds_types: list[EstimateBlindsLineOut]
     perde_sayisi: int | None = None
     status: str | None = None
@@ -212,11 +213,13 @@ class EstimateDetailOut(BaseModel):
     customer_id: str | None = None
     customer_display: str
     customer_address: str | None = None
+    customer_postal_code: str | None = None
     prospect_name: str | None = None
     prospect_surname: str | None = None
     prospect_phone: str | None = None
     prospect_email: str | None = None
     prospect_address: str | None = None
+    prospect_postal_code: str | None = None
     blinds_types: list[EstimateBlindsLineOut]
     perde_sayisi: int | None = None
     scheduled_wall: str | None = Field(
@@ -231,6 +234,7 @@ class EstimateDetailOut(BaseModel):
     google_event_id: str | None = None
     visit_time_zone: str | None = None
     visit_address: str | None = None
+    visit_postal_code: str | None = None
     visit_notes: str | None = None
     visit_organizer_name: str | None = None
     visit_organizer_email: str | None = None
@@ -263,6 +267,7 @@ class EstimateCreateIn(BaseModel):
     prospect_phone: str | None = Field(None, max_length=100)
     prospect_email: EmailStr | None = None
     prospect_address: str | None = Field(None, max_length=2000)
+    prospect_postal_code: str | None = Field(None, max_length=32)
     blinds_lines: list[EstimateBlindsLineIn] = Field(default_factory=list, max_length=24)
     scheduled_wall: str | None = Field(
         None,
@@ -279,6 +284,7 @@ class EstimateCreateIn(BaseModel):
         description="IANA timezone for scheduled_wall and Google Calendar.",
     )
     visit_address: str | None = Field(None, max_length=500)
+    visit_postal_code: str | None = Field(None, max_length=32)
     visit_notes: str | None = Field(None, max_length=4000)
     visit_organizer_name: str | None = Field(None, max_length=200)
     visit_organizer_email: EmailStr | None = None
@@ -312,7 +318,7 @@ class EstimateCreateIn(BaseModel):
                 out.append(e)
         return out
 
-    @field_validator("visit_address", "visit_notes", "visit_organizer_name", mode="before")
+    @field_validator("visit_address", "visit_postal_code", "visit_notes", "visit_organizer_name", mode="before")
     @classmethod
     def strip_opt_str(cls, v: Any) -> Any:
         if v is None:
@@ -356,7 +362,14 @@ class EstimateCreateIn(BaseModel):
             raise ValueError("Duplicate blinds types are not allowed.")
         return v
 
-    @field_validator("prospect_name", "prospect_surname", "prospect_phone", "prospect_address", mode="before")
+    @field_validator(
+        "prospect_name",
+        "prospect_surname",
+        "prospect_phone",
+        "prospect_address",
+        "prospect_postal_code",
+        mode="before",
+    )
     @classmethod
     def strip_prospect_str(cls, v: Any) -> Any:
         if v is None:
@@ -392,6 +405,7 @@ class EstimatePatchIn(BaseModel):
     visit_time_zone: str | None = Field(None, max_length=100)
     visit_notes: str | None = Field(None, max_length=4000)
     visit_address: str | None = Field(None, max_length=500)
+    visit_postal_code: str | None = Field(None, max_length=32)
     visit_organizer_name: str | None = Field(None, max_length=200)
     visit_organizer_email: EmailStr | None = None
     visit_guest_emails: list[EmailStr] | None = Field(None, max_length=20)
@@ -402,8 +416,16 @@ class EstimatePatchIn(BaseModel):
     prospect_phone: str | None = Field(None, max_length=100)
     prospect_email: EmailStr | None = None
     prospect_address: str | None = Field(None, max_length=2000)
+    prospect_postal_code: str | None = Field(None, max_length=32)
 
-    @field_validator("prospect_name", "prospect_surname", "prospect_phone", "prospect_address", mode="before")
+    @field_validator(
+        "prospect_name",
+        "prospect_surname",
+        "prospect_phone",
+        "prospect_address",
+        "prospect_postal_code",
+        mode="before",
+    )
     @classmethod
     def strip_prospect_patch(cls, v: Any) -> Any:
         if v is None:
@@ -443,7 +465,14 @@ class EstimatePatchIn(BaseModel):
                 out.append(e)
         return out
 
-    @field_validator("visit_notes", "visit_address", "visit_organizer_name", "scheduled_wall", mode="before")
+    @field_validator(
+        "visit_notes",
+        "visit_address",
+        "visit_postal_code",
+        "visit_organizer_name",
+        "scheduled_wall",
+        mode="before",
+    )
     @classmethod
     def strip_opt_patch(cls, v: Any) -> Any:
         if v is None:
@@ -709,6 +738,7 @@ def list_estimates(
                 'Prospect'
               ) AS customer_display,
               COALESCE(c.address, e.prospect_address) AS customer_address,
+              COALESCE(c.postal_code, e.prospect_postal_code) AS customer_postal_code,
               ( {_SQL_BLINDS_TYPES_JSON} ) AS blinds_types_json,
               e.perde_sayisi,
               se.builtin_kind AS status,
@@ -821,19 +851,19 @@ def create_estimate(
                     INSERT INTO estimate (
                       company_id, id, customer_id, blinds_id, perde_sayisi,
                       tarih_saat, scheduled_start_at, scheduled_end_at,
-                      visit_time_zone, visit_address, visit_notes,
+                      visit_time_zone, visit_address, visit_postal_code, visit_notes,
                       visit_organizer_name, visit_organizer_email, visit_guest_emails,
                       status_esti_id,
-                      prospect_name, prospect_surname, prospect_phone, prospect_email, prospect_address,
+                      prospect_name, prospect_surname, prospect_phone, prospect_email, prospect_address, prospect_postal_code,
                       created_at, updated_at
                     )
                     VALUES (
                       :company_id, :id, :customer_id, NULL, :perde_sayisi,
                       :sched, :sched, NULL,
-                      :vtz, :vaddr, :vnotes,
+                      :vtz, :vaddr, :vpostal, :vnotes,
                       :org_name, :org_email, CAST(:guests AS jsonb),
                       :status_esti_id,
-                      :pname, :psurname, :pphone, :pemail, :paddress,
+                      :pname, :psurname, :pphone, :pemail, :paddress, :ppostal,
                       NOW(), NOW()
                     )
                     """
@@ -846,6 +876,7 @@ def create_estimate(
                     "sched": sched,
                     "vtz": body.visit_time_zone,
                     "vaddr": body.visit_address,
+                    "vpostal": body.visit_postal_code,
                     "vnotes": body.visit_notes,
                     "org_name": body.visit_organizer_name,
                     "org_email": org_email,
@@ -856,6 +887,7 @@ def create_estimate(
                     "pphone": (body.prospect_phone or "").strip() or None if not cust_sql else None,
                     "pemail": str(body.prospect_email).strip() if body.prospect_email and not cust_sql else None,
                     "paddress": (body.prospect_address or "").strip() or None if not cust_sql else None,
+                    "ppostal": (body.prospect_postal_code or "").strip() or None if not cust_sql else None,
                 },
             )
             for sort_i, ln in enumerate(body.blinds_lines):
@@ -923,11 +955,13 @@ def get_estimate(
                 'Prospect'
               ) AS customer_display,
               COALESCE(c.address, e.prospect_address) AS customer_address,
+              COALESCE(c.postal_code, e.prospect_postal_code) AS customer_postal_code,
               e.prospect_name,
               e.prospect_surname,
               e.prospect_phone,
               e.prospect_email,
               e.prospect_address,
+              e.prospect_postal_code,
               ( {_SQL_BLINDS_TYPES_JSON} ) AS blinds_types_json,
               e.perde_sayisi,
               e.scheduled_start_at,
@@ -938,6 +972,7 @@ def get_estimate(
               e.google_event_id,
               e.visit_time_zone,
               e.visit_address,
+              e.visit_postal_code,
               e.visit_notes,
               e.visit_organizer_name,
               e.visit_organizer_email,
@@ -1033,6 +1068,9 @@ def patch_estimate(
     if payload.visit_address is not None:
         sets.append("visit_address = :vaddr")
         params["vaddr"] = payload.visit_address
+    if payload.visit_postal_code is not None:
+        sets.append("visit_postal_code = :vpostal")
+        params["vpostal"] = payload.visit_postal_code
     if payload.visit_organizer_name is not None:
         sets.append("visit_organizer_name = :orgn")
         params["orgn"] = payload.visit_organizer_name
@@ -1061,6 +1099,9 @@ def patch_estimate(
         if "prospect_address" in patch_dump:
             sets.append("prospect_address = :prospect_address")
             params["prospect_address"] = patch_dump["prospect_address"]
+        if "prospect_postal_code" in patch_dump:
+            sets.append("prospect_postal_code = :prospect_postal_code")
+            params["prospect_postal_code"] = patch_dump["prospect_postal_code"]
 
     if payload.status_esti_id is not None:
         new_st = db.execute(

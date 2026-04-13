@@ -378,6 +378,7 @@ def _insert_customer_from_prospect_and_link_estimate(
     phone = (est.get("prospect_phone") or "").strip() or None
     email = (est.get("prospect_email") or "").strip() or None
     address = (est.get("prospect_address") or "").strip() or None
+    postal_code = (est.get("prospect_postal_code") or "").strip() or None
     for _ in range(8):
         new_id = _new_customer_id_for_order()
         exists = db.execute(
@@ -393,10 +394,10 @@ def _insert_customer_from_prospect_and_link_estimate(
                 text(
                     """
                     INSERT INTO customers (
-                      company_id, id, name, surname, phone, email, address, status_user_id, active
+                      company_id, id, name, surname, phone, email, address, postal_code, status_user_id, active
                     )
                     VALUES (
-                      CAST(:cid AS uuid), :id, :name, :surname, :phone, :email, :address, NULL, TRUE
+                      CAST(:cid AS uuid), :id, :name, :surname, :phone, :email, :address, :postal_code, NULL, TRUE
                     )
                     """
                 ),
@@ -408,6 +409,7 @@ def _insert_customer_from_prospect_and_link_estimate(
                     "phone": phone,
                     "email": email,
                     "address": address,
+                    "postal_code": postal_code,
                 },
             )
             db.execute(
@@ -421,6 +423,7 @@ def _insert_customer_from_prospect_and_link_estimate(
                       prospect_phone = NULL,
                       prospect_email = NULL,
                       prospect_address = NULL,
+                      prospect_postal_code = NULL,
                       updated_at = NOW()
                     WHERE company_id = CAST(:cid AS uuid) AND id = :eid
                     """

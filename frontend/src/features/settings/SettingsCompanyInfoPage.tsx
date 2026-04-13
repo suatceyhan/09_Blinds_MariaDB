@@ -7,6 +7,7 @@ import { companyCountrySelectOptions } from '@/lib/addressCountryOptions'
 import { listCompanySubnationals } from '@/lib/companyRegions'
 import { getJson, patchJson } from '@/lib/api'
 import { mapsLinkForCompany } from '@/lib/googleMaps'
+import { isValidCaPostalCode, normalizeCaPostalCode } from '@/lib/caPostalCode'
 
 type CompanyOut = {
   id: string
@@ -15,6 +16,7 @@ type CompanyOut = {
   website: string | null
   email: string | null
   address: string | null
+  postal_code?: string | null
   country_code?: string | null
   region_code?: string | null
   maps_url: string | null
@@ -37,6 +39,7 @@ export function SettingsCompanyInfoPage() {
   const [email, setEmail] = useState('')
   const [website, setWebsite] = useState('')
   const [address, setAddress] = useState('')
+  const [postalCode, setPostalCode] = useState('')
   const [countryCode, setCountryCode] = useState('')
   const [regionCode, setRegionCode] = useState('')
   const [taxRatePercent, setTaxRatePercent] = useState('')
@@ -44,6 +47,8 @@ export function SettingsCompanyInfoPage() {
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
+  const isCa = countryCode.trim().toUpperCase() === 'CA'
+  const postalErr = isCa && postalCode.trim() !== '' && !isValidCaPostalCode(postalCode)
 
   const load = useCallback(async () => {
     if (!companyId || !canView) {
@@ -61,6 +66,7 @@ export function SettingsCompanyInfoPage() {
       setEmail(c.email ?? '')
       setWebsite(c.website ?? '')
       setAddress(c.address ?? '')
+      setPostalCode(c.postal_code ?? '')
       setCountryCode((c.country_code ?? '').trim().toUpperCase())
       setRegionCode((c.region_code ?? '').trim().toUpperCase())
       const tr = c.tax_rate_percent
@@ -82,14 +88,19 @@ export function SettingsCompanyInfoPage() {
   const countrySelectOptions = useMemo(() => companyCountrySelectOptions(row?.country_code), [row?.country_code])
 
   const mapsHref = useMemo(() => {
-    if (!address.trim()) return null
-    const unchanged = address.trim() === (row?.address ?? '').trim()
-    return mapsLinkForCompany(address, unchanged ? row?.maps_url ?? null : null)
-  }, [address, row?.address, row?.maps_url])
+    const addr = address.trim()
+    const pc = postalCode.trim()
+    const q = [addr, pc].filter(Boolean).join(', ').trim()
+    if (!q) return null
+    const unchanged =
+      addr === (row?.address ?? '').trim() && pc === (row?.postal_code ?? '').trim()
+    return mapsLinkForCompany(q, unchanged ? row?.maps_url ?? null : null)
+  }, [address, postalCode, row?.address, row?.postal_code, row?.maps_url])
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!companyId || !canEdit || !row) return
+    if (postalErr) return
     setErr(null)
     setOk(null)
     setSaving(true)
@@ -105,6 +116,8 @@ export function SettingsCompanyInfoPage() {
       if (web !== (row.website ?? null)) body.website = web
       const adr = address.trim() || null
       if (adr !== (row.address ?? null)) body.address = adr
+      const pc = postalCode.trim() || null
+      if (pc !== (row.postal_code ?? null)) body.postal_code = pc
       const cc = countryCode.trim().toUpperCase()
       const ccNorm = cc.length === 2 && /^[A-Z]{2}$/.test(cc) ? cc : null
       const prevCc = (row.country_code ?? '').trim().toUpperCase() || null
@@ -317,6 +330,24 @@ export function SettingsCompanyInfoPage() {
                     <span id="settings-company-address-hint" className="mt-1 block text-xs font-normal text-slate-500">
                       {ADDRESS_FORMAT_HINT} After save, the preview link below uses this text (or your stored Maps URL).
                     </span>
+                  </label>
+                  <label className="block text-sm font-medium text-slate-700">
+                    Postal code (optional)
+                    <input
+                      value={postalCode}
+                      onChange={(e) => setPostalCode(e.target.value)}
+                      onBlur={() => {
+                        if (!isCa) return
+                        if (postalCode.trim()) setPostalCode(normalizeCaPostalCode(postalCode))
+                      }}
+                      disabled={!canEdit}
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 disabled:bg-slate-50"
+                    />
+                    {postalErr ? (
+                      <span className="mt-1 block text-xs font-normal text-red-700">
+                        Enter a valid Canadian postal code (e.g. A1A 1A1) or leave empty.
+                      </span>
+                    ) : null}
                   </label>
                   {mapsHref ? (
                     <p className="text-sm">

@@ -13,6 +13,7 @@ import { formatVisitDateTimeList } from '@/lib/formatVisitDisplay'
 import { AddressMapLink } from '@/components/ui/AddressMapLink'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { VisitStartQuarterPicker } from '@/components/ui/VisitStartQuarterPicker'
+import { isValidCaPostalCode, normalizeCaPostalCode } from '@/lib/caPostalCode'
 import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
 
 type CustomerOpt = { id: string; name: string; surname?: string | null; address?: string | null }
@@ -226,6 +227,7 @@ function TypesAndWindowsCell({ lines }: Readonly<{ lines: BlindsLine[] }>) {
 export function EstimatesPage() {
   const me = useAuthSession()
   const canEdit = Boolean(me?.permissions.includes('estimates.edit'))
+  const isCa = ((me?.active_company_country_code ?? '').trim().toUpperCase() || '') === 'CA'
   const canCreateOrder = Boolean(me?.permissions.includes('orders.edit'))
 
   const [rows, setRows] = useState<EstimateRow[] | null>(null)
@@ -260,6 +262,8 @@ export function EstimatesPage() {
   const [prospectPhone, setProspectPhone] = useState('')
   const [prospectEmail, setProspectEmail] = useState('')
   const [prospectAddress, setProspectAddress] = useState('')
+  const [prospectPostalCode, setProspectPostalCode] = useState('')
+  const prospectPostalErr = isCa && prospectPostalCode.trim() !== '' && !isValidCaPostalCode(prospectPostalCode)
   const [windowCountByBlindsId, setWindowCountByBlindsId] = useState<Record<string, string>>({})
   const [lineAmountByBlindsId, setLineAmountByBlindsId] = useState<Record<string, string>>({})
   const [blindsLineSelected, setBlindsLineSelected] = useState<Record<string, boolean>>({})
@@ -378,6 +382,7 @@ export function EstimatesPage() {
     setProspectPhone('')
     setProspectEmail('')
     setProspectAddress('')
+    setProspectPostalCode('')
     setWindowCountByBlindsId({})
     setLineAmountByBlindsId({})
     setBlindsLineSelected({})
@@ -404,6 +409,7 @@ export function EstimatesPage() {
   async function onCreate(e: React.FormEvent) {
     e.preventDefault()
     if (!canEdit) return
+    if (prospectPostalErr) return
     if (entryMode === 'customer' && !customerId) return
     if (entryMode === 'prospect' && !prospectName.trim()) {
       setModalErr('Enter a name for the prospect.')
@@ -480,6 +486,7 @@ export function EstimatesPage() {
               ...(prospectPhone.trim() ? { prospect_phone: prospectPhone.trim() } : {}),
               ...(prospectEmail.trim() ? { prospect_email: prospectEmail.trim() } : {}),
               ...(prospectAddress.trim() ? { prospect_address: prospectAddress.trim() } : {}),
+              ...(prospectPostalCode.trim() ? { prospect_postal_code: prospectPostalCode.trim() } : {}),
             },
       )
       setShowCreate(false)
@@ -669,6 +676,23 @@ export function EstimatesPage() {
                         value={prospectAddress}
                         onChange={(e) => setProspectAddress(e.target.value)}
                       />
+                    </label>
+                    <label className="block text-xs font-medium text-slate-700 sm:col-span-2">
+                      Postal code (optional)
+                      <input
+                        className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                        value={prospectPostalCode}
+                        onChange={(e) => setProspectPostalCode(e.target.value)}
+                        onBlur={() => {
+                          if (!isCa) return
+                          if (prospectPostalCode.trim()) setProspectPostalCode(normalizeCaPostalCode(prospectPostalCode))
+                        }}
+                      />
+                      {prospectPostalErr ? (
+                        <span className="mt-1 block text-[11px] font-medium text-red-700">
+                          Enter a valid Canadian postal code (e.g. A1A 1A1) or leave empty.
+                        </span>
+                      ) : null}
                     </label>
                   </>
                 )}

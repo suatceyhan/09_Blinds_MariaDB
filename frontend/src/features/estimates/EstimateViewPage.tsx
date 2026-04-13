@@ -15,11 +15,13 @@ type EstimateDetail = {
   customer_id?: string | null
   customer_display: string
   customer_address?: string | null
+  customer_postal_code?: string | null
   prospect_name?: string | null
   prospect_surname?: string | null
   prospect_phone?: string | null
   prospect_email?: string | null
   prospect_address?: string | null
+  prospect_postal_code?: string | null
   blinds_types: BlindsRef[]
   perde_sayisi: number | null
   status?: string | null
@@ -33,6 +35,7 @@ type EstimateDetail = {
   google_event_id: string | null
   visit_time_zone?: string | null
   visit_address?: string | null
+  visit_postal_code?: string | null
   visit_notes?: string | null
   visit_organizer_name?: string | null
   visit_organizer_email?: string | null
@@ -234,6 +237,11 @@ export function EstimateViewPage() {
               <dd className="mt-1 text-slate-800">
                 <AddressMapLink address={row.customer_address} lineClamp={false} />
               </dd>
+              {row.customer_postal_code?.trim() ? (
+                <dd className="mt-1 text-xs font-medium text-slate-600">
+                  Postal code: {row.customer_postal_code.trim()}
+                </dd>
+              ) : null}
             </div>
             <div className="sm:col-span-2">
               <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Blinds types</dt>
@@ -285,6 +293,9 @@ export function EstimateViewPage() {
                 <dd className="mt-1 text-slate-800">
                   <AddressMapLink address={row.visit_address} lineClamp={false} />
                 </dd>
+                {row.visit_postal_code?.trim() ? (
+                  <dd className="mt-1 text-xs font-medium text-slate-600">Postal code: {row.visit_postal_code.trim()}</dd>
+                ) : null}
               </div>
             ) : null}
             {row.visit_notes?.trim() ? (

@@ -51,6 +51,7 @@ class CompanyOut(BaseModel):
     website: str | None
     email: str | None
     address: str | None = None
+    postal_code: str | None = None
     country_code: str | None = None
     region_code: str | None = None
     maps_url: str | None = None
@@ -146,6 +147,7 @@ class CompanyCreate(BaseModel):
     website: str | None = Field(None, max_length=500)
     email: str | None = Field(None, max_length=320)
     address: str | None = Field(None, max_length=2000)
+    postal_code: str | None = Field(None, max_length=32)
     country_code: str | None = Field(None, max_length=2)
     region_code: str | None = Field(None, max_length=8)
     owner_user_id: UUID | None = None
@@ -165,6 +167,7 @@ class CompanyPatch(BaseModel):
     website: str | None = Field(None, max_length=500)
     email: str | None = Field(None, max_length=320)
     address: str | None = Field(None, max_length=2000)
+    postal_code: str | None = Field(None, max_length=32)
     country_code: str | None = Field(None, max_length=2)
     region_code: str | None = Field(None, max_length=8)
     owner_user_id: UUID | None = None
@@ -190,6 +193,15 @@ def _maps_url_from_address(address: str | None) -> str | None:
     q = quote_plus(n)
     return f"https://www.google.com/maps/search/?api=1&query={q}"[:2000]
 
+def _address_with_postal_code(address: str | None, postal_code: str | None) -> str | None:
+    a = _normalize_optional_str(address, 2000)
+    pc = _normalize_optional_str(postal_code, 32)
+    if not a and not pc:
+        return None
+    if a and pc:
+        return f"{a}, {pc}"
+    return a or pc
+
 
 def _apply_company_search(q, raw: str | None):
     if not raw or not raw.strip():
@@ -202,6 +214,7 @@ def _apply_company_search(q, raw: str | None):
             Companies.phone.ilike(term),
             Companies.website.ilike(term),
             Companies.address.ilike(term),
+            Companies.postal_code.ilike(term),
         ),
     )
 
@@ -227,6 +240,7 @@ def _to_company_out(row: Companies) -> CompanyOut:
         website=row.website,
         email=row.email,
         address=row.address,
+        postal_code=getattr(row, "postal_code", None),
         country_code=_normalize_country_code(
             str(row.country_code).strip() if getattr(row, "country_code", None) is not None else None
         ),
@@ -351,6 +365,7 @@ def create_company(
     if dup:
         raise HTTPException(status_code=409, detail="A company with this name already exists.")
     addr = _normalize_optional_str(body.address, 2000)
+    pc = _normalize_optional_str(getattr(body, "postal_code", None), 32)
     cc = _normalize_country_code(body.country_code)
     rc = _normalize_region_code(cc, getattr(body, "region_code", None))
     row = Companies(
@@ -359,9 +374,10 @@ def create_company(
         website=(body.website.strip() if body.website and body.website.strip() else None),
         email=(body.email.strip() if body.email and body.email.strip() else None),
         address=addr,
+        postal_code=pc,
         country_code=cc,
         region_code=rc,
-        maps_url=_maps_url_from_address(addr),
+        maps_url=_maps_url_from_address(_address_with_postal_code(addr, pc)),
         owner_user_id=None,
         is_deleted=False,
     )
@@ -425,6 +441,7 @@ def patch_company(
                 "email",
                 "website",
                 "address",
+                "postal_code",
                 "country_code",
                 "region_code",
                 "tax_rate_percent",
@@ -487,7 +504,11 @@ def patch_company(
 
     if "address" in raw:
         row.address = _normalize_optional_str(raw.get("address"), 2000)
-        row.maps_url = _maps_url_from_address(row.address)
+    if "postal_code" in raw:
+        row.postal_code = _normalize_optional_str(raw.get("postal_code"), 32)
+
+    if "address" in raw or "postal_code" in raw:
+        row.maps_url = _maps_url_from_address(_address_with_postal_code(row.address, row.postal_code))
 
     if "country_code" in raw:
         row.country_code = _normalize_country_code(raw.get("country_code"))
