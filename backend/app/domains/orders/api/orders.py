@@ -17,6 +17,7 @@ from typing_extensions import Annotated
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.person_names import format_person_name_casing
 from app.dependencies.auth import effective_company_id, require_permissions
 from app.domains.user.models.users import Users
 from app.domains.business_lookups.services.blinds_catalog import (
@@ -368,13 +369,13 @@ def _insert_customer_from_prospect_and_link_estimate(
     estimate_id: str,
     est: dict[str, Any],
 ) -> str:
-    name = (est.get("prospect_name") or "").strip()
+    name = format_person_name_casing((est.get("prospect_name") or "").strip() or None) or ""
     if not name:
         raise HTTPException(
             status_code=400,
             detail="This estimate has no customer record yet. Add prospect name on the estimate before creating an order.",
         )
-    surname = (est.get("prospect_surname") or "").strip() or None
+    surname = format_person_name_casing((est.get("prospect_surname") or "").strip() or None)
     phone = (est.get("prospect_phone") or "").strip() or None
     email = (est.get("prospect_email") or "").strip() or None
     address = (est.get("prospect_address") or "").strip() or None

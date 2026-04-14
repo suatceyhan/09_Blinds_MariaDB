@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from typing_extensions import Annotated
 
 from app.core.database import get_db
+from app.core.person_names import format_person_name_casing
 from app.dependencies.auth import effective_company_id, require_permissions, resolve_tenant_company_id
 from app.domains.user.models.users import Users
 
@@ -162,8 +163,10 @@ def create_customer(
             {
                 "cid": str(cid),
                 "id": new_id,
-                "name": body.name.strip(),
-                "surname": (body.surname.strip() if body.surname and body.surname.strip() else None),
+                "name": format_person_name_casing(body.name.strip()) or body.name.strip(),
+                "surname": format_person_name_casing(
+                    body.surname.strip() if body.surname and body.surname.strip() else None
+                ),
                 "phone": (body.phone.strip() if body.phone and body.phone.strip() else None),
                 "email": (str(body.email).strip() if body.email else None),
                 "address": (body.address.strip() if body.address and body.address.strip() else None),
@@ -284,6 +287,10 @@ def patch_customer(
             v = v.strip()
             if v == "":
                 v = None
+            elif key == "name" and v is not None:
+                v = format_person_name_casing(v) or v
+            elif key == "surname" and v is not None:
+                v = format_person_name_casing(v)
         sets.append(f"{key} = :{key}")
         params[key] = v
     sets.append("updated_at = NOW()")

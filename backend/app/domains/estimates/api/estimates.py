@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from typing_extensions import Annotated
 
 from app.core.database import get_db
+from app.core.person_names import format_person_name_casing
 from app.dependencies.auth import effective_company_id, require_permissions
 from app.domains.business_lookups.services.blinds_catalog import (
     assert_blinds_types_enabled_for_company,
@@ -805,40 +806,40 @@ def create_estimate(
     counts = [ln.window_count for ln in body.blinds_lines if ln.window_count is not None]
     estimate_perde = sum(counts) if counts else None
 
-    pend_row = db.execute(
+    new_row = db.execute(
         text(
             """
             SELECT se.id
             FROM status_estimate se
             INNER JOIN company_status_estimate_matrix m
               ON m.status_estimate_id = se.id AND m.company_id = CAST(:cid AS uuid)
-            WHERE se.builtin_kind = 'pending'
+            WHERE se.builtin_kind = 'new'
             LIMIT 1
             """
         ),
         {"cid": str(cid)},
     ).mappings().first()
-    if not pend_row:
+    if not new_row:
         ensure_default_estimate_statuses_for_company(db, cid)
-        pend_row = db.execute(
+        new_row = db.execute(
             text(
                 """
                 SELECT se.id
                 FROM status_estimate se
                 INNER JOIN company_status_estimate_matrix m
                   ON m.status_estimate_id = se.id AND m.company_id = CAST(:cid AS uuid)
-                WHERE se.builtin_kind = 'pending'
+                WHERE se.builtin_kind = 'new'
                 LIMIT 1
                 """
             ),
             {"cid": str(cid)},
         ).mappings().first()
-    if not pend_row:
+    if not new_row:
         raise HTTPException(
             status_code=500,
-            detail="Could not resolve default estimate status (pending) for this company.",
+            detail="Could not resolve default estimate status (new) for this company.",
         )
-    pending_status_id = str(pend_row["id"])
+    new_status_id = str(new_row["id"])
 
     if body.blinds_lines:
         assert_blinds_types_enabled_for_company(db, cid, [ln.blinds_id for ln in body.blinds_lines])
@@ -889,9 +890,17 @@ def create_estimate(
                     "org_name": body.visit_organizer_name,
                     "org_email": org_email,
                     "guests": guest_json,
-                    "status_esti_id": pending_status_id,
-                    "pname": (body.prospect_name or "").strip() or None if not cust_sql else None,
-                    "psurname": (body.prospect_surname or "").strip() or None if not cust_sql else None,
+                    "status_esti_id": new_status_id,
+                    "pname": (
+                        format_person_name_casing((body.prospect_name or "").strip() or None)
+                        if not cust_sql
+                        else None
+                    ),
+                    "psurname": (
+                        format_person_name_casing((body.prospect_surname or "").strip() or None)
+                        if not cust_sql
+                        else None
+                    ),
                     "pphone": (body.prospect_phone or "").strip() or None if not cust_sql else None,
                     "pemail": str(body.prospect_email).strip() if body.prospect_email and not cust_sql else None,
                     "paddress": (body.prospect_address or "").strip() or None if not cust_sql else None,
@@ -1093,10 +1102,16 @@ def patch_estimate(
     if not has_customer:
         if "prospect_name" in patch_dump:
             sets.append("prospect_name = :prospect_name")
-            params["prospect_name"] = patch_dump["prospect_name"]
+            pn = patch_dump["prospect_name"]
+            params["prospect_name"] = (
+                None if pn is None else format_person_name_casing(str(pn).strip() or None)
+            )
         if "prospect_surname" in patch_dump:
             sets.append("prospect_surname = :prospect_surname")
-            params["prospect_surname"] = patch_dump["prospect_surname"]
+            ps = patch_dump["prospect_surname"]
+            params["prospect_surname"] = (
+                None if ps is None else format_person_name_casing(str(ps).strip() or None)
+            )
         if "prospect_phone" in patch_dump:
             sets.append("prospect_phone = :prospect_phone")
             params["prospect_phone"] = patch_dump["prospect_phone"]
