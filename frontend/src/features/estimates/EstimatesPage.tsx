@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarDays, Check, Eye, Pencil, RotateCcw, ShoppingBag, Trash2 } from 'lucide-react'
+import { CalendarDays, Check, Eye, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
-import { getJson, postJson, deleteJson } from '@/lib/api'
+import { getJson, postJson, patchJson, deleteJson } from '@/lib/api'
 import {
   defaultVisitScheduleParts,
   isValidScheduledWall,
@@ -305,6 +305,13 @@ export function EstimatesPage() {
     return p.toString()
   }, [debouncedSearch, scheduleFilter, filterStatusEstiId, showDeleted, filterCustomerId])
 
+  const pendingStatusEstiId = useMemo(
+    () => (estimateStatusOpts ?? []).find((s) => (s.code ?? '').toLowerCase() === 'pending')?.id ?? '',
+    [estimateStatusOpts],
+  )
+
+  const [markPendingForId, setMarkPendingForId] = useState<string | null>(null)
+
   useEffect(() => {
     if (!me) return
     let cancelled = false
@@ -339,6 +346,23 @@ export function EstimatesPage() {
   async function refresh() {
     const list = await getJson<EstimateRow[]>(`/estimates?${listParams}`)
     setRows(list)
+  }
+
+  async function markEstimatePending(estimateId: string) {
+    if (!pendingStatusEstiId) {
+      setLoadErr('Pending status is not available for this company. Check Permissions → estimate status matrix.')
+      return
+    }
+    setMarkPendingForId(estimateId)
+    setLoadErr(null)
+    try {
+      await patchJson(`/estimates/${estimateId}`, { status_esti_id: pendingStatusEstiId })
+      await refresh()
+    } catch (e) {
+      setLoadErr(e instanceof Error ? e.message : 'Could not set status to Pending')
+    } finally {
+      setMarkPendingForId(null)
+    }
   }
 
   useEffect(() => {
@@ -1012,7 +1036,7 @@ export function EstimatesPage() {
                 <th className="px-2 py-3 sm:px-4">Types &amp; windows</th>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Status</th>
                 <th className="px-2 py-3 sm:px-4">Visit date</th>
-                {canEdit ? <th className="w-44 px-2 py-3 text-right sm:px-4">Actions</th> : null}
+                {canEdit ? <th className="min-w-[13rem] px-2 py-3 text-right sm:px-4">Actions</th> : null}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -1044,7 +1068,7 @@ export function EstimatesPage() {
                   <td className="align-top px-2 py-3 text-slate-600 sm:px-4">{displayScheduled(r)}</td>
                   {canEdit ? (
                     <td className="align-top px-2 py-3 text-right sm:px-4">
-                      <div className="flex justify-end gap-1">
+                      <div className="flex flex-col items-end gap-1 sm:flex-row sm:flex-wrap sm:justify-end sm:gap-x-2">
                         {r.is_deleted ? (
                           <>
                             <Link
@@ -1067,14 +1091,29 @@ export function EstimatesPage() {
                           </>
                         ) : (
                           <>
+                            {r.status?.toLowerCase() === 'new' ? (
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center whitespace-nowrap rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-950 shadow-sm hover:border-amber-400 hover:bg-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-500 disabled:cursor-not-allowed disabled:border-amber-200 disabled:bg-amber-50/80 disabled:text-amber-800 disabled:opacity-60 disabled:shadow-none disabled:hover:bg-amber-50/80"
+                                title={
+                                  pendingStatusEstiId
+                                    ? 'Set status to Pending'
+                                    : 'Pending status is not enabled for this company'
+                                }
+                                aria-label="Mark estimate as pending"
+                                disabled={!pendingStatusEstiId || markPendingForId === r.id}
+                                onClick={() => void markEstimatePending(r.id)}
+                              >
+                                {markPendingForId === r.id ? 'Updating…' : 'Mark pending'}
+                              </button>
+                            ) : null}
                             {r.status?.toLowerCase() === 'pending' && canCreateOrder ? (
                               <Link
                                 to={`/orders?fromEstimate=${encodeURIComponent(r.id)}`}
-                                className="inline-flex rounded-md p-1.5 text-slate-600 hover:bg-violet-50 hover:text-violet-800"
-                                title="Make order"
-                                aria-label="Make order from estimate"
+                                className="inline-flex items-center justify-center whitespace-nowrap rounded-lg border border-violet-300 bg-violet-50 px-2.5 py-1.5 text-xs font-semibold text-violet-950 shadow-sm hover:border-violet-400 hover:bg-violet-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-violet-500"
+                                title="Open new order from this estimate"
                               >
-                                <ShoppingBag className="h-4 w-4" />
+                                Make order
                               </Link>
                             ) : null}
                             <Link
