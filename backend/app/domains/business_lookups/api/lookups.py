@@ -139,6 +139,20 @@ def create_blinds_type(
     cid = effective_company_id(current_user)
     if not cid:
         raise HTTPException(status_code=403, detail="No active company.")
+    nm = body.name.strip()
+    exists_name = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM blinds_type
+            WHERE lower(btrim(name)) = lower(btrim(:name))
+            LIMIT 1
+            """
+        ),
+        {"name": nm},
+    ).first()
+    if exists_name:
+        raise HTTPException(status_code=409, detail="A blinds type with this name already exists.")
     next_so = body.sort_order
     if next_so is None:
         next_so = int(
@@ -159,22 +173,10 @@ def create_blinds_type(
                 ),
                 {
                     "id": new_id,
-                    "name": body.name.strip(),
+                    "name": nm,
                     "aciklama": _normalize_aciklama(body.aciklama),
                     "sort_order": next_so,
                 },
-            )
-            db.execute(
-                text(
-                    """
-                    INSERT INTO company_blinds_type_matrix (company_id, blinds_type_id)
-                    SELECT c.id, CAST(:tid AS varchar(16))
-                    FROM companies c
-                    WHERE COALESCE(c.is_deleted, FALSE) IS NOT TRUE
-                    ON CONFLICT (company_id, blinds_type_id) DO NOTHING
-                    """
-                ),
-                {"tid": new_id},
             )
             db.commit()
         except IntegrityError:
@@ -216,9 +218,78 @@ def patch_blinds_type(
     if not current:
         raise HTTPException(status_code=404, detail="Blinds type not found.")
     name = current["name"] if body.name is None else body.name.strip()
+    if body.name is not None:
+        exists_name = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM blinds_type
+                WHERE lower(btrim(name)) = lower(btrim(:name))
+                  AND id <> :id
+                LIMIT 1
+                """
+            ),
+            {"name": name, "id": str(blinds_type_id).strip()},
+        ).first()
+        if exists_name:
+            raise HTTPException(status_code=409, detail="A blinds type with this name already exists.")
     aciklama = current["aciklama"] if body.aciklama is None else _normalize_aciklama(body.aciklama)
     active = current["active"] if body.active is None else body.active
     sort_order = current["sort_order"] if body.sort_order is None else body.sort_order
+    if body.active is False:
+        used = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM company_blinds_type_matrix
+                WHERE blinds_type_id = :tid
+                LIMIT 1
+                """
+            ),
+            {"tid": str(blinds_type_id).strip()},
+        ).first()
+        if used:
+            raise HTTPException(
+                status_code=400,
+                detail="This blinds type is enabled for at least one company. Disable it in the matrix first.",
+            )
+        referenced = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM estimate_blinds eb
+                WHERE eb.blinds_id = :tid
+                LIMIT 1
+                """
+            ),
+            {"tid": str(blinds_type_id).strip()},
+        ).first()
+        if referenced:
+            raise HTTPException(
+                status_code=400,
+                detail="This blinds type is referenced by existing estimates. Update estimates before deactivating.",
+            )
+        referenced2 = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM orders o
+                WHERE COALESCE(o.active, TRUE) IS TRUE
+                  AND EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(o.blinds_lines) AS x(elem)
+                    WHERE (x.elem->>'id') = :tid
+                  )
+                LIMIT 1
+                """
+            ),
+            {"tid": str(blinds_type_id).strip()},
+        ).first()
+        if referenced2:
+            raise HTTPException(
+                status_code=400,
+                detail="This blinds type is referenced by existing orders. Update orders before deactivating.",
+            )
     db.execute(
         text(
             """

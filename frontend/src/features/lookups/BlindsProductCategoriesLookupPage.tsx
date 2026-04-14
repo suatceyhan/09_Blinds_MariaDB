@@ -344,7 +344,7 @@ export function BlindsProductCategoriesLookupPage() {
               to enable each category per company. Which blinds type allows which category is still configured under
               Settings → Blinds line matrices.
             </p>
-            <p className="mt-2 text-xs text-slate-500">Tip: newly added categories are inserted into every company matrix.</p>
+            <p className="mt-2 text-xs text-slate-500">Tip: newly added categories are disabled by default; enable them per company in the matrix.</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">

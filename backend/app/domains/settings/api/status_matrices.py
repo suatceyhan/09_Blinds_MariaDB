@@ -374,6 +374,19 @@ def create_global_estimate_status(
 ):
     ensure_global_catalog_seeded(db)
     nm = body.name.strip()
+    exists_name = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM status_estimate
+            WHERE lower(btrim(name)) = lower(btrim(:name))
+            LIMIT 1
+            """
+        ),
+        {"name": nm},
+    ).first()
+    if exists_name:
+        raise HTTPException(status_code=409, detail="An estimate status with this name already exists.")
     new_id = custom_estimate_status_id(nm)
     exists = db.execute(
         text("SELECT 1 FROM status_estimate WHERE id = :id LIMIT 1"),
@@ -429,6 +442,21 @@ def patch_global_estimate_status(
     if cur.get("builtin_kind"):
         raise HTTPException(status_code=400, detail="Built-in workflow statuses cannot be edited here.")
     name = cur["name"] if body.name is None else body.name.strip()
+    if body.name is not None:
+        exists_name = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM status_estimate
+                WHERE lower(btrim(name)) = lower(btrim(:name))
+                  AND id <> :id
+                LIMIT 1
+                """
+            ),
+            {"name": name, "id": status_id.strip()},
+        ).first()
+        if exists_name:
+            raise HTTPException(status_code=409, detail="An estimate status with this name already exists.")
     active = cur["active"] if body.active is None else body.active
     sort_order = cur["sort_order"] if body.sort_order is None else body.sort_order
     if body.active is False:
@@ -476,6 +504,19 @@ def create_global_order_status(
 ):
     ensure_global_catalog_seeded(db)
     nm = body.name.strip()
+    exists_name = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM status_order
+            WHERE lower(btrim(name)) = lower(btrim(:name))
+            LIMIT 1
+            """
+        ),
+        {"name": nm},
+    ).first()
+    if exists_name:
+        raise HTTPException(status_code=409, detail="An order status with this name already exists.")
     new_id = custom_order_status_id(nm)
     exists = db.execute(
         text("SELECT 1 FROM status_order WHERE id = :id LIMIT 1"),
@@ -530,6 +571,21 @@ def patch_global_order_status(
     if not cur:
         raise HTTPException(status_code=404, detail="Order status not found.")
     name = cur["name"] if body.name is None else body.name.strip()
+    if body.name is not None:
+        exists_name = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM status_order
+                WHERE lower(btrim(name)) = lower(btrim(:name))
+                  AND id <> :id
+                LIMIT 1
+                """
+            ),
+            {"name": name, "id": status_id.strip()},
+        ).first()
+        if exists_name:
+            raise HTTPException(status_code=409, detail="An order status with this name already exists.")
     active = cur["active"] if body.active is None else body.active
     sort_order = cur["sort_order"] if body.sort_order is None else body.sort_order
     if body.active is False:

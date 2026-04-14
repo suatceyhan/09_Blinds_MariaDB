@@ -11,8 +11,24 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 def ensure_company_product_category_matrix_defaults(db: Session, company_id: UUID) -> None:
-    """Enable every active global product category for the company (same idea as status matrices)."""
+    """Seed category matrix for a company when empty.
+
+    Important: do NOT auto-enable newly created categories for existing companies.
+    """
     cid = str(company_id)
+    any_row = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM company_blinds_product_category_matrix
+            WHERE company_id = CAST(:cid AS uuid)
+            LIMIT 1
+            """
+        ),
+        {"cid": cid},
+    ).first()
+    if any_row:
+        return
     db.execute(
         text(
             """

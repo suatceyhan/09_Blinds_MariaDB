@@ -93,16 +93,32 @@ def ensure_global_catalog_seeded(db: Session) -> None:
 
 
 def ensure_company_estimate_matrix_defaults(db: Session, company_id: UUID) -> None:
-    """Enable every active global estimate status for the company (matrix opt-out in UI)."""
+    """Seed estimate status matrix when empty (built-ins only).
+
+    Important: do NOT auto-enable newly created custom statuses for existing companies.
+    """
     ensure_global_catalog_seeded(db)
     cid = str(company_id)
+    any_row = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM company_status_estimate_matrix
+            WHERE company_id = CAST(:cid AS uuid)
+            LIMIT 1
+            """
+        ),
+        {"cid": cid},
+    ).first()
+    if any_row:
+        return
     db.execute(
         text(
             """
             INSERT INTO company_status_estimate_matrix (company_id, status_estimate_id)
             SELECT CAST(:cid AS uuid), se.id
             FROM status_estimate se
-            WHERE se.active IS TRUE
+            WHERE se.active IS TRUE AND se.builtin_kind IS NOT NULL
             ON CONFLICT (company_id, status_estimate_id) DO NOTHING
             """
         ),
@@ -113,23 +129,52 @@ def ensure_company_estimate_matrix_defaults(db: Session, company_id: UUID) -> No
 def ensure_company_order_matrix_defaults(db: Session, company_id: UUID) -> None:
     ensure_global_catalog_seeded(db)
     cid = str(company_id)
+    any_row = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM company_status_order_matrix
+            WHERE company_id = CAST(:cid AS uuid)
+            LIMIT 1
+            """
+        ),
+        {"cid": cid},
+    ).first()
+    if any_row:
+        return
     db.execute(
         text(
             """
             INSERT INTO company_status_order_matrix (company_id, status_order_id)
             SELECT CAST(:cid AS uuid), so.id
             FROM status_order so
-            WHERE so.active IS TRUE
+            WHERE so.active IS TRUE AND so.id IN (:new_id, :ready_id)
             ON CONFLICT (company_id, status_order_id) DO NOTHING
             """
         ),
-        {"cid": cid},
+        {"cid": cid, "new_id": DEFAULT_ORDER_STATUS_ID, "ready_id": READY_FOR_INSTALL_ORDER_STATUS_ID},
     )
 
 
 def ensure_company_blinds_type_matrix_defaults(db: Session, company_id: UUID) -> None:
-    """Enable every active global blinds type for the company (matrix opt-out in Lookups)."""
+    """Seed blinds type matrix for a company when empty.
+
+    Important: do NOT auto-enable newly created types for existing companies.
+    """
     cid = str(company_id)
+    any_row = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM company_blinds_type_matrix
+            WHERE company_id = CAST(:cid AS uuid)
+            LIMIT 1
+            """
+        ),
+        {"cid": cid},
+    ).first()
+    if any_row:
+        return
     db.execute(
         text(
             """

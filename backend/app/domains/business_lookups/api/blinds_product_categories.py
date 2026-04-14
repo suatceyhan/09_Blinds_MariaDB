@@ -171,6 +171,19 @@ def create_blinds_product_category(
     if not cid:
         raise HTTPException(status_code=403, detail="No active company.")
     name = body.name.strip()
+    exists_name = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM blinds_product_category
+            WHERE lower(btrim(name)) = lower(btrim(:name))
+            LIMIT 1
+            """
+        ),
+        {"name": name},
+    ).first()
+    if exists_name:
+        raise HTTPException(status_code=409, detail="A product category with this name already exists.")
     explicit = (body.id or "").strip()
     if explicit:
         cid_key = explicit.lower()
@@ -188,19 +201,6 @@ def create_blinds_product_category(
                 break
         if not row:
             raise HTTPException(status_code=500, detail="Could not allocate a unique category id.")
-    db.commit()
-    db.execute(
-        text(
-            """
-            INSERT INTO company_blinds_product_category_matrix (company_id, category_code)
-            SELECT c.id, CAST(:code AS varchar(32))
-            FROM companies c
-            WHERE COALESCE(c.is_deleted, FALSE) IS NOT TRUE
-            ON CONFLICT (company_id, category_code) DO NOTHING
-            """
-        ),
-        {"code": cid_key},
-    )
     db.commit()
     r = _map_row(row)
     return _row_to_out(r, code_to_types={})
@@ -233,10 +233,63 @@ def patch_blinds_product_category(
         raise HTTPException(status_code=404, detail="Category not found.")
 
     name = body.name.strip() if body.name is not None else row["name"]
+    if body.name is not None:
+        exists_name = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM blinds_product_category
+                WHERE lower(btrim(name)) = lower(btrim(:name))
+                  AND code <> :code
+                LIMIT 1
+                """
+            ),
+            {"name": name, "code": code},
+        ).first()
+        if exists_name:
+            raise HTTPException(status_code=409, detail="A product category with this name already exists.")
     sort_order = body.sort_order if body.sort_order is not None else row["sort_order"]
     active = row["active"] if body.active is None else body.active
 
     if body.active is False:
+        # Block deactivation if enabled for any company or referenced by existing orders.
+        used = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM company_blinds_product_category_matrix
+                WHERE category_code = :code
+                LIMIT 1
+                """
+            ),
+            {"code": code},
+        ).first()
+        if used:
+            raise HTTPException(
+                status_code=400,
+                detail="This category is enabled for at least one company. Disable it in the matrix first.",
+            )
+        referenced = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM orders o
+                WHERE COALESCE(o.active, TRUE) IS TRUE
+                  AND EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(o.blinds_lines) AS x(elem)
+                    WHERE lower(COALESCE(x.elem->>'category','')) = :code
+                  )
+                LIMIT 1
+                """
+            ),
+            {"code": code},
+        ).first()
+        if referenced:
+            raise HTTPException(
+                status_code=400,
+                detail="This category is referenced by existing orders. Update orders to remove it before deactivating.",
+            )
         db.execute(
             text("DELETE FROM blinds_type_category_allowed WHERE category_code = :code"),
             {"code": code},
@@ -290,6 +343,44 @@ def delete_blinds_product_category(
     ).mappings().first()
     if not row:
         raise HTTPException(status_code=404, detail="Category not found.")
+
+    used = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM company_blinds_product_category_matrix
+            WHERE category_code = :code
+            LIMIT 1
+            """
+        ),
+        {"code": code},
+    ).first()
+    if used:
+        raise HTTPException(
+            status_code=400,
+            detail="This category is enabled for at least one company. Disable it in the matrix first.",
+        )
+    referenced = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM orders o
+            WHERE COALESCE(o.active, TRUE) IS TRUE
+              AND EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(o.blinds_lines) AS x(elem)
+                WHERE lower(COALESCE(x.elem->>'category','')) = :code
+              )
+            LIMIT 1
+            """
+        ),
+        {"code": code},
+    ).first()
+    if referenced:
+        raise HTTPException(
+            status_code=400,
+            detail="This category is referenced by existing orders. Update orders to remove it before deactivating.",
+        )
 
     db.execute(
         text("DELETE FROM blinds_type_category_allowed WHERE category_code = :code"),

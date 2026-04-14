@@ -143,6 +143,19 @@ def create_blinds_extra_option(
         raise HTTPException(status_code=403, detail="No active company.")
     kid = _kind_or_404(db, kind_id)
     name = body.name.strip()
+    exists_name = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM blinds_line_extra_option
+            WHERE kind_id = :kid AND lower(btrim(name)) = lower(btrim(:name))
+            LIMIT 1
+            """
+        ),
+        {"kid": kid, "name": name},
+    ).first()
+    if exists_name:
+        raise HTTPException(status_code=409, detail="An option with this name already exists.")
     explicit = (body.id or "").strip()
     if explicit:
         cid_key = explicit.lower()
@@ -191,6 +204,21 @@ def patch_blinds_extra_option(
         raise HTTPException(status_code=404, detail="Option not found.")
 
     name = body.name.strip() if body.name is not None else row["name"]
+    if body.name is not None:
+        exists_name = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM blinds_line_extra_option
+                WHERE kind_id = :kid AND lower(btrim(name)) = lower(btrim(:name))
+                  AND code <> :code
+                LIMIT 1
+                """
+            ),
+            {"kid": kid, "name": name, "code": code},
+        ).first()
+        if exists_name:
+            raise HTTPException(status_code=409, detail="An option with this name already exists.")
     sort_order = body.sort_order if body.sort_order is not None else row["sort_order"]
     active = row["active"] if body.active is None else body.active
 

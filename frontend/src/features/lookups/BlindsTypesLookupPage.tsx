@@ -370,7 +370,7 @@ export function BlindsTypesLookupPage() {
               below to enable each type per company. Rows are companies and columns are blinds types. Which product
               categories apply to each type is still under Settings → Blinds line matrices.
             </p>
-            <p className="mt-2 text-xs text-slate-500">Tip: newly added types are inserted into every company matrix.</p>
+            <p className="mt-2 text-xs text-slate-500">Tip: newly added types are disabled by default; enable them per company in the matrix.</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
