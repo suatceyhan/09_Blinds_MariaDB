@@ -53,9 +53,6 @@ function ShowInactiveToggle(
 export function CustomersPage() {
   const me = useAuthSession()
   const canEdit = Boolean(me?.permissions.includes('customers.edit'))
-  const isCa = ((me?.active_company_country_code ?? '').trim().toUpperCase() || '') === 'CA'
-  const postalErr = isCa && postalCode.trim() !== '' && !isValidCaPostalCode(postalCode)
-  const editPostalErr = isCa && editPostalCode.trim() !== '' && !isValidCaPostalCode(editPostalCode)
 
   const [rows, setRows] = useState<CustomerRow[] | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -82,6 +79,10 @@ export function CustomersPage() {
   const [editEmail, setEditEmail] = useState('')
   const [editAddress, setEditAddress] = useState('')
   const [editPostalCode, setEditPostalCode] = useState('')
+
+  const isCa = ((me?.active_company_country_code ?? '').trim().toUpperCase() || '') === 'CA'
+  const postalErr = isCa && postalCode.trim() !== '' && !isValidCaPostalCode(postalCode)
+  const editPostalErr = isCa && editPostalCode.trim() !== '' && !isValidCaPostalCode(editPostalCode)
 
   const [pending, setPending] = useState<PendingConfirm | null>(null)
   const [confirmPending, setConfirmPending] = useState(false)
