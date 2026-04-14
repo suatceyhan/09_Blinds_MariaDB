@@ -10,14 +10,33 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+def ensure_company_product_category_matrix_defaults(db: Session, company_id: UUID) -> None:
+    """Enable every active global product category for the company (same idea as status matrices)."""
+    cid = str(company_id)
+    db.execute(
+        text(
+            """
+            INSERT INTO company_blinds_product_category_matrix (company_id, category_code)
+            SELECT CAST(:cid AS uuid), pc.code
+            FROM blinds_product_category pc
+            WHERE pc.active IS TRUE
+            ON CONFLICT (company_id, category_code) DO NOTHING
+            """
+        ),
+        {"cid": cid},
+    )
+
+
 def load_allowed_category_ids_by_type(db: Session, company_id: UUID) -> dict[str, list[str]]:
     rows = db.execute(
         text(
             """
-            SELECT blinds_type_id, category_code
-            FROM blinds_type_category_allowed
-            WHERE company_id = CAST(:cid AS uuid)
-            ORDER BY blinds_type_id, category_code
+            SELECT a.blinds_type_id, a.category_code
+            FROM blinds_type_category_allowed a
+            INNER JOIN company_blinds_product_category_matrix m
+              ON m.company_id = a.company_id AND m.category_code = a.category_code
+            WHERE a.company_id = CAST(:cid AS uuid)
+            ORDER BY a.blinds_type_id, a.category_code
             """
         ),
         {"cid": str(company_id)},

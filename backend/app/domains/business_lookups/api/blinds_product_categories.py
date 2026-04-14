@@ -93,21 +93,23 @@ def list_blinds_product_categories(
 
     term = (search or "").strip()
     where: list[str] = []
-    params: dict[str, Any] = {"limit": limit}
+    params: dict[str, Any] = {"limit": limit, "cid": str(cid)}
     if not include_inactive:
-        where.append("active IS TRUE")
+        where.append("pc.active IS TRUE")
     if term:
         params["term"] = f"%{term}%"
-        where.append("(name ILIKE :term OR code ILIKE :term)")
-    wh = f"WHERE {' AND '.join(where)}" if where else ""
+        where.append("(pc.name ILIKE :term OR pc.code ILIKE :term)")
+    wh_clause = f"WHERE {' AND '.join(where)}" if where else ""
 
     rows = db.execute(
         text(
             f"""
-            SELECT code, name, sort_order, active, created_at, updated_at
-            FROM blinds_product_category
-            {wh}
-            ORDER BY active DESC, sort_order ASC, name ASC
+            SELECT pc.code, pc.name, pc.sort_order, pc.active, pc.created_at, pc.updated_at
+            FROM blinds_product_category pc
+            INNER JOIN company_blinds_product_category_matrix m
+              ON m.category_code = pc.code AND m.company_id = CAST(:cid AS uuid)
+            {wh_clause}
+            ORDER BY pc.active DESC, pc.sort_order ASC, pc.name ASC
             LIMIT :limit
             """
         ),
@@ -167,6 +169,19 @@ def create_blinds_product_category(
                 break
         if not row:
             raise HTTPException(status_code=500, detail="Could not allocate a unique category id.")
+    db.commit()
+    db.execute(
+        text(
+            """
+            INSERT INTO company_blinds_product_category_matrix (company_id, category_code)
+            SELECT c.id, CAST(:code AS varchar(32))
+            FROM companies c
+            WHERE COALESCE(c.is_deleted, FALSE) IS NOT TRUE
+            ON CONFLICT (company_id, category_code) DO NOTHING
+            """
+        ),
+        {"code": cid_key},
+    )
     db.commit()
     r = _map_row(row)
     return _row_to_out(r, code_to_types={})

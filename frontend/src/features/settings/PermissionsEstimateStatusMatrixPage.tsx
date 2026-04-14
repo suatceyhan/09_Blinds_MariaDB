@@ -191,7 +191,7 @@ export function PermissionsEstimateStatusMatrixPage() {
   if (!canView) {
     return (
       <div className="mx-auto max-w-3xl p-6 text-sm text-slate-600">
-        You do not have permission to view the estimate status matrix.
+        You do not have permission to view estimate statuses.
       </div>
     )
   }
@@ -204,7 +204,7 @@ export function PermissionsEstimateStatusMatrixPage() {
             <ClipboardList className="h-5 w-5" strokeWidth={2} />
           </div>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Estimate status matrix</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Estimate statuses</h1>
             <p className="mt-1 max-w-3xl text-sm text-slate-600">
               Global estimate statuses (shared across all companies). Rows are companies; columns are statuses.
               Check a cell to allow that company to use that status in estimates and lookups. Built-in workflow
@@ -405,7 +405,7 @@ export function PermissionsEstimateStatusMatrixPage() {
 
       <ConfirmModal
         open={confirmOpen}
-        title="Save estimate status matrix"
+        title="Save estimate statuses"
         description="Update which companies may use each global estimate status?"
         confirmLabel="Save"
         pending={saving}

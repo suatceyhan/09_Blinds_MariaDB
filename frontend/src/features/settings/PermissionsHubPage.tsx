@@ -52,11 +52,11 @@ export function PermissionsHubPage() {
           </p>
         </section>
         <section className="space-y-2 border-t border-slate-100 pt-6">
-          <h2 className="text-base font-semibold text-slate-900">Estimate &amp; order status matrices</h2>
+          <h2 className="text-base font-semibold text-slate-900">Status &amp; category matrices</h2>
           <p className="text-sm text-slate-600">
-            Global status labels apply to every company; each matrix row is a company and each column is a
-            status. Checked cells allow that company to use the status in forms and lookups. Superadmins can
-            add custom global statuses from the matrix pages.
+            Global estimate/order statuses and product-category availability are managed under{' '}
+            <span className="font-medium text-slate-800">Lookups</span> (Estimate statuses, Order statuses,
+            Category availability). This hub keeps roles and user-level permission overrides.
           </p>
         </section>
       </div>

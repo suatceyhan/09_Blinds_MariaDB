@@ -15,26 +15,11 @@ from app.domains.user.models.users import Users
 LEGACY_LOOKUP_VIEW = "lookups.view"
 LEGACY_LOOKUP_EDIT = "lookups.edit"
 
-LOOKUPS_KIND_EXTRA_VIEW_KEYS = (
-    "lookups.blinds_extra_lifting_system.view",
-    "lookups.blinds_extra_cassette_type.view",
-    LEGACY_LOOKUP_VIEW,
-)
+LOOKUPS_KIND_EXTRA_VIEW_KEYS = (LEGACY_LOOKUP_VIEW,)
 
 
-def _extra_option_keys_for_kind(kind_id: str, mode: Literal["view", "edit"]) -> tuple[str, ...]:
-    kid = (kind_id or "").strip()
-    if mode == "view":
-        if kid == "lifting_system":
-            return ("lookups.blinds_extra_lifting_system.view", LEGACY_LOOKUP_VIEW)
-        if kid == "cassette_type":
-            return ("lookups.blinds_extra_cassette_type.view", LEGACY_LOOKUP_VIEW)
-        return (LEGACY_LOOKUP_VIEW,)
-    if kid == "lifting_system":
-        return ("lookups.blinds_extra_lifting_system.edit", LEGACY_LOOKUP_EDIT)
-    if kid == "cassette_type":
-        return ("lookups.blinds_extra_cassette_type.edit", LEGACY_LOOKUP_EDIT)
-    return (LEGACY_LOOKUP_EDIT,)
+def _extra_option_keys_for_kind(_kind_id: str, mode: Literal["view", "edit"]) -> tuple[str, ...]:
+    return (LEGACY_LOOKUP_VIEW,) if mode == "view" else (LEGACY_LOOKUP_EDIT,)
 
 
 def require_lookup_extra_options(mode: Literal["view", "edit"]):

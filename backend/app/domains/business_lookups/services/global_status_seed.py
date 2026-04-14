@@ -11,6 +11,10 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.domains.business_lookups.services.blinds_catalog import (
+    ensure_company_product_category_matrix_defaults,
+)
+
 ESTIMATE_BUILTIN_IDS: dict[str, str] = {
     "new": "86de9fe2784b1d0e",
     "pending": "c9dacb6c04910d38",
@@ -128,3 +132,4 @@ def ensure_default_estimate_statuses_for_company(db: Session, company_id: UUID) 
     ensure_global_catalog_seeded(db)
     ensure_company_estimate_matrix_defaults(db, company_id)
     ensure_company_order_matrix_defaults(db, company_id)
+    ensure_company_product_category_matrix_defaults(db, company_id)

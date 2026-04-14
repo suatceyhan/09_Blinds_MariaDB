@@ -190,7 +190,7 @@ export function PermissionsOrderStatusMatrixPage() {
   if (!canView) {
     return (
       <div className="mx-auto max-w-3xl p-6 text-sm text-slate-600">
-        You do not have permission to view the order status matrix.
+        You do not have permission to view order statuses.
       </div>
     )
   }
@@ -203,7 +203,7 @@ export function PermissionsOrderStatusMatrixPage() {
             <ListOrdered className="h-5 w-5" strokeWidth={2} />
           </div>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Order status matrix</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Order statuses</h1>
             <p className="mt-1 max-w-3xl text-sm text-slate-600">
               Global order statuses (shared across all companies). Rows are companies; columns are statuses.
               Check a cell to allow that company to use that status in orders and lookups. Add custom labels as
@@ -391,7 +391,7 @@ export function PermissionsOrderStatusMatrixPage() {
 
       <ConfirmModal
         open={confirmOpen}
-        title="Save order status matrix"
+        title="Save order statuses"
         description="Update which companies may use each global order status?"
         confirmLabel="Save"
         pending={saving}

@@ -65,12 +65,15 @@ def get_blinds_category_matrix(
     categories = db.execute(
         text(
             """
-            SELECT code AS id, name, sort_order
-            FROM blinds_product_category
-            WHERE active IS TRUE
-            ORDER BY sort_order ASC, name ASC
+            SELECT pc.code AS id, pc.name, pc.sort_order
+            FROM blinds_product_category pc
+            INNER JOIN company_blinds_product_category_matrix m
+              ON m.category_code = pc.code AND m.company_id = CAST(:cid AS uuid)
+            WHERE pc.active IS TRUE
+            ORDER BY pc.sort_order ASC, pc.name ASC
             """
         ),
+        {"cid": str(cid)},
     ).mappings().all()
 
     pairs_raw = db.execute(

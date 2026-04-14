@@ -34,15 +34,17 @@ export function LookupsHubPage() {
           <h2 className="text-base font-semibold text-slate-900">Product categories</h2>
           <p className="text-sm text-slate-600">
             Names and sort order for quality tiers (e.g. Classic, Premium) used on orders together with
-            blinds types. Which type accepts which category is configured under Settings → Blinds type ×
-            category.
+            blinds types. <span className="font-medium text-slate-800">Category availability</span> controls
+            which global categories each company may use (same pattern as estimate/order statuses). Which type
+            accepts which category is configured under Settings → Blinds line matrices.
           </p>
         </section>
         <section className="space-y-2 border-t border-slate-100 pt-6">
-          <h2 className="text-base font-semibold text-slate-900">Lifting &amp; cassette options</h2>
+          <h2 className="text-base font-semibold text-slate-900">Estimate &amp; order statuses</h2>
           <p className="text-sm text-slate-600">
-            Extra order-line choices (lifting system, cassette type) live under their own lookup pages.
-            Allowed combinations per blinds type are set in Settings → Blinds line matrices.
+            Global status labels and per-company enablement are under Lookups → Estimate statuses and Order
+            statuses. Extra line attributes (lifting, cassette, etc.) are edited only from Settings → Blinds line
+            matrices.
           </p>
         </section>
       </div>

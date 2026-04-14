@@ -19,6 +19,7 @@ import { OrdersPage } from '@/features/orders/OrdersPage'
 import { EstimateEditPage } from '@/features/estimates/EstimateEditPage'
 import { EstimateViewPage } from '@/features/estimates/EstimateViewPage'
 import { BlindsExtraOptionsLookupPage } from '@/features/lookups/BlindsExtraOptionsLookupPage'
+import { LookupsProductCategoryMatrixPage } from '@/features/lookups/LookupsProductCategoryMatrixPage'
 import { BlindsProductCategoriesLookupPage } from '@/features/lookups/BlindsProductCategoriesLookupPage'
 import { BlindsTypesLookupPage } from '@/features/lookups/BlindsTypesLookupPage'
 import { LookupsHubPage } from '@/features/lookups/LookupsHubPage'
@@ -81,6 +82,9 @@ export function AppRoutes() {
         <Route path="lookups/blinds-types" element={<BlindsTypesLookupPage />} />
         <Route path="lookups/blinds-product-categories" element={<BlindsProductCategoriesLookupPage />} />
         <Route path="lookups/blinds-extra-options/:kindId" element={<BlindsExtraOptionsLookupPage />} />
+        <Route path="lookups/product-category-availability" element={<LookupsProductCategoryMatrixPage />} />
+        <Route path="lookups/estimate-statuses" element={<PermissionsEstimateStatusMatrixPage />} />
+        <Route path="lookups/order-statuses" element={<PermissionsOrderStatusMatrixPage />} />
         <Route path="lookups" element={<LookupsHubPage />} />
         <Route path="companies/:companyId" element={<CompanyViewPage />} />
         <Route path="companies" element={<CompaniesPage />} />
@@ -105,8 +109,8 @@ export function AppRoutes() {
         <Route path="permissions/role-matrix" element={<SettingsRoleMatrixPage />} />
         <Route path="permissions/user-roles" element={<SettingsUserRolesPage />} />
         <Route path="permissions/user-permissions" element={<SettingsUserPermissionsPage />} />
-        <Route path="permissions/estimate-status-matrix" element={<PermissionsEstimateStatusMatrixPage />} />
-        <Route path="permissions/order-status-matrix" element={<PermissionsOrderStatusMatrixPage />} />
+        <Route path="permissions/estimate-status-matrix" element={<Navigate to="/lookups/estimate-statuses" replace />} />
+        <Route path="permissions/order-status-matrix" element={<Navigate to="/lookups/order-statuses" replace />} />
         <Route path="account" element={<AccountProfilePage />} />
         <Route path="account/password" element={<ChangePasswordPage />} />
         <Route path="reports" element={<ReportsHubPage />} />
