@@ -496,12 +496,19 @@ export function EstimateEditPage() {
               </label>
               <label className="block text-sm text-slate-700 sm:col-span-2">
                 Address
-                <input
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
-                  value={prospectAddress}
-                  disabled={formDisabled}
-                  onChange={(e) => setProspectAddress(e.target.value)}
-                />
+                <div className="mt-1">
+                  <AddressAutocompleteInput
+                    value={prospectAddress}
+                    onChange={setProspectAddress}
+                    disabled={formDisabled}
+                    hintId="estimate-edit-prospect-address-hint"
+                    countryCode={me?.active_company_country_code ?? null}
+                    regionCode={me?.active_company_region_code ?? null}
+                  />
+                </div>
+                <span id="estimate-edit-prospect-address-hint" className="mt-1 block text-xs text-slate-500">
+                  {ADDRESS_FORMAT_HINT}
+                </span>
               </label>
               <label className="block text-sm text-slate-700 sm:col-span-2">
                 Postal code (optional)

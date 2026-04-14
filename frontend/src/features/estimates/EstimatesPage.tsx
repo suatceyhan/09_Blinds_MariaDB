@@ -10,7 +10,8 @@ import {
   snapWallToQuarterMinutes,
 } from '@/lib/visitSchedule'
 import { formatVisitDateTimeList } from '@/lib/formatVisitDisplay'
-import { AddressMapLink } from '@/components/ui/AddressMapLink'
+import { AddressAutocompleteInput } from '@/components/ui/AddressAutocompleteInput'
+import { ADDRESS_FORMAT_HINT, AddressMapLink } from '@/components/ui/AddressMapLink'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { VisitStartQuarterPicker } from '@/components/ui/VisitStartQuarterPicker'
 import { isValidCaPostalCode, normalizeCaPostalCode } from '@/lib/caPostalCode'
@@ -671,11 +672,18 @@ export function EstimatesPage() {
                     </label>
                     <label className="block text-xs font-medium text-slate-700 sm:col-span-2">
                       Address (optional — also used as visit location hint)
-                      <input
-                        className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                        value={prospectAddress}
-                        onChange={(e) => setProspectAddress(e.target.value)}
-                      />
+                      <div className="mt-0.5">
+                        <AddressAutocompleteInput
+                          value={prospectAddress}
+                          onChange={setProspectAddress}
+                          hintId="estimate-new-prospect-address-hint"
+                          countryCode={me?.active_company_country_code ?? null}
+                          regionCode={me?.active_company_region_code ?? null}
+                        />
+                      </div>
+                      <span id="estimate-new-prospect-address-hint" className="mt-1 block text-[11px] text-slate-500">
+                        {ADDRESS_FORMAT_HINT}
+                      </span>
                     </label>
                     <label className="block text-xs font-medium text-slate-700 sm:col-span-2">
                       Postal code (optional)

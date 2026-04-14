@@ -136,11 +136,17 @@ export function formatAddressLineFromPhotonProperties(
  * leading number and the street tokens match, prepend that number so the line reads like a full civic address.
  * (Postcode may still be an OSM segment guess — not Canada Post–verified.)
  */
+/**
+ * Single-line suggestion for the address field only. Postal/ZIP is omitted — forms use a separate
+ * postal code field (`stripTrailingPostcodeFromAddressLine` as a safety net on the composed line).
+ */
 export function buildDisplayLineForSuggest(pr: PhotonFeatureProperties, queryRaw: string): string {
   const hnWant = parseLeadingHouseNumber(queryRaw)
   const hn = (pr.housenumber ?? '').trim()
   if (hnWant && houseNumberFieldMatchesWant(hn, hnWant)) {
-    return formatAddressLineFromPhotonProperties(pr)
+    return stripTrailingPostcodeFromAddressLine(
+      formatAddressLineFromPhotonProperties(pr, { includePostcode: false }),
+    )
   }
   if (hnWant && queryStreetMatchesFeature(pr, queryRaw)) {
     const st = (pr.street ?? '').trim()
@@ -149,13 +155,14 @@ export function buildDisplayLineForSuggest(pr: PhotonFeatureProperties, queryRaw
     if (line1Street) {
       const city = (pr.city ?? pr.town ?? pr.village ?? pr.district ?? '').trim()
       const state = (pr.state ?? '').trim()
-      // Photon often returns a street-level segment (no `housenumber`); its postcode can be approximate.
-      // If we're "prepending" the house number the user typed, omit postcode to avoid false precision.
-      return [`${hnWant} ${line1Street}`, city, state].filter(Boolean).join(', ')
+      return stripTrailingPostcodeFromAddressLine(
+        [`${hnWant} ${line1Street}`, city, state].filter(Boolean).join(', '),
+      )
     }
   }
-  const includePostcode = Boolean((pr.housenumber ?? '').trim())
-  return formatAddressLineFromPhotonProperties(pr, { includePostcode })
+  return stripTrailingPostcodeFromAddressLine(
+    formatAddressLineFromPhotonProperties(pr, { includePostcode: false }),
+  )
 }
 
 function scorePhotonFeature(
