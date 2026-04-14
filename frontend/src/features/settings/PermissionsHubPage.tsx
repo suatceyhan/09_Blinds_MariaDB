@@ -54,9 +54,9 @@ export function PermissionsHubPage() {
         <section className="space-y-2 border-t border-slate-100 pt-6">
           <h2 className="text-base font-semibold text-slate-900">Status &amp; category matrices</h2>
           <p className="text-sm text-slate-600">
-            Global estimate/order statuses and product-category availability are managed under{' '}
-            <span className="font-medium text-slate-800">Lookups</span> (Estimate statuses, Order statuses,
-            Category availability). This hub keeps roles and user-level permission overrides.
+            Global estimate and order statuses, and product categories (including their per-company matrix),
+            are managed under <span className="font-medium text-slate-800">Lookups</span>. This hub keeps roles
+            and user-level permission overrides.
           </p>
         </section>
       </div>

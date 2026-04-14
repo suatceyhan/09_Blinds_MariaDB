@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import secrets
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.authorization import has_permission
 from app.core.database import get_db
 from app.dependencies.auth import effective_company_id, require_permissions
 from app.domains.business_lookups.services.blinds_catalog import load_allowed_category_ids_by_type
@@ -81,10 +82,22 @@ def list_blinds_product_categories(
     search: str | None = Query(None, max_length=200),
     include_inactive: bool = Query(False),
     limit: int = Query(300, ge=1, le=500),
+    catalog_scope: Literal["tenant", "global"] = Query(
+        "tenant",
+        description="tenant: categories enabled for your company (matrix). global: full catalog (edit permission).",
+    ),
 ):
     cid = effective_company_id(current_user)
     if not cid:
         raise HTTPException(status_code=403, detail="No active company.")
+    if catalog_scope == "global":
+        active = getattr(current_user, "active_role", None)
+        if not (
+            has_permission(db, current_user.id, "lookups.product_categories.edit", active_role=active)
+            or has_permission(db, current_user.id, "lookups.edit", active_role=active)
+        ):
+            raise HTTPException(status_code=403, detail="Catalog scope global requires edit permission.")
+
     allowed_by_type = load_allowed_category_ids_by_type(db, cid)
     code_to_types: dict[str, list[str]] = {}
     for tid, codes in allowed_by_type.items():
@@ -101,9 +114,16 @@ def list_blinds_product_categories(
         where.append("(pc.name ILIKE :term OR pc.code ILIKE :term)")
     wh_clause = f"WHERE {' AND '.join(where)}" if where else ""
 
-    rows = db.execute(
-        text(
-            f"""
+    if catalog_scope == "global":
+        sql = f"""
+            SELECT pc.code, pc.name, pc.sort_order, pc.active, pc.created_at, pc.updated_at
+            FROM blinds_product_category pc
+            {wh_clause}
+            ORDER BY pc.active DESC, pc.sort_order ASC, pc.name ASC
+            LIMIT :limit
+            """
+    else:
+        sql = f"""
             SELECT pc.code, pc.name, pc.sort_order, pc.active, pc.created_at, pc.updated_at
             FROM blinds_product_category pc
             INNER JOIN company_blinds_product_category_matrix m
@@ -112,9 +132,8 @@ def list_blinds_product_categories(
             ORDER BY pc.active DESC, pc.sort_order ASC, pc.name ASC
             LIMIT :limit
             """
-        ),
-        params,
-    ).mappings().all()
+
+    rows = db.execute(text(sql), params).mappings().all()
     out: list[dict[str, Any]] = []
     for r in rows:
         d = _map_row(r)

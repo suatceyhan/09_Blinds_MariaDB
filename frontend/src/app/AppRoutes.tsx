@@ -19,7 +19,6 @@ import { OrdersPage } from '@/features/orders/OrdersPage'
 import { EstimateEditPage } from '@/features/estimates/EstimateEditPage'
 import { EstimateViewPage } from '@/features/estimates/EstimateViewPage'
 import { BlindsExtraOptionsLookupPage } from '@/features/lookups/BlindsExtraOptionsLookupPage'
-import { LookupsProductCategoryMatrixPage } from '@/features/lookups/LookupsProductCategoryMatrixPage'
 import { BlindsProductCategoriesLookupPage } from '@/features/lookups/BlindsProductCategoriesLookupPage'
 import { BlindsTypesLookupPage } from '@/features/lookups/BlindsTypesLookupPage'
 import { LookupsHubPage } from '@/features/lookups/LookupsHubPage'
@@ -82,7 +81,6 @@ export function AppRoutes() {
         <Route path="lookups/blinds-types" element={<BlindsTypesLookupPage />} />
         <Route path="lookups/blinds-product-categories" element={<BlindsProductCategoriesLookupPage />} />
         <Route path="lookups/blinds-extra-options/:kindId" element={<BlindsExtraOptionsLookupPage />} />
-        <Route path="lookups/product-category-availability" element={<LookupsProductCategoryMatrixPage />} />
         <Route path="lookups/estimate-statuses" element={<PermissionsEstimateStatusMatrixPage />} />
         <Route path="lookups/order-statuses" element={<PermissionsOrderStatusMatrixPage />} />
         <Route path="lookups" element={<LookupsHubPage />} />
