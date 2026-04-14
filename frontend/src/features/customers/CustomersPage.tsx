@@ -222,7 +222,7 @@ export function CustomersPage() {
           pending == null
             ? ''
             : pending.kind === 'deactivate'
-              ? `${pending.display} will be marked inactive (kept for history).`
+              ? `${pending.display} will be marked inactive (kept for history). Deactivation is blocked if this customer still has active orders or open estimates (New / Pending).`
               : `Restore ${pending.display}?`
         }
         confirmLabel={pending?.kind === 'restore' ? 'Restore' : 'Deactivate'}

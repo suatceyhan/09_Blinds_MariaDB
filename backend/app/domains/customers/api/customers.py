@@ -316,11 +316,53 @@ def deactivate_customer(
     cid = effective_company_id(current_user)
     if not cid:
         raise HTTPException(status_code=403, detail="No active company.")
+    cust = customer_id.strip()
+    active_orders = db.execute(
+        text(
+            """
+            SELECT COUNT(*)::int AS c
+            FROM orders
+            WHERE company_id = CAST(:company_id AS uuid) AND customer_id = :customer_id AND active IS TRUE
+            """
+        ),
+        {"company_id": str(cid), "customer_id": cust},
+    ).mappings().first()
+    if active_orders and (active_orders["c"] or 0) > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Cannot deactivate this customer while they have active orders. "
+                "Deactivate or resolve those orders first."
+            ),
+        )
+    open_estimates = db.execute(
+        text(
+            """
+            SELECT COUNT(*)::int AS c
+            FROM estimate e
+            JOIN status_estimate se ON se.id = e.status_esti_id
+            WHERE e.company_id = CAST(:company_id AS uuid)
+              AND e.customer_id = :customer_id
+              AND e.is_deleted IS NOT TRUE
+              AND se.builtin_kind IN ('new', 'pending')
+            """
+        ),
+        {"company_id": str(cid), "customer_id": cust},
+    ).mappings().first()
+    if open_estimates and (open_estimates["c"] or 0) > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Cannot deactivate this customer while they have open estimates "
+                "(status New or Pending). Convert them to an order, cancel them, "
+                "or remove them from the list first."
+            ),
+        )
     res = db.execute(
         text(
             "UPDATE customers SET active = FALSE, updated_at = NOW() WHERE company_id = :company_id AND id = :id"
         ),
-        {"company_id": str(cid), "id": customer_id},
+        {"company_id": str(cid), "id": cust},
     )
     if res.rowcount == 0:
         db.rollback()
