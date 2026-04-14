@@ -127,9 +127,27 @@ def ensure_company_order_matrix_defaults(db: Session, company_id: UUID) -> None:
     )
 
 
+def ensure_company_blinds_type_matrix_defaults(db: Session, company_id: UUID) -> None:
+    """Enable every active global blinds type for the company (matrix opt-out in Lookups)."""
+    cid = str(company_id)
+    db.execute(
+        text(
+            """
+            INSERT INTO company_blinds_type_matrix (company_id, blinds_type_id)
+            SELECT CAST(:cid AS uuid), bt.id
+            FROM blinds_type bt
+            WHERE bt.active IS TRUE
+            ON CONFLICT (company_id, blinds_type_id) DO NOTHING
+            """
+        ),
+        {"cid": cid},
+    )
+
+
 def ensure_default_estimate_statuses_for_company(db: Session, company_id: UUID) -> None:
     """Backward-compatible name: seed globals + matrix rows for a new or existing company."""
     ensure_global_catalog_seeded(db)
     ensure_company_estimate_matrix_defaults(db, company_id)
     ensure_company_order_matrix_defaults(db, company_id)
     ensure_company_product_category_matrix_defaults(db, company_id)
+    ensure_company_blinds_type_matrix_defaults(db, company_id)

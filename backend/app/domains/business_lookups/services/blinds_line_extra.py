@@ -34,10 +34,12 @@ def load_allowed_extra_options_by_type(db: Session, company_id: UUID, kind_id: s
     rows = db.execute(
         text(
             """
-            SELECT blinds_type_id, option_code
-            FROM blinds_type_extra_allowed
-            WHERE company_id = CAST(:cid AS uuid) AND kind_id = :kid
-            ORDER BY blinds_type_id, option_code
+            SELECT x.blinds_type_id, x.option_code
+            FROM blinds_type_extra_allowed x
+            INNER JOIN company_blinds_type_matrix tm
+              ON tm.company_id = x.company_id AND tm.blinds_type_id = x.blinds_type_id
+            WHERE x.company_id = CAST(:cid AS uuid) AND x.kind_id = :kid
+            ORDER BY x.blinds_type_id, x.option_code
             """
         ),
         {"cid": str(company_id), "kid": kind_id},

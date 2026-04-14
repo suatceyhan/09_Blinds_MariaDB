@@ -53,10 +53,12 @@ def get_blinds_category_matrix(
     types_ = db.execute(
         text(
             """
-            SELECT id, name
-            FROM blinds_type
-            WHERE company_id = CAST(:cid AS uuid) AND active IS TRUE
-            ORDER BY name ASC
+            SELECT bt.id, bt.name
+            FROM blinds_type bt
+            INNER JOIN company_blinds_type_matrix m
+              ON m.blinds_type_id = bt.id AND m.company_id = CAST(:cid AS uuid)
+            WHERE bt.active IS TRUE
+            ORDER BY bt.sort_order ASC, bt.name ASC
             """
         ),
         {"cid": str(cid)},
@@ -129,9 +131,11 @@ def put_blinds_category_matrix(
         trow = db.execute(
             text(
                 """
-                SELECT id
-                FROM blinds_type
-                WHERE company_id = CAST(:cid AS uuid) AND id = :tid AND active IS TRUE
+                SELECT bt.id
+                FROM blinds_type bt
+                INNER JOIN company_blinds_type_matrix m
+                  ON m.blinds_type_id = bt.id AND m.company_id = CAST(:cid AS uuid)
+                WHERE bt.id = :tid AND bt.active IS TRUE
                 """
             ),
             {"cid": str(cid), "tid": tid},

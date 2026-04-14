@@ -25,9 +25,9 @@ export function LookupsHubPage() {
         <section className="space-y-2">
           <h2 className="text-base font-semibold text-slate-900">Blinds types</h2>
           <p className="text-sm text-slate-600">
-            Same page layout as order statuses (header, add block, manage table), but types are stored per
-            company (no global company × type matrix). Switch the active company in the header to manage another
-            tenant&apos;s list; use show inactive to include deactivated rows.
+            Same pattern as order statuses and product categories: a global catalog, add/manage table, and a
+            company × type matrix on one screen. Per-company toggles control which types each tenant may use.
+            Type × product category rules stay under Settings → Blinds line matrices.
           </p>
         </section>
         <section className="space-y-2 border-t border-slate-100 pt-6">

@@ -393,8 +393,7 @@ def try_push_estimate_to_google_calendar(
                 """
                 SELECT bt.name AS name, eb.perde_sayisi AS window_count
                 FROM estimate_blinds eb
-                JOIN blinds_type bt
-                  ON bt.company_id = eb.company_id AND bt.id = eb.blinds_id
+                JOIN blinds_type bt ON bt.id = eb.blinds_id
                 WHERE eb.company_id = CAST(:cid AS uuid) AND eb.estimate_id = :eid
                 ORDER BY eb.sort_order, bt.name
                 """
@@ -412,7 +411,7 @@ def try_push_estimate_to_google_calendar(
                     """
                     SELECT bt.name AS name, e.perde_sayisi AS window_count
                     FROM estimate e
-                    JOIN blinds_type bt ON bt.company_id = e.company_id AND bt.id = e.blinds_id
+                    JOIN blinds_type bt ON bt.id = e.blinds_id
                     WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid AND e.is_deleted IS NOT TRUE
                     LIMIT 1
                     """

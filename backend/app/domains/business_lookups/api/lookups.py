@@ -1,5 +1,5 @@
 import secrets
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing_extensions import Annotated
 
+from app.core.authorization import has_permission
 from app.core.database import get_db
 from app.dependencies.auth import effective_company_id, require_permissions
 from app.domains.user.models.users import Users
@@ -29,22 +30,23 @@ def _normalize_aciklama(val: str | None) -> str | None:
     return s or None
 
 
-# --- Blinds type ---
+# --- Blinds type (global catalog + per-company matrix) ---
 
 
 class BlindsTypeOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    company_id: UUID
     name: str
     aciklama: str | None = None
     active: bool
+    sort_order: int = 0
 
 
 class BlindsTypeCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=500)
     aciklama: str | None = Field(None, max_length=4000)
+    sort_order: int | None = Field(None, ge=0, le=9_999_999)
 
 
 class BlindsTypePatchIn(BaseModel):
@@ -53,6 +55,7 @@ class BlindsTypePatchIn(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=500)
     aciklama: str | None = Field(None, max_length=4000)
     active: bool | None = None
+    sort_order: int | None = Field(None, ge=0, le=9_999_999)
 
 
 @router.get("/blinds-types", response_model=list[BlindsTypeOut])
@@ -62,31 +65,68 @@ def list_blinds_types(
     search: str | None = Query(None, max_length=200),
     include_inactive: bool = Query(False),
     limit: int = Query(300, ge=1, le=500),
+    catalog_scope: Literal["tenant", "global"] = Query(
+        "tenant",
+        description="tenant: types enabled for your company (matrix). global: full catalog (edit permission).",
+    ),
 ):
     cid = effective_company_id(current_user)
     if not cid:
         raise HTTPException(status_code=403, detail="No active company.")
+    if catalog_scope == "global":
+        active = getattr(current_user, "active_role", None)
+        if not (
+            has_permission(db, current_user.id, "lookups.blinds_types.edit", active_role=active)
+            or has_permission(db, current_user.id, "lookups.edit", active_role=active)
+        ):
+            raise HTTPException(status_code=403, detail="Catalog scope global requires edit permission.")
     term = (search or "").strip()
-    where = ["bt.company_id = :company_id"]
     params: dict[str, Any] = {"company_id": str(cid), "limit": limit}
-    if not include_inactive:
-        where.append("bt.active IS TRUE")
-    if term:
-        params["term"] = f"%{term}%"
-        where.append("(bt.name ILIKE :term OR COALESCE(bt.aciklama,'') ILIKE :term)")
-    w = " AND ".join(where)
-    rows = db.execute(
-        text(
-            f"""
-            SELECT bt.company_id, bt.id, bt.name, bt.aciklama, bt.active
-            FROM blinds_type bt
-            WHERE {w}
-            ORDER BY bt.active DESC, bt.name ASC
-            LIMIT :limit
-            """
-        ),
-        params,
-    ).mappings().all()
+    if catalog_scope == "global":
+        where = ["TRUE"]
+        if not include_inactive:
+            where.append("bt.active IS TRUE")
+        if term:
+            params["term"] = f"%{term}%"
+            where.append("(bt.name ILIKE :term OR COALESCE(bt.aciklama,'') ILIKE :term)")
+        w = " AND ".join(where)
+        rows = db.execute(
+            text(
+                f"""
+                SELECT bt.id, bt.name, bt.aciklama, bt.active, bt.sort_order
+                FROM blinds_type bt
+                WHERE {w}
+                ORDER BY bt.sort_order ASC, bt.name ASC
+                LIMIT :limit
+                """
+            ),
+            params,
+        ).mappings().all()
+    else:
+        where = [
+            "EXISTS (",
+            "  SELECT 1 FROM company_blinds_type_matrix m",
+            "  WHERE m.blinds_type_id = bt.id AND m.company_id = CAST(:company_id AS uuid)",
+            ")",
+        ]
+        if not include_inactive:
+            where.append("bt.active IS TRUE")
+        if term:
+            params["term"] = f"%{term}%"
+            where.append("(bt.name ILIKE :term OR COALESCE(bt.aciklama,'') ILIKE :term)")
+        w = " AND ".join(where)
+        rows = db.execute(
+            text(
+                f"""
+                SELECT bt.id, bt.name, bt.aciklama, bt.active, bt.sort_order
+                FROM blinds_type bt
+                WHERE {w}
+                ORDER BY bt.sort_order ASC, bt.name ASC
+                LIMIT :limit
+                """
+            ),
+            params,
+        ).mappings().all()
     return [BlindsTypeOut(**dict(r)) for r in rows]
 
 
@@ -99,28 +139,42 @@ def create_blinds_type(
     cid = effective_company_id(current_user)
     if not cid:
         raise HTTPException(status_code=403, detail="No active company.")
+    next_so = body.sort_order
+    if next_so is None:
+        next_so = int(
+            db.execute(text("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM blinds_type")).scalar() or 0
+        )
     for _ in range(5):
         new_id = _new_row_id()
-        exists = db.execute(
-            text("SELECT 1 FROM blinds_type WHERE company_id = :c AND id = :id LIMIT 1"),
-            {"c": str(cid), "id": new_id},
-        ).first()
+        exists = db.execute(text("SELECT 1 FROM blinds_type WHERE id = :id LIMIT 1"), {"id": new_id}).first()
         if exists:
             continue
         try:
             db.execute(
                 text(
                     """
-                    INSERT INTO blinds_type (company_id, id, name, aciklama, active)
-                    VALUES (:company_id, :id, :name, :aciklama, TRUE)
+                    INSERT INTO blinds_type (id, name, aciklama, active, sort_order)
+                    VALUES (:id, :name, :aciklama, TRUE, :sort_order)
                     """
                 ),
                 {
-                    "company_id": str(cid),
                     "id": new_id,
                     "name": body.name.strip(),
                     "aciklama": _normalize_aciklama(body.aciklama),
+                    "sort_order": next_so,
                 },
+            )
+            db.execute(
+                text(
+                    """
+                    INSERT INTO company_blinds_type_matrix (company_id, blinds_type_id)
+                    SELECT c.id, CAST(:tid AS varchar(16))
+                    FROM companies c
+                    WHERE COALESCE(c.is_deleted, FALSE) IS NOT TRUE
+                    ON CONFLICT (company_id, blinds_type_id) DO NOTHING
+                    """
+                ),
+                {"tid": new_id},
             )
             db.commit()
         except IntegrityError:
@@ -129,12 +183,12 @@ def create_blinds_type(
         row = db.execute(
             text(
                 """
-                SELECT company_id, id, name, aciklama, active
+                SELECT id, name, aciklama, active, sort_order
                 FROM blinds_type
-                WHERE company_id = :company_id AND id = :id
+                WHERE id = :id
                 """
             ),
-            {"company_id": str(cid), "id": new_id},
+            {"id": new_id},
         ).mappings().one()
         return BlindsTypeOut(**dict(row))
     raise HTTPException(status_code=500, detail="Could not allocate id, try again.")
@@ -147,50 +201,50 @@ def patch_blinds_type(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Users, Depends(require_permissions("lookups.blinds_types.edit", "lookups.edit"))],
 ):
-    cid = effective_company_id(current_user)
-    if not cid:
+    if not effective_company_id(current_user):
         raise HTTPException(status_code=403, detail="No active company.")
     current = db.execute(
         text(
             """
-            SELECT company_id, id, name, aciklama, active
+            SELECT id, name, aciklama, active, sort_order
             FROM blinds_type
-            WHERE company_id = :company_id AND id = :id
+            WHERE id = :id
             """
         ),
-        {"company_id": str(cid), "id": blinds_type_id},
+        {"id": blinds_type_id},
     ).mappings().first()
     if not current:
         raise HTTPException(status_code=404, detail="Blinds type not found.")
     name = current["name"] if body.name is None else body.name.strip()
     aciklama = current["aciklama"] if body.aciklama is None else _normalize_aciklama(body.aciklama)
     active = current["active"] if body.active is None else body.active
+    sort_order = current["sort_order"] if body.sort_order is None else body.sort_order
     db.execute(
         text(
             """
             UPDATE blinds_type
-            SET name = :name, aciklama = :aciklama, active = :active
-            WHERE company_id = :company_id AND id = :id
+            SET name = :name, aciklama = :aciklama, active = :active, sort_order = :sort_order
+            WHERE id = :id
             """
         ),
         {
-            "company_id": str(cid),
             "id": blinds_type_id,
             "name": name,
             "aciklama": aciklama,
             "active": active,
+            "sort_order": sort_order,
         },
     )
     db.commit()
     row = db.execute(
         text(
             """
-            SELECT company_id, id, name, aciklama, active
+            SELECT id, name, aciklama, active, sort_order
             FROM blinds_type
-            WHERE company_id = :company_id AND id = :id
+            WHERE id = :id
             """
         ),
-        {"company_id": str(cid), "id": blinds_type_id},
+        {"id": blinds_type_id},
     ).mappings().one()
     return BlindsTypeOut(**dict(row))
 

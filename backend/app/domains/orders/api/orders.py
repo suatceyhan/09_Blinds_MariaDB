@@ -160,7 +160,7 @@ COALESCE(
       ', ' ORDER BY eb.sort_order, bt.name
     )
     FROM estimate_blinds eb
-    JOIN blinds_type bt ON bt.company_id = eb.company_id AND bt.id = eb.blinds_id
+    JOIN blinds_type bt ON bt.id = eb.blinds_id
     WHERE eb.company_id = e.company_id AND eb.estimate_id = e.id
   ),
   (
@@ -169,7 +169,7 @@ COALESCE(
       ELSE bt.name
     END
     FROM blinds_type bt
-    WHERE bt.company_id = e.company_id AND bt.id = e.blinds_id
+    WHERE bt.id = e.blinds_id
     LIMIT 1
   )
 )
@@ -188,7 +188,7 @@ COALESCE(
       ORDER BY eb.sort_order, bt.name
     )
     FROM estimate_blinds eb
-    JOIN blinds_type bt ON bt.company_id = eb.company_id AND bt.id = eb.blinds_id
+    JOIN blinds_type bt ON bt.id = eb.blinds_id
     WHERE eb.company_id = e.company_id AND eb.estimate_id = e.id
   ),
   (
@@ -201,7 +201,7 @@ COALESCE(
       )
     )
     FROM blinds_type bt2
-    WHERE bt2.company_id = e.company_id AND bt2.id = e.blinds_id
+    WHERE bt2.id = e.blinds_id
   ),
   '[]'::json
 )
@@ -831,10 +831,12 @@ def blinds_order_options(
     types_ = db.execute(
         text(
             """
-            SELECT id, name
-            FROM blinds_type
-            WHERE company_id = CAST(:cid AS uuid) AND active IS TRUE
-            ORDER BY name ASC
+            SELECT bt.id, bt.name
+            FROM blinds_type bt
+            INNER JOIN company_blinds_type_matrix m
+              ON m.blinds_type_id = bt.id AND m.company_id = CAST(:cid AS uuid)
+            WHERE bt.active IS TRUE
+            ORDER BY bt.sort_order ASC, bt.name ASC
             """
         ),
         {"cid": str(cid)},

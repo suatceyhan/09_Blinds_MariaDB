@@ -9,3 +9,4 @@ Yeni migration eklerken mevcut en büyük numaradan bir sonrakini kullanın.
 
 - `30_postal_code_fields.sql`: Companies/Customers/Estimates için optional postal code alanları.
 - `31_company_blinds_product_category_matrix.sql`: `company_blinds_product_category_matrix` — şirket başına hangi global `blinds_product_category` kodlarının kullanılacağı (status matrix’leriyle aynı fikir); mevcut şirket×aktif kategori backfill + RLS.
+- `32_global_blinds_type_and_matrix.sql`: `blinds_type` satırlarını **global** kataloga taşır (`company_id` kaldırılır), `estimate` / `estimate_blinds` / `orders.blinds_lines` / matris tablolarındaki id’leri yeni global id’lere eşler, **`company_blinds_type_matrix`** ekler (şirket başına hangi tip etkin). `blinds.sql` sonunda aynı blok idempotent çalışır (zaten global ise atlar).

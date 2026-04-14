@@ -16,6 +16,9 @@ from typing_extensions import Annotated
 
 from app.core.database import get_db
 from app.dependencies.auth import effective_company_id, require_permissions
+from app.domains.business_lookups.services.blinds_catalog import (
+    assert_blinds_types_enabled_for_company,
+)
 from app.domains.business_lookups.services.estimate_status_defaults import (
     ensure_default_estimate_statuses_for_company,
 )
@@ -43,7 +46,7 @@ _SQL_BLINDS_TYPES_JSON = """
         ORDER BY eb.sort_order, bt.name
       )
       FROM estimate_blinds eb
-      JOIN blinds_type bt ON bt.company_id = eb.company_id AND bt.id = eb.blinds_id
+      JOIN blinds_type bt ON bt.id = eb.blinds_id
       WHERE eb.company_id = e.company_id AND eb.estimate_id = e.id
     ),
     CASE
@@ -57,7 +60,7 @@ _SQL_BLINDS_TYPES_JSON = """
           )
         )
          FROM blinds_type bt
-         WHERE bt.company_id = e.company_id AND bt.id = e.blinds_id)
+         WHERE bt.id = e.blinds_id)
       ELSE '[]'::json
     END
   )
@@ -529,10 +532,12 @@ def list_blinds_types_for_estimates(
     rows = db.execute(
         text(
             """
-            SELECT id, name
-            FROM blinds_type
-            WHERE company_id = :company_id AND active IS TRUE
-            ORDER BY name ASC
+            SELECT bt.id, bt.name
+            FROM blinds_type bt
+            INNER JOIN company_blinds_type_matrix m
+              ON m.blinds_type_id = bt.id AND m.company_id = CAST(:company_id AS uuid)
+            WHERE bt.active IS TRUE
+            ORDER BY bt.sort_order ASC, bt.name ASC
             """
         ),
         {"company_id": str(cid)},
@@ -716,12 +721,12 @@ def list_estimates(
             "COALESCE(e.prospect_address,'') ILIKE :term OR "
             "EXISTS ("
             "  SELECT 1 FROM estimate_blinds eb2"
-            "  JOIN blinds_type btx ON btx.company_id = eb2.company_id AND btx.id = eb2.blinds_id"
+            "  JOIN blinds_type btx ON btx.id = eb2.blinds_id"
             "  WHERE eb2.company_id = e.company_id AND eb2.estimate_id = e.id AND btx.name ILIKE :term"
             ") OR "
             "EXISTS ("
             "  SELECT 1 FROM blinds_type bty"
-            "  WHERE bty.company_id = e.company_id AND bty.id = e.blinds_id AND bty.name ILIKE :term"
+            "  WHERE bty.id = e.blinds_id AND bty.name ILIKE :term"
             "))"
         )
     where_sql = " AND ".join(where)
@@ -834,6 +839,9 @@ def create_estimate(
             detail="Could not resolve default estimate status (pending) for this company.",
         )
     pending_status_id = str(pend_row["id"])
+
+    if body.blinds_lines:
+        assert_blinds_types_enabled_for_company(db, cid, [ln.blinds_id for ln in body.blinds_lines])
 
     for _ in range(5):
         new_id = _new_estimate_id()
@@ -1143,6 +1151,7 @@ def patch_estimate(
         params["sest"] = str(new_st["id"]).strip()
 
     if payload.blinds_lines is not None:
+        assert_blinds_types_enabled_for_company(db, cid, [ln.blinds_id for ln in payload.blinds_lines])
         counts = [ln.window_count for ln in payload.blinds_lines if ln.window_count is not None]
         estimate_perde = sum(counts) if counts else None
         db.execute(

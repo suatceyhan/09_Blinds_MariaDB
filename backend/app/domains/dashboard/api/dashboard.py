@@ -78,7 +78,7 @@ def get_dashboard_summary(
                     ', ' ORDER BY eb.sort_order, bt.name
                   )
                   FROM estimate_blinds eb
-                  JOIN blinds_type bt ON bt.company_id = eb.company_id AND bt.id = eb.blinds_id
+                  JOIN blinds_type bt ON bt.id = eb.blinds_id
                   WHERE eb.company_id = e.company_id AND eb.estimate_id = e.id
                 ),
                 (
@@ -87,7 +87,7 @@ def get_dashboard_summary(
                     ELSE bt.name
                   END
                   FROM blinds_type bt
-                  WHERE bt.company_id = e.company_id AND bt.id = e.blinds_id
+                  WHERE bt.id = e.blinds_id
                   LIMIT 1
                 )
               ) AS blinds_summary,
