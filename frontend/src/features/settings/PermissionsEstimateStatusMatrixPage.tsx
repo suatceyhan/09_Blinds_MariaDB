@@ -36,6 +36,7 @@ export function PermissionsEstimateStatusMatrixPage() {
   const [showDeleted, setShowDeleted] = useState(false)
 
   const [newName, setNewName] = useState('')
+  const [newSort, setNewSort] = useState('0')
   const [creating, setCreating] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
@@ -114,11 +115,17 @@ export function PermissionsEstimateStatusMatrixPage() {
   async function createGlobal() {
     const n = newName.trim()
     if (!n || !isSuper) return
+    const so = Number.parseInt(newSort.trim(), 10)
+    if (Number.isNaN(so) || so < -999 || so > 9_999_999) {
+      setErr('Sort order must be an integer between -999 and 9999999.')
+      return
+    }
     setCreating(true)
     setErr(null)
     try {
-      await postJson('/permissions/global-estimate-statuses', { name: n })
+      await postJson('/permissions/global-estimate-statuses', { name: n, sort_order: so })
       setNewName('')
+      setNewSort('0')
       await load()
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not create status')
@@ -197,14 +204,14 @@ export function PermissionsEstimateStatusMatrixPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[100rem] space-y-6 px-4 py-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="mx-auto max-w-[100rem] space-y-4 px-4 py-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
             <ClipboardList className="h-5 w-5" strokeWidth={2} />
           </div>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Estimate statuses</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900">Estimate statuses</h1>
             <p className="mt-1 max-w-3xl text-sm text-slate-600">
               Global estimate statuses (shared across all companies). Rows are companies; columns are statuses.
               Check a cell to allow that company to use that status in estimates and lookups. Built-in workflow
@@ -219,7 +226,7 @@ export function PermissionsEstimateStatusMatrixPage() {
               type="button"
               disabled={!dirty || saving}
               onClick={() => setConfirmOpen(true)}
-              className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+              className="rounded-lg bg-teal-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
             >
               {saving ? 'Saving…' : 'Save matrix'}
             </button>
@@ -228,24 +235,33 @@ export function PermissionsEstimateStatusMatrixPage() {
       </div>
 
       {isSuper ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-900">Add custom global status (superadmin)</h2>
           <p className="mt-1 text-xs text-slate-500">
             Creates a global status row. Enable it per company in the grid below.
           </p>
-          <div className="mt-3 flex flex-wrap items-end gap-2">
+          <div className="mt-2 flex flex-wrap items-end gap-2">
             <input
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="Status name"
-              className="min-w-[12rem] rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              className="min-w-[12rem] rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
             />
+            <label className="flex flex-col gap-0.5 text-xs text-slate-600">
+              <span>Sort</span>
+              <input
+                inputMode="numeric"
+                value={newSort}
+                onChange={(e) => setNewSort(e.target.value)}
+                className="w-24 rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+              />
+            </label>
             <button
               type="button"
               disabled={creating || !newName.trim()}
               onClick={() => void createGlobal()}
-              className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white hover:bg-slate-900 disabled:opacity-50"
+              className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-900 disabled:opacity-50"
             >
               {creating ? 'Adding…' : 'Add'}
             </button>
@@ -254,7 +270,7 @@ export function PermissionsEstimateStatusMatrixPage() {
       ) : null}
 
       {isSuper && data?.statuses?.length ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold text-slate-900">Manage global statuses (superadmin)</h2>
@@ -269,15 +285,15 @@ export function PermissionsEstimateStatusMatrixPage() {
             />
           </div>
 
-          <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200">
+          <div className="mt-2 overflow-x-auto rounded-xl border border-slate-200">
             <table className="w-full min-w-[54rem] text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
                 <tr>
-                  <th className="px-4 py-3">Name</th>
-                  <th className="px-4 py-3">Code</th>
-                  <th className="px-4 py-3">Sort</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
+                  <th className="px-3 py-2">Name</th>
+                  <th className="px-3 py-2">Code</th>
+                  <th className="px-3 py-2">Sort</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -285,10 +301,10 @@ export function PermissionsEstimateStatusMatrixPage() {
                   const builtIn = Boolean(st.code)
                   return (
                     <tr key={st.id} className={st.active ? 'hover:bg-slate-50/80' : 'bg-slate-50/60 text-slate-500'}>
-                      <td className="px-4 py-3 font-medium text-slate-900">{st.name}</td>
-                      <td className="px-4 py-3 text-slate-600">{st.code ?? '—'}</td>
-                      <td className="px-4 py-3 text-slate-600">{st.sort_order}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2 font-medium text-slate-900">{st.name}</td>
+                      <td className="px-3 py-2 text-slate-600">{st.code ?? '—'}</td>
+                      <td className="px-3 py-2 text-slate-600">{st.sort_order}</td>
+                      <td className="px-3 py-2">
                         <span
                           className={
                             st.active
@@ -299,7 +315,7 @@ export function PermissionsEstimateStatusMatrixPage() {
                           {st.active ? 'Active' : 'Inactive'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-3 py-2 text-right">
                         {builtIn ? (
                           <span className="text-xs text-slate-400">Built-in</span>
                         ) : (

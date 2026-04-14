@@ -267,7 +267,7 @@ export function BlindsTypesLookupPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[100rem] space-y-6 px-4 py-6">
+    <div className="mx-auto max-w-[100rem] space-y-4 px-4 py-4">
       <ConfirmModal
         open={pending !== null}
         title={pending?.kind === 'restore' ? 'Restore blinds type' : 'Deactivate blinds type'}
@@ -379,7 +379,7 @@ export function BlindsTypesLookupPage() {
               type="button"
               disabled={!matrixDirty || matrixSaving}
               onClick={() => setMatrixConfirmOpen(true)}
-              className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50"
+              className="rounded-lg bg-violet-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50"
             >
               {matrixSaving ? 'Saving…' : 'Save matrix'}
             </button>
@@ -388,45 +388,43 @@ export function BlindsTypesLookupPage() {
       </div>
 
       {canEdit ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-900">Add blinds type</h2>
-          <p className="mt-1 text-xs text-slate-500">Creates a global row and enables it for all companies.</p>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm text-slate-700 sm:col-span-2">
-              <span className="mb-1 block font-medium">Name</span>
-              <input
-                type="text"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Type name"
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="block text-sm text-slate-700 sm:col-span-2">
-              <span className="mb-1 block font-medium">Description (optional)</span>
-              <textarea
-                rows={2}
-                value={newAciklama}
-                onChange={(e) => setNewAciklama(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="block text-sm text-slate-700">
-              <span className="mb-1 block font-medium">Sort order</span>
+          <p className="mt-1 text-xs text-slate-500">
+            Creates a global row. Newly added types are disabled by default; enable them per company in the matrix.
+          </p>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="Type name"
+              className="w-[14rem] min-w-[12rem] rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
+            />
+            <label className="flex flex-col gap-0.5 text-xs text-slate-600">
+              <span>Sort</span>
               <input
                 inputMode="numeric"
                 value={newSort}
                 onChange={(e) => setNewSort(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                className="w-24 rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
               />
             </label>
-          </div>
-          <div className="mt-3">
+            <label className="flex min-w-[16rem] flex-1 flex-col gap-0.5 text-xs text-slate-600">
+              <span>Description</span>
+              <input
+                type="text"
+                value={newAciklama}
+                onChange={(e) => setNewAciklama(e.target.value)}
+                placeholder="Optional"
+                className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
+              />
+            </label>
             <button
               type="button"
               disabled={creating || !newName.trim()}
               onClick={() => void onCreateInline()}
-              className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white hover:bg-slate-900 disabled:opacity-50"
+              className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-900 disabled:opacity-50"
             >
               {creating ? 'Adding…' : 'Add'}
             </button>
@@ -434,7 +432,7 @@ export function BlindsTypesLookupPage() {
         </div>
       ) : null}
 
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Manage blinds types</h2>
@@ -456,7 +454,7 @@ export function BlindsTypesLookupPage() {
           <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{err}</div>
         ) : null}
 
-        <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200">
+        <div className="mt-2 overflow-x-auto rounded-xl border border-slate-200">
           {loading ? (
             <p className="p-6 text-sm text-slate-500">Loading…</p>
           ) : !manageRows.length ? (
@@ -465,11 +463,11 @@ export function BlindsTypesLookupPage() {
             <table className="w-full min-w-[40rem] text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
                 <tr>
-                  <th className="px-4 py-3">Name</th>
-                  <th className="px-4 py-3">Description</th>
-                  <th className="px-4 py-3">Sort</th>
-                  <th className="px-4 py-3">Status</th>
-                  {canEdit ? <th className="px-4 py-3 text-right">Actions</th> : null}
+                  <th className="px-3 py-2">Name</th>
+                  <th className="px-3 py-2">Description</th>
+                  <th className="px-3 py-2">Sort</th>
+                  <th className="px-3 py-2">Status</th>
+                  {canEdit ? <th className="px-3 py-2 text-right">Actions</th> : null}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -478,12 +476,12 @@ export function BlindsTypesLookupPage() {
                     key={r.id}
                     className={r.active ? 'hover:bg-slate-50/80' : 'bg-slate-50/60 text-slate-500 hover:bg-slate-50'}
                   >
-                    <td className="px-4 py-3 font-medium text-slate-900">{r.name}</td>
-                    <td className="max-w-md min-w-[10rem] whitespace-pre-wrap break-words px-4 py-3 align-top text-slate-600">
+                    <td className="px-3 py-2 font-medium text-slate-900">{r.name}</td>
+                    <td className="max-w-md min-w-[10rem] whitespace-pre-wrap break-words px-3 py-2 align-top text-slate-600">
                       {r.aciklama == null ? '—' : descriptionForInput(r.aciklama)}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{r.sort_order}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2 text-slate-600">{r.sort_order}</td>
+                    <td className="px-3 py-2">
                       <span
                         className={
                           r.active
@@ -495,7 +493,7 @@ export function BlindsTypesLookupPage() {
                       </span>
                     </td>
                     {canEdit ? (
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-3 py-2 text-right">
                         <div className="inline-flex items-center gap-1">
                           <button
                             type="button"

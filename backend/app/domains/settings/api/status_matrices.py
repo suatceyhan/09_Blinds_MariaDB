@@ -76,6 +76,7 @@ class MatrixPutIn(BaseModel):
 
 class GlobalEstimateStatusCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=500)
+    sort_order: int | None = Field(None, ge=-999, le=9_999_999)
 
 
 class GlobalEstimateStatusPatchIn(BaseModel):
@@ -88,6 +89,7 @@ class GlobalEstimateStatusPatchIn(BaseModel):
 
 class GlobalOrderStatusCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=500)
+    sort_order: int | None = Field(None, ge=0, le=9_999_999)
 
 
 class GlobalOrderStatusPatchIn(BaseModel):
@@ -400,7 +402,11 @@ def create_global_estimate_status(
                 break
         else:
             raise HTTPException(status_code=500, detail="Could not allocate status id.")
-    next_so = db.execute(text("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM status_estimate")).scalar()
+    next_so = (
+        body.sort_order
+        if body.sort_order is not None
+        else db.execute(text("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM status_estimate")).scalar()
+    )
     try:
         db.execute(
             text(
@@ -530,7 +536,11 @@ def create_global_order_status(
                 break
         else:
             raise HTTPException(status_code=500, detail="Could not allocate status id.")
-    next_so = db.execute(text("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM status_order")).scalar()
+    next_so = (
+        body.sort_order
+        if body.sort_order is not None
+        else db.execute(text("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM status_order")).scalar()
+    )
     try:
         db.execute(
             text(

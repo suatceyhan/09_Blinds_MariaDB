@@ -250,7 +250,7 @@ export function BlindsProductCategoriesLookupPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[100rem] space-y-6 px-4 py-6">
+    <div className="mx-auto max-w-[100rem] space-y-4 px-4 py-4">
       <ConfirmModal
         open={pending !== null}
         title={pending?.kind === 'restore' ? 'Restore category' : 'Deactivate category'}
@@ -353,7 +353,7 @@ export function BlindsProductCategoriesLookupPage() {
               type="button"
               disabled={!matrixDirty || matrixSaving}
               onClick={() => setMatrixConfirmOpen(true)}
-              className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50"
+              className="rounded-lg bg-violet-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50"
             >
               {matrixSaving ? 'Saving…' : 'Save matrix'}
             </button>
@@ -362,7 +362,7 @@ export function BlindsProductCategoriesLookupPage() {
       </div>
 
       {canEdit ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-900">Add product category</h2>
           <p className="mt-1 text-xs text-slate-500">Creates a global row and enables it for all companies.</p>
           <div className="mt-3 flex flex-wrap items-end gap-2">
@@ -394,7 +394,7 @@ export function BlindsProductCategoriesLookupPage() {
         </div>
       ) : null}
 
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Manage product categories</h2>
@@ -416,7 +416,7 @@ export function BlindsProductCategoriesLookupPage() {
           <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{err}</div>
         ) : null}
 
-        <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200">
+        <div className="mt-2 overflow-x-auto rounded-xl border border-slate-200">
           {loading ? (
             <p className="p-6 text-sm text-slate-500">Loading…</p>
           ) : !manageRows.length ? (
@@ -425,18 +425,18 @@ export function BlindsProductCategoriesLookupPage() {
             <table className="w-full min-w-[36rem] text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
                 <tr>
-                  <th className="px-4 py-3">Name</th>
-                  <th className="px-4 py-3">Sort</th>
-                  <th className="px-4 py-3">Status</th>
-                  {canEdit ? <th className="px-4 py-3 text-right">Actions</th> : null}
+                  <th className="px-3 py-2">Name</th>
+                  <th className="px-3 py-2">Sort</th>
+                  <th className="px-3 py-2">Status</th>
+                  {canEdit ? <th className="px-3 py-2 text-right">Actions</th> : null}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {manageRows.map((r) => (
                   <tr key={r.id} className={r.active ? 'hover:bg-slate-50/80' : 'bg-slate-50/60 text-slate-500'}>
-                    <td className="px-4 py-3 font-medium text-slate-900">{r.name}</td>
-                    <td className="px-4 py-3 text-slate-600">{r.sort_order}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2 font-medium text-slate-900">{r.name}</td>
+                    <td className="px-3 py-2 text-slate-600">{r.sort_order}</td>
+                    <td className="px-3 py-2">
                       <span
                         className={
                           r.active
@@ -448,7 +448,7 @@ export function BlindsProductCategoriesLookupPage() {
                       </span>
                     </td>
                     {canEdit ? (
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-3 py-2 text-right">
                         <div className="inline-flex items-center gap-1">
                           <button
                             type="button"
