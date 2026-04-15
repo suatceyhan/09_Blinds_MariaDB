@@ -48,6 +48,7 @@ type OrderRow = {
   status_order_label: string | null
   agreement_date?: string | null
   created_at: string | null
+  installation_scheduled_start_at?: string | null
   /** Soft-deleted orders have active false in DB. */
   active?: boolean
 }
@@ -1105,7 +1106,6 @@ export function OrdersPage() {
   const [editSaving, setEditSaving] = useState(false)
   const [editExtraPaid, setEditExtraPaid] = useState(0)
   const [editInstallationStart, setEditInstallationStart] = useState('')
-  const [editInstallationEnd, setEditInstallationEnd] = useState('')
   const [orderStatuses, setOrderStatuses] = useState<OrderStatusOpt[] | null>(null)
   const [advanceConfirm, setAdvanceConfirm] = useState<{
     row: OrderRow
@@ -1113,7 +1113,6 @@ export function OrdersPage() {
   } | null>(null)
   const [advanceConfirmPending, setAdvanceConfirmPending] = useState(false)
   const [viewInstallationStart, setViewInstallationStart] = useState('')
-  const [viewInstallationEnd, setViewInstallationEnd] = useState('')
   const [viewInstallationSaving, setViewInstallationSaving] = useState(false)
   const [orderBalanceInfo, setOrderBalanceInfo] = useState<{
     orderId: string
@@ -1218,13 +1217,6 @@ export function OrdersPage() {
       return
     }
     const stSel = editDraft.status_orde_id.trim()
-    if (isReadyForInstallationStatus(stSel, orderStatuses ?? [])) {
-      const startIso = datetimeLocalToIso(editInstallationStart)
-      if (!startIso) {
-        setErr('Installation date and time are required when status is Ready for installation.')
-        return
-      }
-    }
     const oid = editOrderId
     setEditSaving(true)
     setErr(null)
@@ -1244,8 +1236,7 @@ export function OrdersPage() {
       if (isReadyForInstallationStatus(stSel, orderStatuses ?? [])) {
         const startIso = datetimeLocalToIso(editInstallationStart)
         if (startIso) body.installation_scheduled_start_at = startIso
-        const endIso = datetimeLocalToIso(editInstallationEnd)
-        if (endIso) body.installation_scheduled_end_at = endIso
+        body.installation_scheduled_end_at = null
       }
       await patchJson(`/orders/${oid}`, body)
       setEditOrderId(null)
@@ -1255,7 +1246,6 @@ export function OrdersPage() {
       setEditBlindsLines([])
       setEditExtraPaid(0)
       setEditInstallationStart('')
-      setEditInstallationEnd('')
       setEditAttachments([])
       await reloadList()
       if (viewOrderId === oid) {
@@ -1291,7 +1281,6 @@ export function OrdersPage() {
         setEditBlindsLines([])
         setEditExtraPaid(0)
         setEditInstallationStart('')
-        setEditInstallationEnd('')
         setEditAttachments([])
       }
     } catch (e) {
@@ -1356,9 +1345,10 @@ export function OrdersPage() {
     setAdvanceConfirm({ row, act })
   }
 
-  async function confirmAdvanceOrderStatus() {
+  async function confirmAdvanceOrderStatus(opts?: { openOrderViewAfter?: boolean }) {
     if (!advanceConfirm || !canEdit) return
     const { row, act } = advanceConfirm
+    const openAfter = Boolean(opts?.openOrderViewAfter)
     setAdvanceConfirmPending(true)
     setErr(null)
     try {
@@ -1369,6 +1359,7 @@ export function OrdersPage() {
         const d = await getJson<OrderDetail>(`/orders/${row.id}`)
         setViewOrder(d)
       }
+      if (openAfter) openOrderView(row.id)
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not update order status')
     } finally {
@@ -1380,16 +1371,15 @@ export function OrdersPage() {
     if (!viewOrderId || !canEdit || !viewOrder) return
     const startIso = datetimeLocalToIso(viewInstallationStart.trim())
     if (!startIso) {
-      setErr('Select installation start date and time.')
+      setErr('Select installation date and time.')
       return
     }
     setViewInstallationSaving(true)
     setErr(null)
     try {
-      const endIso = datetimeLocalToIso(viewInstallationEnd.trim())
       await patchJson(`/orders/${viewOrderId}`, {
         installation_scheduled_start_at: startIso,
-        ...(endIso ? { installation_scheduled_end_at: endIso } : { installation_scheduled_end_at: null }),
+        installation_scheduled_end_at: null,
       })
       const d = await getJson<OrderDetail>(`/orders/${viewOrderId}`)
       setViewOrder(d)
@@ -1510,11 +1500,9 @@ export function OrdersPage() {
   useEffect(() => {
     if (!viewOrder) {
       setViewInstallationStart('')
-      setViewInstallationEnd('')
       return
     }
     setViewInstallationStart(installationWallFromIso(viewOrder.installation_scheduled_start_at))
-    setViewInstallationEnd(installationWallFromIso(viewOrder.installation_scheduled_end_at))
   }, [viewOrder])
 
   useEffect(() => {
@@ -1525,7 +1513,6 @@ export function OrdersPage() {
       setEditBlindsLines([])
       setEditExtraPaid(0)
       setEditInstallationStart('')
-      setEditInstallationEnd('')
       setEditAttachments([])
       setEditLoading(false)
       return
@@ -1553,7 +1540,6 @@ export function OrdersPage() {
           })
           setEditExtraPaid(safeRound2(parseMoneyAmount(d.final_payment) ?? 0))
           setEditInstallationStart(installationWallFromIso(d.installation_scheduled_start_at))
-          setEditInstallationEnd(installationWallFromIso(d.installation_scheduled_end_at))
           setEditAttachments(d.attachments ?? [])
         }
       } catch {
@@ -1564,7 +1550,6 @@ export function OrdersPage() {
           setEditBlindsLines([])
           setEditExtraPaid(0)
           setEditInstallationStart('')
-          setEditInstallationEnd('')
           setEditAttachments([])
         }
       } finally {
@@ -2107,7 +2092,7 @@ export function OrdersPage() {
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4" title="Down payment plus recorded payments">
                   Paid
                 </th>
-                <th className="whitespace-nowrap px-2 py-3 sm:px-4">Down payment</th>
+                <th className="whitespace-nowrap px-2 py-3 sm:px-4">Installation date</th>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Balance</th>
                 <th className="min-w-[13rem] whitespace-nowrap px-2 py-3 text-right sm:px-4">Actions</th>
               </tr>
@@ -2161,7 +2146,9 @@ export function OrdersPage() {
                       {fmtTotalIncludingTax(r.total_amount, r.tax_amount)}
                     </td>
                     <td className="px-2 py-3 sm:px-4">{orderListPaidDisplay(r)}</td>
-                    <td className="px-2 py-3 sm:px-4">{fmtMoney(r.downpayment)}</td>
+                    <td className="px-2 py-3 text-slate-600 sm:px-4">
+                      {fmtDisplayDateTime(r.installation_scheduled_start_at)}
+                    </td>
                     <td className="px-2 py-3 sm:px-4">{fmtMoney(r.balance)}</td>
                     <td className="align-top px-2 py-3 text-right sm:px-4">
                       <div className="flex flex-col items-end gap-1 sm:flex-row sm:flex-wrap sm:justify-end sm:gap-x-2">
@@ -2423,43 +2410,27 @@ export function OrdersPage() {
                   </section>
 
                   <section className="rounded-xl border border-amber-100 bg-amber-50/40 p-4">
-                    <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-900">
-                      Installation schedule
-                    </h3>
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-900">Installation</h3>
                     {viewOrder.status_orde_id &&
                     isReadyForInstallationStatus(viewOrder.status_orde_id, orderStatuses ?? []) &&
                     canEdit &&
                     viewOrder.active !== false ? (
                       <div className="mt-3 space-y-3 text-sm text-slate-800">
                         <p className="text-[11px] text-amber-950/90">
-                          Same date and time format as estimate visits (15-minute steps). Syncs to Google Calendar when
-                          connected.
+                          Single date and time (same format as estimate visits, 15-minute steps). Syncs to Google
+                          Calendar when connected.
                         </p>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div>
-                            <span className="mb-1 block text-xs font-medium text-slate-700">Start</span>
-                            <VisitStartQuarterPicker
-                              value={
-                                viewInstallationStart.trim()
-                                  ? snapWallToQuarterMinutes(viewInstallationStart)
-                                  : snapWallToQuarterMinutes('')
-                              }
-                              onChange={(w) => setViewInstallationStart(w)}
-                              compact
-                            />
-                          </div>
-                          <div>
-                            <span className="mb-1 block text-xs font-medium text-slate-700">End (optional)</span>
-                            <VisitStartQuarterPicker
-                              value={
-                                viewInstallationEnd.trim()
-                                  ? snapWallToQuarterMinutes(viewInstallationEnd)
-                                  : snapWallToQuarterMinutes('')
-                              }
-                              onChange={(w) => setViewInstallationEnd(w)}
-                              compact
-                            />
-                          </div>
+                        <div>
+                          <span className="mb-1 block text-xs font-medium text-slate-700">Date &amp; time</span>
+                          <VisitStartQuarterPicker
+                            value={
+                              viewInstallationStart.trim()
+                                ? snapWallToQuarterMinutes(viewInstallationStart)
+                                : snapWallToQuarterMinutes('')
+                            }
+                            onChange={(w) => setViewInstallationStart(w)}
+                            compact
+                          />
                         </div>
                         <button
                           type="button"
@@ -2473,12 +2444,8 @@ export function OrdersPage() {
                     ) : (
                       <dl className="mt-2 space-y-1 text-sm text-slate-700">
                         <div className="flex justify-between gap-4">
-                          <dt className="text-slate-500">Start</dt>
+                          <dt className="text-slate-500">Date &amp; time</dt>
                           <dd>{fmtDisplayDateTime(viewOrder.installation_scheduled_start_at)}</dd>
-                        </div>
-                        <div className="flex justify-between gap-4">
-                          <dt className="text-slate-500">End</dt>
-                          <dd>{fmtDisplayDateTime(viewOrder.installation_scheduled_end_at)}</dd>
                         </div>
                       </dl>
                     )}
@@ -2580,7 +2547,6 @@ export function OrdersPage() {
                 setEditBlindsLines([])
                 setEditExtraPaid(0)
                 setEditInstallationStart('')
-                setEditInstallationEnd('')
                 setEditAttachments([])
               }
             }}
@@ -2601,7 +2567,6 @@ export function OrdersPage() {
                   setEditBlindsLines([])
                   setEditExtraPaid(0)
                   setEditInstallationStart('')
-                  setEditInstallationEnd('')
                   setEditAttachments([])
                 }}
               >
@@ -2674,42 +2639,26 @@ export function OrdersPage() {
                       </select>
                     </label>
                     <div className="sm:col-span-2 rounded-lg border border-amber-100 bg-amber-50/80 p-3">
-                      <p className="text-xs font-semibold text-amber-950">Installation schedule</p>
+                      <p className="text-xs font-semibold text-amber-950">Installation</p>
                       <p className="mt-1 text-[11px] text-amber-900">
-                        Same date and time format as estimate visits (15-minute steps). Editable only when status is
-                        Ready for installation. Syncs to Google Calendar when the company calendar is connected.
+                        Single date and time (same format as estimate visits, 15-minute steps). Editable only when
+                        status is Ready for installation. Syncs to Google Calendar when the company calendar is
+                        connected.
                       </p>
-                      <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                        <div>
-                          <span className="mb-1 block text-xs font-medium text-slate-800">Start</span>
-                          <VisitStartQuarterPicker
-                            value={
-                              editInstallationStart.trim()
-                                ? snapWallToQuarterMinutes(editInstallationStart)
-                                : snapWallToQuarterMinutes('')
-                            }
-                            onChange={(w) => setEditInstallationStart(w)}
-                            disabled={
-                              !isReadyForInstallationStatus(editDraft.status_orde_id, orderStatuses ?? [])
-                            }
-                            compact
-                          />
-                        </div>
-                        <div>
-                          <span className="mb-1 block text-xs font-medium text-slate-800">End (optional)</span>
-                          <VisitStartQuarterPicker
-                            value={
-                              editInstallationEnd.trim()
-                                ? snapWallToQuarterMinutes(editInstallationEnd)
-                                : snapWallToQuarterMinutes('')
-                            }
-                            onChange={(w) => setEditInstallationEnd(w)}
-                            disabled={
-                              !isReadyForInstallationStatus(editDraft.status_orde_id, orderStatuses ?? [])
-                            }
-                            compact
-                          />
-                        </div>
+                      <div className="mt-2">
+                        <span className="mb-1 block text-xs font-medium text-slate-800">Date &amp; time</span>
+                        <VisitStartQuarterPicker
+                          value={
+                            editInstallationStart.trim()
+                              ? snapWallToQuarterMinutes(editInstallationStart)
+                              : snapWallToQuarterMinutes('')
+                          }
+                          onChange={(w) => setEditInstallationStart(w)}
+                          disabled={
+                            !isReadyForInstallationStatus(editDraft.status_orde_id, orderStatuses ?? [])
+                          }
+                          compact
+                        />
                       </div>
                     </div>
                     <fieldset className="min-w-0 rounded-lg border border-slate-200 bg-slate-50/60 p-3 sm:col-span-2">
@@ -2830,7 +2779,6 @@ export function OrdersPage() {
                         setEditBlindsLines([])
                         setEditExtraPaid(0)
                         setEditInstallationStart('')
-                        setEditInstallationEnd('')
                         setEditAttachments([])
                       }}
                     >
@@ -2968,11 +2916,21 @@ export function OrdersPage() {
         title="Change order status?"
         description={
           advanceConfirm
-            ? `Set this order’s status to “${advanceConfirm.act.nextLabel}”?`
+            ? advanceConfirm.act.kind === 'patch' && advanceConfirm.act.stage === 'to_rfi'
+              ? `Set this order’s status to “${advanceConfirm.act.nextLabel}”? Installation date and time are optional. Use “Enter installation now” to open this order and set them, or “Confirm” to change status only and add them later from the order view.`
+              : `Set this order’s status to “${advanceConfirm.act.nextLabel}”?`
             : ''
         }
         confirmLabel="Confirm"
         cancelLabel="Cancel"
+        secondaryAction={
+          advanceConfirm?.act.kind === 'patch' && advanceConfirm.act.stage === 'to_rfi'
+            ? {
+                label: 'Enter installation now',
+                onClick: () => void confirmAdvanceOrderStatus({ openOrderViewAfter: true }),
+              }
+            : undefined
+        }
         pending={advanceConfirmPending}
         onConfirm={() => void confirmAdvanceOrderStatus()}
         onCancel={() => !advanceConfirmPending && setAdvanceConfirm(null)}

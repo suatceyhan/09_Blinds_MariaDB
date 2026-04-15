@@ -55,7 +55,7 @@ Vite varsayılanı `http://localhost:5173`; API proxy `/api` → `127.0.0.1:8000
 
 **Tahmin / müşteri:** Tahmin oluştururken varsayılan olarak **yeni müşteri adayı (prospect)** girilebilir; kayıt `customers` tablosuna **sipariş kaydedilene kadar** yazılmaz. İsteğe bağlı **mevcut müşteri** seçimi de vardır. Tahmin satırlarında **tutar (line amount)** saklanır; siparişe aktarılır. DB: **`DB/28_estimate_prospect_line_amount_ready_install_status.sql`**. Yeni tahmin varsayılan durumu **New** (`builtin_kind=new`). **Converted** tahminde düzenleme ekranında statü değişmez; bağlı sipariş **iptal** (silme veya durum adında *cancel*) olunca tahmin **Cancelled** olur, sipariş geri alınınca uygun şekilde tekrar **Converted**. Müşteri / prospect **ad ve soyad** API’de kelime başı büyük harfe normalize edilir. Müşteri **deaktive** edilirken (`DELETE /customers/{id}`) bağlı **aktif sipariş** veya **açık tahmin** (durum **New** / **Pending**) varsa API **400** verir; kapatılmış tahminler ve pasif siparişler engellemez (satır soft-delete / pasif kalır).
 
-**Sipariş / kurulum:** Global durum **Ready for installation** seçildiğinde **kurulum başlangıç tarihi/saati** zorunludur; Google Calendar bağlıysa kurulum etkinliği oluşturulur/güncellenir.
+**Sipariş / kurulum:** Global durum **Ready for installation** iken **kurulum tarih/saati** isteğe bağlıdır; girilmişse ve Google Calendar bağlıysa kurulum etkinliği oluşturulur/güncellenir.
 
 ## Klasör yapısı
 

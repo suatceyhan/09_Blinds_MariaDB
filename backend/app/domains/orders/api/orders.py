@@ -742,6 +742,7 @@ class OrderListItemOut(BaseModel):
     agreement_date: date | None = None
     created_at: Any | None = None
     active: bool = True
+    installation_scheduled_start_at: datetime | None = None
 
 
 class OrderCreateIn(BaseModel):
@@ -1141,7 +1142,8 @@ def list_orders(
               so.name AS status_order_label,
               o.agreement_date,
               o.created_at,
-              o.active
+              o.active,
+              o.installation_scheduled_start_at
             FROM orders o
             JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
             LEFT JOIN status_order so ON so.id = o.status_orde_id
@@ -1871,12 +1873,6 @@ def patch_order(
             raise HTTPException(status_code=400, detail="Invalid or inactive customer.")
         sets.append("customer_id = :patched_customer_id")
         params["patched_customer_id"] = new_cust
-
-    if _is_ready_for_install_order_status(db, cid, final_status_ord_id) and final_inst_start is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Installation date and time are required when status is Ready for installation.",
-        )
 
     if "status_code" in patch_fields:
         sets.append("status_code = :sc")

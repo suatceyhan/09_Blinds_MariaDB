@@ -6,6 +6,8 @@ export type ConfirmModalProps = {
   description: string
   confirmLabel?: string
   cancelLabel?: string
+  /** Optional third action (e.g. branch after confirm). Placed between cancel and primary confirm. */
+  secondaryAction?: { label: string; onClick: () => void }
   /** danger = destructive confirm button styling */
   variant?: 'danger' | 'default'
   /** While true, buttons are disabled (e.g. API in flight). */
@@ -20,6 +22,7 @@ export function ConfirmModal({
   description,
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
+  secondaryAction,
   variant = 'default',
   pending = false,
   onConfirm,
@@ -71,6 +74,16 @@ export function ConfirmModal({
           >
             {cancelLabel}
           </button>
+          {secondaryAction ? (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={secondaryAction.onClick}
+              className="rounded-lg border border-teal-200 bg-teal-50/80 px-4 py-2 text-sm font-medium text-teal-900 hover:bg-teal-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {secondaryAction.label}
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={pending}
