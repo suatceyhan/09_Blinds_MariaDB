@@ -31,6 +31,7 @@ type EstimateDetail = {
   scheduled_end_at: string | null
   tarih_saat: string | null
   lead_id: string | null
+  linked_order_id?: string | null
   calendar_provider: string | null
   google_event_id: string | null
   visit_time_zone?: string | null
@@ -81,6 +82,7 @@ export function EstimateViewPage() {
   const me = useAuthSession()
   const canEdit = Boolean(me?.permissions.includes('estimates.edit'))
   const canCreateOrder = Boolean(me?.permissions.includes('orders.edit'))
+  const canViewOrders = Boolean(me?.permissions.includes('orders.view'))
   const [row, setRow] = useState<EstimateDetail | null | undefined>(undefined)
   const [err, setErr] = useState<string | null>(null)
   const [restoreOpen, setRestoreOpen] = useState(false)
@@ -183,7 +185,18 @@ export function EstimateViewPage() {
                   Make order
                 </Link>
               ) : null}
-              {canEdit && estimateId && !row.is_deleted ? (
+              {row.status?.toLowerCase() === 'converted' &&
+              !row.is_deleted &&
+              (row.linked_order_id ?? '').trim() &&
+              canViewOrders ? (
+                <Link
+                  to={`/orders?viewOrder=${encodeURIComponent((row.linked_order_id ?? '').trim())}`}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-teal-800 hover:bg-teal-50"
+                >
+                  View order
+                </Link>
+              ) : null}
+              {canEdit && estimateId && !row.is_deleted && row.status?.toLowerCase() !== 'converted' ? (
                 <Link
                   to={`/estimates/${estimateId}/edit`}
                   className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-teal-700 hover:bg-teal-50"

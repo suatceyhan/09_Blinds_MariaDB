@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Mail, Phone, UserRound } from 'lucide-react'
 import { AddressMapLink } from '@/components/ui/AddressMapLink'
+import { useAuthSession } from '@/app/authSession'
 import { getJson } from '@/lib/api'
 
 type CustomerOut = {
@@ -41,6 +42,8 @@ function fmtDate(v?: string | null): string {
 
 export function CustomerViewPage() {
   const { customerId } = useParams<{ customerId: string }>()
+  const me = useAuthSession()
+  const canEditCustomer = Boolean(me?.permissions.includes('customers.edit'))
   const [row, setRow] = useState<CustomerOut | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -110,6 +113,14 @@ export function CustomerViewPage() {
                 </span>
               )}
             </div>
+            {canEditCustomer && customerId ? (
+              <Link
+                to={`/customers?edit=${encodeURIComponent(customerId)}`}
+                className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-teal-700 hover:bg-teal-50"
+              >
+                Edit
+              </Link>
+            ) : null}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">

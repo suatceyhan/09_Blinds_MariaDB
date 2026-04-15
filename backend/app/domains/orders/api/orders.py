@@ -363,6 +363,92 @@ def _is_ready_for_install_order_status(
     return bool(exp and exp == str(status_orde_id).strip())
 
 
+def _order_status_label_implies_cancelled(db: Session, company_id: UUID, status_orde_id: str | None) -> bool:
+    """Heuristic aligned with orders list styling: label contains 'cancel' (e.g. Cancelled)."""
+    if not status_orde_id or not str(status_orde_id).strip():
+        return False
+    row = db.execute(
+        text(
+            """
+            SELECT lower(trim(so.name)) AS n
+            FROM status_order so
+            INNER JOIN company_status_order_matrix m
+              ON m.status_order_id = so.id AND m.company_id = CAST(:cid AS uuid)
+            WHERE so.id = :sid AND so.active IS TRUE
+            LIMIT 1
+            """
+        ),
+        {"cid": str(company_id), "sid": str(status_orde_id).strip()},
+    ).mappings().first()
+    if not row:
+        return False
+    return "cancel" in (row.get("n") or "")
+
+
+def _builtin_estimate_status_id(db: Session, company_id: UUID, builtin_kind: str) -> str | None:
+    row = db.execute(
+        text(
+            """
+            SELECT se.id
+            FROM status_estimate se
+            INNER JOIN company_status_estimate_matrix m
+              ON m.status_estimate_id = se.id AND m.company_id = CAST(:cid AS uuid)
+            WHERE se.builtin_kind = :bk AND se.active IS TRUE
+            LIMIT 1
+            """
+        ),
+        {"cid": str(company_id), "bk": builtin_kind},
+    ).mappings().first()
+    return str(row["id"]) if row else None
+
+
+def _sync_linked_estimate_to_cancelled(db: Session, company_id: UUID, estimate_id: str | None) -> None:
+    eid = (estimate_id or "").strip()
+    if not eid:
+        return
+    sid = _builtin_estimate_status_id(db, company_id, "cancelled")
+    if not sid:
+        return
+    db.execute(
+        text(
+            """
+            UPDATE estimate
+            SET status_esti_id = :sid, updated_at = NOW()
+            WHERE company_id = CAST(:cid AS uuid) AND id = :eid AND is_deleted IS NOT TRUE
+            """
+        ),
+        {"cid": str(company_id), "eid": eid, "sid": sid},
+    )
+
+
+def _sync_linked_estimate_to_converted_after_order_uncancel(
+    db: Session, company_id: UUID, estimate_id: str | None
+) -> None:
+    """When an order is restored or moved off a cancelled status, set estimate back to Converted if it was Cancelled."""
+    eid = (estimate_id or "").strip()
+    if not eid:
+        return
+    conv = _builtin_estimate_status_id(db, company_id, "converted")
+    if not conv:
+        return
+    db.execute(
+        text(
+            """
+            UPDATE estimate e
+            SET status_esti_id = :conv, updated_at = NOW()
+            WHERE e.company_id = CAST(:cid AS uuid)
+              AND e.id = :eid
+              AND e.is_deleted IS NOT TRUE
+              AND EXISTS (
+                SELECT 1 FROM status_estimate se
+                WHERE se.id = e.status_esti_id AND se.builtin_kind = 'cancelled'
+              )
+            """
+        ),
+        {"cid": str(company_id), "eid": eid, "conv": conv},
+    )
+
+
 def _insert_customer_from_prospect_and_link_estimate(
     db: Session,
     company_id: UUID,
@@ -1267,6 +1353,18 @@ def delete_order(
     if not cid:
         raise HTTPException(status_code=403, detail="No active company.")
     oid = order_id.strip()
+    est_row = db.execute(
+        text(
+            """
+            SELECT NULLIF(trim(estimate_id), '') AS estimate_id
+            FROM orders
+            WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+            LIMIT 1
+            """
+        ),
+        {"cid": str(cid), "oid": oid},
+    ).mappings().first()
+    est_id = (est_row.get("estimate_id") or "").strip() if est_row else ""
     res = db.execute(
         text(
             """
@@ -1285,6 +1383,8 @@ def delete_order(
         if not exists:
             raise HTTPException(status_code=404, detail="Order not found.")
         raise HTTPException(status_code=400, detail="Order is already deleted.")
+    if est_id:
+        _sync_linked_estimate_to_cancelled(db, cid, est_id)
     db.commit()
     return None
 
@@ -1300,6 +1400,18 @@ def restore_order(
     if not cid:
         raise HTTPException(status_code=403, detail="No active company.")
     oid = order_id.strip()
+    est_row = db.execute(
+        text(
+            """
+            SELECT NULLIF(trim(estimate_id), '') AS estimate_id
+            FROM orders
+            WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS FALSE
+            LIMIT 1
+            """
+        ),
+        {"cid": str(cid), "oid": oid},
+    ).mappings().first()
+    est_id = (est_row.get("estimate_id") or "").strip() if est_row else ""
     res = db.execute(
         text(
             """
@@ -1318,6 +1430,8 @@ def restore_order(
         if not exists:
             raise HTTPException(status_code=404, detail="Order not found.")
         raise HTTPException(status_code=400, detail="Order is not deleted.")
+    if est_id:
+        _sync_linked_estimate_to_converted_after_order_uncancel(db, cid, est_id)
     db.commit()
     return get_order(order_id=oid, db=db, current_user=current_user)
 
@@ -1718,6 +1832,15 @@ def patch_order(
         ),
         params,
     )
+    est_link = (cur.get("estimate_id") or "").strip()
+    if est_link:
+        old_sid = (cur.get("status_orde_id") or "").strip() or None
+        old_cancel = _order_status_label_implies_cancelled(db, cid, old_sid)
+        new_cancel = _order_status_label_implies_cancelled(db, cid, final_status_ord_id)
+        if new_cancel and not old_cancel:
+            _sync_linked_estimate_to_cancelled(db, cid, est_link)
+        elif old_cancel and not new_cancel:
+            _sync_linked_estimate_to_converted_after_order_uncancel(db, cid, est_link)
     db.commit()
     try_push_order_installation_to_google_calendar(
         db,

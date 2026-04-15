@@ -51,6 +51,7 @@ type EstimateDetail = {
   status_label?: string | null
   status_esti_id?: string | null
   is_deleted?: boolean | null
+  linked_order_id?: string | null
 }
 
 type CreateContext = {
@@ -196,6 +197,12 @@ export function EstimateEditPage() {
     }
   }, [me, estimateId, canEdit])
 
+  useEffect(() => {
+    if (!detail || !estimateId) return
+    if ((detail.status ?? '').toLowerCase() !== 'converted') return
+    navigate(`/estimates/${estimateId}`, { replace: true })
+  }, [detail, estimateId, navigate])
+
   const estimateStatusSelectOptions = useMemo(() => {
     if (!detail || !estimateStatuses?.length) return []
     const cur = (detail.status ?? '').toLowerCase()
@@ -203,7 +210,6 @@ export function EstimateEditPage() {
     const filtered = estimateStatuses.filter((s) => {
       const w = (s.code ?? '').toLowerCase()
       if (!s.active && s.id !== curId) return false
-      if (cur === 'converted') return w === 'converted' || w === 'cancelled'
       if (cur === 'pending') return w === 'pending' || w === 'cancelled'
       return true
     })
@@ -546,11 +552,6 @@ export function EstimateEditPage() {
                   </option>
                 ))}
               </select>
-              {(detail.status ?? 'pending').toLowerCase() === 'converted' ? (
-                <p className="mt-1 text-xs text-slate-500">
-                  Status is set automatically when an order is linked from this estimate.
-                </p>
-              ) : null}
             </label>
             <div className="block text-sm font-medium text-slate-700">
               <span className="block">Visit date</span>

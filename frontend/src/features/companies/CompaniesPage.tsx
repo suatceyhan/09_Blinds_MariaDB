@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Building2, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { AddressAutocompleteInput } from '@/components/ui/AddressAutocompleteInput'
 import { ADDRESS_FORMAT_HINT, AddressMapLink } from '@/components/ui/AddressMapLink'
@@ -55,6 +55,7 @@ export function CompaniesPage() {
   const me = useAuthSession()
   const isSuperadmin = useMemo(() => isSuperadminRoles(me?.roles), [me?.roles])
   const canViewUserDir = Boolean(me?.permissions.includes('users.directory.view'))
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [rows, setRows] = useState<CompanyRow[] | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -171,7 +172,7 @@ export function CompaniesPage() {
     }
   }, [me, listPath])
 
-  function openEdit(r: CompanyRow) {
+  const openEdit = useCallback((r: CompanyRow) => {
     setEditing(r)
     setEditName(r.name)
     setEditPhone(r.phone ?? '')
@@ -184,7 +185,40 @@ export function CompaniesPage() {
     setEditOwnerUserId(r.owner_user_id ?? '')
     setEditLogoFile(null)
     setErr(null)
-  }
+  }, [])
+
+  useEffect(() => {
+    if (!me || !isSuperadmin) return
+    const editId = searchParams.get('edit')?.trim()
+    if (!editId) return
+
+    const clearParam = () => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          next.delete('edit')
+          return next
+        },
+        { replace: true },
+      )
+    }
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        const fromList = rows?.find((x) => x.id === editId)
+        const row = fromList ?? (await getJson<CompanyRow>(`/companies/${editId}`))
+        if (cancelled) return
+        openEdit(row)
+        clearParam()
+      } catch {
+        if (!cancelled) clearParam()
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [me, isSuperadmin, searchParams, rows, openEdit, setSearchParams])
 
   function closeEdit() {
     setEditing(null)

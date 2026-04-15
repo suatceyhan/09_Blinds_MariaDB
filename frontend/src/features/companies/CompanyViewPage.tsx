@@ -37,6 +37,7 @@ export function CompanyViewPage() {
   const { companyId } = useParams<{ companyId: string }>()
   const me = useAuthSession()
   const isSuperadmin = useMemo(() => isSuperadminRoles(me?.roles), [me?.roles])
+  const canEditCompany = isSuperadmin
   const [row, setRow] = useState<CompanyRow | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -110,15 +111,25 @@ export function CompanyViewPage() {
                 <p className="mt-0.5 text-sm text-slate-500">Company profile</p>
               </div>
             </div>
-            {row.is_deleted ? (
-              <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">
-                Inactive
-              </span>
-            ) : (
-              <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-900">
-                Active
-              </span>
-            )}
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              {row.is_deleted ? (
+                <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">
+                  Inactive
+                </span>
+              ) : (
+                <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-900">
+                  Active
+                </span>
+              )}
+              {canEditCompany && companyId ? (
+                <Link
+                  to={`/companies?edit=${encodeURIComponent(companyId)}`}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-violet-700 hover:bg-violet-50"
+                >
+                  Edit
+                </Link>
+              ) : null}
+            </div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">

@@ -207,6 +207,7 @@ class EstimateListItemOut(BaseModel):
     scheduled_start_at: datetime | None = None
     tarih_saat: datetime | None = None
     created_at: Any | None = None
+    linked_order_id: str | None = None
 
 
 class EstimateDetailOut(BaseModel):
@@ -250,6 +251,7 @@ class EstimateDetailOut(BaseModel):
     is_deleted: bool = False
     created_at: Any | None = None
     updated_at: Any | None = None
+    linked_order_id: str | None = None
 
 
 class EstimateBlindsLineIn(BaseModel):
@@ -753,7 +755,16 @@ def list_estimates(
               e.is_deleted,
               e.scheduled_start_at,
               e.tarih_saat,
-              e.created_at
+              e.created_at,
+              (
+                SELECT o.id
+                FROM orders o
+                WHERE o.company_id = e.company_id
+                  AND o.estimate_id IS NOT NULL
+                  AND trim(o.estimate_id) = trim(e.id)
+                ORDER BY CASE WHEN o.active IS TRUE THEN 0 ELSE 1 END, o.created_at DESC NULLS LAST
+                LIMIT 1
+              ) AS linked_order_id
             FROM estimate e
             LEFT JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
             LEFT JOIN status_estimate se ON se.id = e.status_esti_id
@@ -1000,7 +1011,16 @@ def get_estimate(
               e.status_esti_id AS status_esti_id,
               e.is_deleted,
               e.created_at,
-              e.updated_at
+              e.updated_at,
+              (
+                SELECT o.id
+                FROM orders o
+                WHERE o.company_id = e.company_id
+                  AND o.estimate_id IS NOT NULL
+                  AND trim(o.estimate_id) = trim(e.id)
+                ORDER BY CASE WHEN o.active IS TRUE THEN 0 ELSE 1 END, o.created_at DESC NULLS LAST
+                LIMIT 1
+              ) AS linked_order_id
             FROM estimate e
             LEFT JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
             LEFT JOIN status_estimate se ON se.id = e.status_esti_id
@@ -1040,9 +1060,10 @@ def patch_estimate(
     cur = db.execute(
         text(
             """
-            SELECT visit_time_zone, customer_id
-            FROM estimate
-            WHERE company_id = CAST(:cid AS uuid) AND id = :eid AND is_deleted IS NOT TRUE
+            SELECT e.visit_time_zone, e.customer_id, se.builtin_kind AS status_builtin_kind
+            FROM estimate e
+            LEFT JOIN status_estimate se ON se.id = e.status_esti_id
+            WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid AND e.is_deleted IS NOT TRUE
             LIMIT 1
             """
         ),
@@ -1127,6 +1148,17 @@ def patch_estimate(
             params["prospect_postal_code"] = patch_dump["prospect_postal_code"]
 
     if payload.status_esti_id is not None:
+        cur_kind_raw = (cur or {}).get("status_builtin_kind")
+        cur_kind = str(cur_kind_raw).strip().lower() if cur_kind_raw else None
+        if cur_kind == "converted":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "This estimate is linked to an order; its status cannot be edited here. "
+                    "Cancel the order from the Orders page (remove the order or set order status to Cancelled) "
+                    "to set this estimate to Cancelled."
+                ),
+            )
         new_st = db.execute(
             text(
                 """
@@ -1142,26 +1174,6 @@ def patch_estimate(
         ).mappings().first()
         if not new_st:
             raise HTTPException(status_code=400, detail="Invalid estimate status.")
-        cur_st = db.execute(
-            text(
-                """
-                SELECT se.builtin_kind AS builtin_kind
-                FROM estimate e
-                LEFT JOIN status_estimate se ON se.id = e.status_esti_id
-                WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid AND e.is_deleted IS NOT TRUE
-                LIMIT 1
-            """
-            ),
-            {"cid": str(cid), "eid": eid},
-        ).mappings().first()
-        cur_kind = (cur_st or {}).get("builtin_kind")
-        raw_new = new_st.get("builtin_kind")
-        new_kind = str(raw_new).strip().lower() if raw_new else None
-        if cur_kind == "converted" and new_kind not in ("converted", "cancelled"):
-            raise HTTPException(
-                status_code=400,
-                detail="Converted estimates can only be set to cancelled.",
-            )
         sets.append("status_esti_id = :sest")
         params["sest"] = str(new_st["id"]).strip()
 

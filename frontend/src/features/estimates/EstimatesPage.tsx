@@ -32,6 +32,7 @@ type EstimateRow = {
   status_label?: string | null
   status_esti_id?: string | null
   is_deleted?: boolean | null
+  linked_order_id?: string | null
   scheduled_start_at: string | null
   tarih_saat: string | null
   created_at: string | null
@@ -1088,6 +1089,17 @@ export function EstimatesPage() {
                             >
                               <RotateCcw className="h-4 w-4" />
                             </button>
+                          </>
+                        ) : r.status?.toLowerCase() === 'converted' ? (
+                          <>
+                            <Link
+                              to={`/estimates/${r.id}`}
+                              className="inline-flex rounded-md p-1.5 text-slate-600 hover:bg-slate-100 hover:text-teal-700"
+                              title="View estimate"
+                              aria-label="View estimate"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Link>
                           </>
                         ) : (
                           <>

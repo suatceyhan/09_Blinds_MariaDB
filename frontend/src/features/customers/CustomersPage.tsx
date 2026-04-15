@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Pencil, RotateCcw, Trash2, UserRound } from 'lucide-react'
 import { AddressAutocompleteInput } from '@/components/ui/AddressAutocompleteInput'
 import { ADDRESS_FORMAT_HINT, AddressMapLink } from '@/components/ui/AddressMapLink'
@@ -53,6 +53,7 @@ function ShowInactiveToggle(
 export function CustomersPage() {
   const me = useAuthSession()
   const canEdit = Boolean(me?.permissions.includes('customers.edit'))
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [rows, setRows] = useState<CustomerRow[] | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -158,15 +159,48 @@ export function CustomersPage() {
     }
   }
 
-  function openEdit(r: CustomerRow) {
+  const openEdit = useCallback((r: CustomerRow) => {
     setEditId(r.id)
     setEditName(r.name ?? '')
     setEditSurname(r.surname ?? '')
     setEditPhone(r.phone ?? '')
     setEditEmail(r.email ?? '')
-    setEditAddress('')
-    setEditPostalCode('')
-  }
+    setEditAddress(r.address ?? '')
+    setEditPostalCode(r.postal_code ?? '')
+  }, [])
+
+  useEffect(() => {
+    if (!me || !canEdit) return
+    const editId = searchParams.get('edit')?.trim()
+    if (!editId) return
+
+    const clearParam = () => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          next.delete('edit')
+          return next
+        },
+        { replace: true },
+      )
+    }
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        const fromList = rows?.find((x) => x.id === editId)
+        const row = fromList ?? (await getJson<CustomerRow>(`/customers/${editId}`))
+        if (cancelled) return
+        openEdit(row)
+        clearParam()
+      } catch {
+        if (!cancelled) clearParam()
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [me, canEdit, searchParams, rows, openEdit, setSearchParams])
 
   async function onEditSave(e: React.FormEvent) {
     e.preventDefault()

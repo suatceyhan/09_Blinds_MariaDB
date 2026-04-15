@@ -64,6 +64,7 @@ type OrderDetail = {
   customer_id: string
   customer_display: string
   estimate_id: string | null
+  estimate_status?: string | null
   total_amount: string | number | null
   downpayment: string | number | null
   /** Cumulative payments after the down payment; balance subtracts this. */
@@ -890,6 +891,8 @@ export function OrdersPage() {
   const me = useAuthSession()
   const canView = Boolean(me?.permissions.includes('orders.view'))
   const canEdit = Boolean(me?.permissions.includes('orders.edit'))
+  const canEditEstimates = Boolean(me?.permissions.includes('estimates.edit'))
+  const canEditCustomers = Boolean(me?.permissions.includes('customers.edit'))
   const canViewCompanies = Boolean(me?.permissions.includes('companies.view'))
   const sessionCompanyId = me?.active_company_id ?? me?.company_id ?? null
   const [searchParams, setSearchParams] = useSearchParams()
@@ -952,6 +955,7 @@ export function OrdersPage() {
   const [orderStatuses, setOrderStatuses] = useState<OrderStatusOpt[] | null>(null)
 
   const fromEstimateQ = useMemo(() => searchParams.get('fromEstimate')?.trim() ?? '', [searchParams])
+  const viewOrderFromUrl = useMemo(() => searchParams.get('viewOrder')?.trim() ?? '', [searchParams])
 
   const lineSubtotalParsed = useMemo(() => sumBlindsLineAmounts(blindsLines), [blindsLines])
   const taxBaseParsed = useMemo(() => parseOptionalDecimal(taxBaseAmount), [taxBaseAmount])
@@ -1218,6 +1222,26 @@ export function OrdersPage() {
     setViewOrder(null)
     setPaymentModalOpen(false)
     setPaymentAmountInput('')
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('viewOrder')
+        return next
+      },
+      { replace: true },
+    )
+  }
+
+  function openOrderView(orderId: string) {
+    setViewOrderId(orderId)
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.set('viewOrder', orderId)
+        return next
+      },
+      { replace: true },
+    )
   }
 
   useEffect(() => {
@@ -1429,6 +1453,16 @@ export function OrdersPage() {
       cancelled = true
     }
   }, [me, canView, fromEstimateQ, setSearchParams, blindsOrderOptions])
+
+  useEffect(() => {
+    if (!canView) return
+    if (viewOrderFromUrl) {
+      setViewOrderId(viewOrderFromUrl)
+    } else {
+      setViewOrderId(null)
+      setViewOrder(null)
+    }
+  }, [viewOrderFromUrl, canView])
 
   useEffect(() => {
     if (!linkedEstimateId || !blindsOrderOptions) return
@@ -1886,7 +1920,7 @@ export function OrdersPage() {
                           type="button"
                           title="View details"
                           className="rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
-                          onClick={() => setViewOrderId(r.id)}
+                          onClick={() => openOrderView(r.id)}
                         >
                           <Eye className="h-4 w-4" strokeWidth={2} />
                         </button>
@@ -1974,7 +2008,7 @@ export function OrdersPage() {
                   <section className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
                     <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Customer &amp; links</h3>
                     <div className="mt-3 space-y-2">
-                      <div className="flex flex-wrap items-baseline gap-x-2">
+                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                         <span className="text-slate-500">Customer</span>
                         <Link
                           to={`/customers/${viewOrder.customer_id}`}
@@ -1983,9 +2017,21 @@ export function OrdersPage() {
                         >
                           {viewOrder.customer_display || viewOrder.customer_id}
                         </Link>
+                        {canEditCustomers ? (
+                          <>
+                            <span className="text-slate-300">·</span>
+                            <Link
+                              to={`/customers?edit=${encodeURIComponent(viewOrder.customer_id)}`}
+                              className="text-sm font-medium text-teal-700 hover:underline"
+                              onClick={closeOrderView}
+                            >
+                              Edit
+                            </Link>
+                          </>
+                        ) : null}
                       </div>
                       {viewOrder.estimate_id ? (
-                        <div className="flex flex-wrap items-baseline gap-x-2">
+                        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                           <span className="text-slate-500">Estimate</span>
                           <Link
                             to={`/estimates/${viewOrder.estimate_id}`}
@@ -1994,6 +2040,22 @@ export function OrdersPage() {
                           >
                             {viewOrder.estimate_id}
                           </Link>
+                          {canEditEstimates ? (
+                            <>
+                              <span className="text-slate-300">·</span>
+                              {(viewOrder.estimate_status ?? '').toLowerCase() === 'converted' ? (
+                                <span className="text-sm font-medium text-slate-500">View only (converted)</span>
+                              ) : (
+                                <Link
+                                  to={`/estimates/${viewOrder.estimate_id}/edit`}
+                                  className="text-sm font-medium text-teal-700 hover:underline"
+                                  onClick={closeOrderView}
+                                >
+                                  Edit
+                                </Link>
+                              )}
+                            </>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>
