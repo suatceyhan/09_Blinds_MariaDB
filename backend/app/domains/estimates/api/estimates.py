@@ -8,6 +8,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -25,6 +26,8 @@ from app.domains.business_lookups.services.estimate_status_defaults import (
 )
 from app.domains.user.models.users import Users
 from app.integrations.google_calendar_service import try_push_estimate_to_google_calendar
+from app.domains.settings.api.contract_invoice_docs import render_contract_invoice_html
+from app.utils.email import send_html_email
 
 
 router = APIRouter(prefix="/estimates", tags=["Estimates"])
@@ -1270,6 +1273,205 @@ def restore_estimate(
         raise HTTPException(status_code=404, detail="Estimate not found or not deleted.")
     db.commit()
     return get_estimate(estimate_id=eid, db=db, current_user=current_user)
+
+
+def _estimate_invoice_number(estimate_id: str) -> str:
+    return f"INV-EST-{estimate_id}"
+
+
+def _sum_estimate_line_amounts(lines: Any) -> Decimal | None:
+    if not isinstance(lines, list):
+        return None
+    total = Decimal("0")
+    any_amt = False
+    for item in lines:
+        if not isinstance(item, dict):
+            continue
+        v = item.get("line_amount")
+        if v is None:
+            continue
+        try:
+            d = Decimal(str(v))
+        except Exception:
+            continue
+        total += d
+        any_amt = True
+    if not any_amt:
+        return None
+    return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _fetch_estimate_doc_context(db: Session, company_id: UUID, estimate_id: str) -> dict[str, Any] | None:
+    row = db.execute(
+        text(
+            f"""
+            SELECT
+              e.id::text AS estimate_id,
+              e.customer_id,
+              trim(concat_ws(' ', c.name, c.surname)) AS customer_name,
+              c.address AS customer_address,
+              c.phone AS customer_phone,
+              c.email AS customer_email,
+              e.prospect_name,
+              e.prospect_surname,
+              e.prospect_phone,
+              e.prospect_email,
+              e.prospect_address,
+              se.builtin_kind AS status_kind,
+              { _SQL_BLINDS_TYPES_JSON } AS blinds_types,
+              co.name AS company_name,
+              co.address AS company_address,
+              co.phone AS company_phone,
+              co.email AS company_email
+            FROM estimate e
+            LEFT JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
+            LEFT JOIN status_estimate se ON se.id = e.status_esti_id
+            JOIN companies co ON co.id = e.company_id
+            WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid AND e.is_deleted IS NOT TRUE
+            LIMIT 1
+            """
+        ),
+        {"cid": str(company_id), "eid": estimate_id},
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+@router.get("/{estimate_id}/documents/deposit-contract", response_class=HTMLResponse)
+def estimate_deposit_contract_download(
+    estimate_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("estimates.view"))],
+):
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    eid = estimate_id.strip()
+    ctx = _fetch_estimate_doc_context(db, cid, eid)
+    if not ctx:
+        raise HTTPException(status_code=404, detail="Estimate not found.")
+    if (str(ctx.get("status_kind") or "")).strip().lower() != "pending":
+        raise HTTPException(status_code=400, detail="Deposit invoice + contract is available only for Pending estimates.")
+
+    now = datetime.now(timezone.utc).astimezone()
+    inv_no = _estimate_invoice_number(eid)
+    cust_name = (str(ctx.get("customer_name") or "")).strip()
+    if not cust_name:
+        cust_name = f"{(ctx.get('prospect_name') or '').strip()} {(ctx.get('prospect_surname') or '').strip()}".strip()
+    cust_addr = (str(ctx.get("customer_address") or "")).strip() or (str(ctx.get("prospect_address") or "")).strip()
+    cust_phone = (str(ctx.get("customer_phone") or "")).strip() or (str(ctx.get("prospect_phone") or "")).strip()
+
+    lines = ctx.get("blinds_types")
+    if isinstance(lines, str):
+        try:
+            lines = json.loads(lines)
+        except json.JSONDecodeError:
+            lines = []
+    total_amt = _sum_estimate_line_amounts(lines)
+
+    _subj, html = render_contract_invoice_html(
+        db=db,
+        company_id=str(cid),
+        kind="deposit_contract",
+        page_title="Invoice & Service Agreement",
+        data={
+            "business_name": (str(ctx.get("company_name") or "")).strip(),
+            "business_address": (str(ctx.get("company_address") or "")).strip(),
+            "business_phone": (str(ctx.get("company_phone") or "")).strip(),
+            "business_email": (str(ctx.get("company_email") or "")).strip(),
+            "customer_name": cust_name,
+            "customer_address": cust_addr,
+            "customer_phone": cust_phone,
+            "invoice_number": inv_no,
+            "invoice_date": now.strftime("%b %d, %Y"),
+            "product": "Custom Zebra Blinds",
+            "description": "",
+            "measurements": "",
+            "installation_address": cust_addr,
+            "total_project_price": "" if total_amt is None else f"{total_amt:,.2f}",
+            "deposit_required": "",
+            "balance_remaining": "",
+            "deposit_paid": "",
+            "payment_method": "",
+            "payment_date": "",
+        },
+    )
+    return HTMLResponse(content=html)
+
+
+@router.post("/{estimate_id}/documents/deposit-contract/send-email", status_code=status.HTTP_204_NO_CONTENT)
+def estimate_deposit_contract_send_email(
+    estimate_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("estimates.edit"))],
+):
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    eid = estimate_id.strip()
+    ctx = _fetch_estimate_doc_context(db, cid, eid)
+    if not ctx:
+        raise HTTPException(status_code=404, detail="Estimate not found.")
+    if (str(ctx.get("status_kind") or "")).strip().lower() != "pending":
+        raise HTTPException(status_code=400, detail="Deposit invoice + contract is available only for Pending estimates.")
+
+    to_email = (str(ctx.get("customer_email") or "")).strip() or (str(ctx.get("prospect_email") or "")).strip()
+    if not to_email:
+        raise HTTPException(status_code=400, detail="Customer email is missing for this estimate.")
+
+    now = datetime.now(timezone.utc).astimezone()
+    inv_no = _estimate_invoice_number(eid)
+    cust_name = (str(ctx.get("customer_name") or "")).strip()
+    if not cust_name:
+        cust_name = f"{(ctx.get('prospect_name') or '').strip()} {(ctx.get('prospect_surname') or '').strip()}".strip()
+    cust_addr = (str(ctx.get("customer_address") or "")).strip() or (str(ctx.get("prospect_address") or "")).strip()
+    cust_phone = (str(ctx.get("customer_phone") or "")).strip() or (str(ctx.get("prospect_phone") or "")).strip()
+
+    lines = ctx.get("blinds_types")
+    if isinstance(lines, str):
+        try:
+            lines = json.loads(lines)
+        except json.JSONDecodeError:
+            lines = []
+    total_amt = _sum_estimate_line_amounts(lines)
+
+    subject, html = render_contract_invoice_html(
+        db=db,
+        company_id=str(cid),
+        kind="deposit_contract",
+        page_title="Invoice & Service Agreement",
+        data={
+            "business_name": (str(ctx.get("company_name") or "")).strip(),
+            "business_address": (str(ctx.get("company_address") or "")).strip(),
+            "business_phone": (str(ctx.get("company_phone") or "")).strip(),
+            "business_email": (str(ctx.get("company_email") or "")).strip(),
+            "customer_name": cust_name,
+            "customer_address": cust_addr,
+            "customer_phone": cust_phone,
+            "invoice_number": inv_no,
+            "invoice_date": now.strftime("%b %d, %Y"),
+            "product": "Custom Zebra Blinds",
+            "description": "",
+            "measurements": "",
+            "installation_address": cust_addr,
+            "total_project_price": "" if total_amt is None else f"{total_amt:,.2f}",
+            "deposit_required": "",
+            "balance_remaining": "",
+            "deposit_paid": "",
+            "payment_method": "",
+            "payment_date": "",
+        },
+    )
+
+    ok = send_html_email(
+        to_email=to_email,
+        subject=subject,
+        html=html,
+        text="Please see the attached invoice & service agreement.",
+        attachments=[(f"deposit-invoice-contract-{eid}.html", html.encode("utf-8"), "text/html")],
+    )
+    if not ok:
+        raise HTTPException(status_code=500, detail="Email could not be sent (SMTP not configured or failed).")
+    return None
 
 
 @router.delete("/{estimate_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -15,7 +15,8 @@ import { useAuthSession } from '@/app/authSession'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
 import { VisitStartQuarterPicker } from '@/components/ui/VisitStartQuarterPicker'
-import { deleteJson, getJson, patchJson, postJson, postMultipartJson } from '@/lib/api'
+import { apiBase, deleteJson, getJson, patchJson, postJson, postMultipartJson } from '@/lib/api'
+import { getAccessToken } from '@/lib/authStorage'
 import { snapWallToQuarterMinutes } from '@/lib/visitSchedule'
 
 type CustomerOpt = { id: string; name: string; surname?: string | null }
@@ -1087,6 +1088,7 @@ export function OrdersPage() {
   const blindsTypes = blindsOrderOptions?.blinds_types ?? null
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [finalInvoiceBusy, setFinalInvoiceBusy] = useState<null | 'send' | 'download'>(null)
 
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -1417,6 +1419,60 @@ export function OrdersPage() {
       setErr(e instanceof Error ? e.message : 'Could not save installation schedule')
     } finally {
       setViewInstallationSaving(false)
+    }
+  }
+
+  async function downloadFinalInvoice() {
+    if (!viewOrderId) return
+    const tok = getAccessToken()
+    if (!tok) {
+      setErr('You are signed out. Please sign in again.')
+      return
+    }
+    setErr(null)
+    setFinalInvoiceBusy('download')
+    try {
+      const res = await fetch(`${apiBase()}/orders/${encodeURIComponent(viewOrderId)}/documents/final-invoice`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${tok}` },
+      })
+      if (!res.ok) {
+        let msg = 'Could not download final invoice.'
+        try {
+          const j = (await res.json()) as { detail?: string }
+          if (j?.detail) msg = j.detail
+        } catch {
+          // ignore
+        }
+        throw new Error(msg)
+      }
+      const html = await res.text()
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `final-invoice-${viewOrderId}.html`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not download final invoice')
+    } finally {
+      setFinalInvoiceBusy(null)
+    }
+  }
+
+  async function sendFinalInvoiceEmail() {
+    if (!viewOrderId) return
+    setErr(null)
+    setFinalInvoiceBusy('send')
+    try {
+      await postJson(`/orders/${viewOrderId}/documents/final-invoice/send-email`, {})
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not send email')
+    } finally {
+      setFinalInvoiceBusy(null)
     }
   }
 
@@ -2275,6 +2331,30 @@ export function OrdersPage() {
                     <OrderStatusBadge
                       label={viewOrder.status_order_label?.trim() || statusCodeLabel(viewOrder.status_code)}
                     />
+                    {orderStatusWorkflowBucketFromName(viewOrder.status_order_label ?? '') === 'done' &&
+                    viewOrder.active !== false ? (
+                      <>
+                        <span className="text-slate-300">·</span>
+                        <button
+                          type="button"
+                          disabled={!canEdit || finalInvoiceBusy !== null}
+                          onClick={() => void sendFinalInvoiceEmail()}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                          title={!canEdit ? 'You do not have permission to send emails.' : 'Send final invoice by email'}
+                        >
+                          {finalInvoiceBusy === 'send' ? 'Sending…' : 'Send email'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={finalInvoiceBusy !== null}
+                          onClick={() => void downloadFinalInvoice()}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                          title="Download final invoice (HTML)"
+                        >
+                          {finalInvoiceBusy === 'download' ? 'Preparing…' : 'Download'}
+                        </button>
+                      </>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

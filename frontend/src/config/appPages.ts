@@ -195,6 +195,15 @@ export const appPages: PageConfig[] = [
     showInNav: true,
   },
   {
+    id: 'settings-contract-invoice',
+    name: 'Contract/Invoice',
+    basePath: '/settings/contract-invoice',
+    parent: 'settings-group',
+    module: 'settings',
+    permissions: { view: 'settings.contract_invoice.view', edit: 'settings.contract_invoice.edit' },
+    showInNav: true,
+  },
+  {
     id: 'permissions-group',
     name: 'Permissions',
     basePath: '/permissions',

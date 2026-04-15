@@ -9,6 +9,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -26,6 +27,8 @@ from app.domains.business_lookups.services.blinds_catalog import (
     validate_blinds_lines_categories,
 )
 from app.integrations.google_calendar_service import try_push_order_installation_to_google_calendar
+from app.domains.settings.api.contract_invoice_docs import render_contract_invoice_html
+from app.utils.email import send_html_email
 
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
@@ -1469,6 +1472,168 @@ def get_order(
         payment_entries=payment_entries,
         attachments=attachments,
     )
+
+
+def _order_invoice_number(order_id: str) -> str:
+    return f"INV-{order_id}"
+
+
+def _order_status_is_done_like(status_label: str | None) -> bool:
+    return "done" in (status_label or "").strip().lower()
+
+
+def _fetch_order_doc_email_context(db: Session, company_id: UUID, order_id: str) -> dict[str, Any] | None:
+    row = db.execute(
+        text(
+            """
+            SELECT
+              o.id::text AS order_id,
+              o.total_amount,
+              o.tax_amount,
+              o.downpayment,
+              o.balance,
+              so.name AS status_order_label,
+              trim(concat_ws(' ', c.name, c.surname)) AS customer_name,
+              c.address AS customer_address,
+              c.phone AS customer_phone,
+              c.email AS customer_email,
+              co.name AS company_name,
+              co.address AS company_address,
+              co.phone AS company_phone,
+              co.email AS company_email
+            FROM orders o
+            JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
+            JOIN companies co ON co.id = o.company_id
+            LEFT JOIN status_order so ON so.id = o.status_orde_id
+            WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid AND o.active IS TRUE
+            LIMIT 1
+            """
+        ),
+        {"cid": str(company_id), "oid": order_id},
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+@router.get("/{order_id}/documents/final-invoice", response_class=HTMLResponse)
+def order_final_invoice_download(
+    order_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("orders.view"))],
+):
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    oid = order_id.strip()
+    ctx = _fetch_order_doc_email_context(db, cid, oid)
+    if not ctx:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    if not _order_status_is_done_like(ctx.get("status_order_label")):
+        raise HTTPException(status_code=400, detail="Final invoice is available only when order status is Done.")
+
+    now = datetime.now(timezone.utc).astimezone()
+    inv_no = _order_invoice_number(oid)
+    total = (Decimal(str(ctx.get("total_amount") or 0)) + Decimal(str(ctx.get("tax_amount") or 0))).quantize(
+        Decimal("0.01")
+    )
+    down = Decimal(str(ctx.get("downpayment") or 0)).quantize(Decimal("0.01"))
+    bal = Decimal(str(ctx.get("balance") or 0)).quantize(Decimal("0.01"))
+    paid = abs(bal) <= Decimal("0.01")
+
+    _subj, html = render_contract_invoice_html(
+        db=db,
+        company_id=str(cid),
+        kind="final_invoice",
+        page_title="Final invoice",
+        data={
+            "business_name": str(ctx.get("company_name") or "").strip(),
+            "business_address": str(ctx.get("company_address") or "").strip(),
+            "business_phone": str(ctx.get("company_phone") or "").strip(),
+            "business_email": str(ctx.get("company_email") or "").strip(),
+            "customer_name": str(ctx.get("customer_name") or "").strip(),
+            "customer_address": str(ctx.get("customer_address") or "").strip(),
+            "customer_phone": str(ctx.get("customer_phone") or "").strip(),
+            "invoice_number": inv_no,
+            "invoice_date": now.strftime("%b %d, %Y"),
+            "product": "Custom Zebra Blinds",
+            "description": "",
+            "total_project_price": f"{total:,.2f}",
+            "deposit_paid": f"{down:,.2f}",
+            "balance_due": f"{bal:,.2f}",
+            "balance_paid": f"{(total - down):,.2f}",
+            "payment_method": "",
+            "payment_date": "",
+            "status": "PAID" if paid else "DUE",
+        },
+    )
+    return HTMLResponse(content=html)
+
+
+@router.post("/{order_id}/documents/final-invoice/send-email", status_code=status.HTTP_204_NO_CONTENT)
+def order_final_invoice_send_email(
+    order_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("orders.edit"))],
+):
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    oid = order_id.strip()
+    ctx = _fetch_order_doc_email_context(db, cid, oid)
+    if not ctx:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    if not _order_status_is_done_like(ctx.get("status_order_label")):
+        raise HTTPException(status_code=400, detail="Final invoice is available only when order status is Done.")
+
+    to_email = str(ctx.get("customer_email") or "").strip()
+    if not to_email:
+        raise HTTPException(status_code=400, detail="Customer email is missing for this order.")
+
+    now = datetime.now(timezone.utc).astimezone()
+    inv_no = _order_invoice_number(oid)
+    total = (Decimal(str(ctx.get("total_amount") or 0)) + Decimal(str(ctx.get("tax_amount") or 0))).quantize(
+        Decimal("0.01")
+    )
+    down = Decimal(str(ctx.get("downpayment") or 0)).quantize(Decimal("0.01"))
+    bal = Decimal(str(ctx.get("balance") or 0)).quantize(Decimal("0.01"))
+    paid = abs(bal) <= Decimal("0.01")
+
+    subject, html = render_contract_invoice_html(
+        db=db,
+        company_id=str(cid),
+        kind="final_invoice",
+        page_title="Final invoice",
+        data={
+            "business_name": str(ctx.get("company_name") or "").strip(),
+            "business_address": str(ctx.get("company_address") or "").strip(),
+            "business_phone": str(ctx.get("company_phone") or "").strip(),
+            "business_email": str(ctx.get("company_email") or "").strip(),
+            "customer_name": str(ctx.get("customer_name") or "").strip(),
+            "customer_address": str(ctx.get("customer_address") or "").strip(),
+            "customer_phone": str(ctx.get("customer_phone") or "").strip(),
+            "invoice_number": inv_no,
+            "invoice_date": now.strftime("%b %d, %Y"),
+            "product": "Custom Zebra Blinds",
+            "description": "",
+            "total_project_price": f"{total:,.2f}",
+            "deposit_paid": f"{down:,.2f}",
+            "balance_due": f"{bal:,.2f}",
+            "balance_paid": f"{(total - down):,.2f}",
+            "payment_method": "",
+            "payment_date": "",
+            "status": "PAID" if paid else "DUE",
+        },
+    )
+
+    ok = send_html_email(
+        to_email=to_email,
+        subject=subject,
+        html=html,
+        text="Please see the attached final invoice.",
+        attachments=[(f"final-invoice-{oid}.html", html.encode("utf-8"), "text/html")],
+    )
+    if not ok:
+        raise HTTPException(status_code=500, detail="Email could not be sent (SMTP not configured or failed).")
+    return None
 
 
 @router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)

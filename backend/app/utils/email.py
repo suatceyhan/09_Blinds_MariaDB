@@ -1,8 +1,70 @@
 import smtplib
 from email.message import EmailMessage
+from typing import Iterable
 
 from app.core.config import settings
 from app.core.logger import logger
+
+
+def send_html_email(
+    *,
+    to_email: str,
+    subject: str,
+    html: str,
+    text: str | None = None,
+    attachments: Iterable[tuple[str, bytes, str]] = (),
+) -> bool:
+    """Send an HTML email (optionally with attachments).
+
+    attachments: (filename, content_bytes, mime_type)
+    """
+    from_addr = (settings.mail_from_address or settings.smtp_username).strip()
+    if not from_addr:
+        logger.warning("SMTP email not sent: smtp_username / mail_from_address empty.")
+        return False
+
+    msg = EmailMessage()
+    msg["Subject"] = subject.strip() or settings.app_name
+    msg["From"] = (
+        f"{settings.smtp_from_name} <{from_addr}>"
+        if settings.smtp_from_name
+        else from_addr
+    )
+    msg["To"] = to_email
+
+    fallback_text = text or "Please open this email in an HTML-capable client."
+    msg.set_content(fallback_text)
+    msg.add_alternative(html, subtype="html")
+
+    for fn, data, mime in attachments:
+        mt = (mime or "application/octet-stream").split("/", 1)
+        if len(mt) == 2:
+            maintype, subtype = mt
+        else:
+            maintype, subtype = "application", "octet-stream"
+        msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=fn)
+
+    user = settings.smtp_username.strip()
+    pwd = settings.smtp_password
+    if not user or not pwd:
+        logger.warning("SMTP username/password empty; email not sent.")
+        return False
+
+    try:
+        if settings.smtp_use_tls:
+            with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as smtp:
+                smtp.starttls()
+                smtp.login(user, pwd)
+                smtp.send_message(msg)
+        else:
+            with smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port) as smtp:
+                smtp.login(user, pwd)
+                smtp.send_message(msg)
+        logger.info("Email sent: %s", to_email)
+        return True
+    except Exception as e:
+        logger.exception("Email send failed (%s): %s", to_email, e)
+        return False
 
 
 def send_password_reset_email(to_email: str, token: str) -> bool:

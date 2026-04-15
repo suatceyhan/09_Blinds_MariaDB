@@ -42,6 +42,7 @@ import { PermissionsOrderStatusMatrixPage } from '@/features/settings/Permission
 import { SettingsBlindsLineMatricesPage } from '@/features/settings/SettingsBlindsLineMatricesPage'
 import { SettingsCompanyInfoPage } from '@/features/settings/SettingsCompanyInfoPage'
 import { SettingsIntegrationsPage } from '@/features/settings/SettingsIntegrationsPage'
+import { SettingsContractInvoicePage } from '@/features/settings/SettingsContractInvoicePage'
 import { SettingsUserRolesPage } from '@/features/settings/SettingsUserRolesPage'
 import { getAccessToken } from '@/lib/authStorage'
 
@@ -92,6 +93,7 @@ export function AppRoutes() {
         <Route path="settings/pending-applications" element={<SettingsPendingApplicationsPage />} />
         <Route path="settings/company-info" element={<SettingsCompanyInfoPage />} />
         <Route path="settings/integrations" element={<SettingsIntegrationsPage />} />
+        <Route path="settings/contract-invoice" element={<SettingsContractInvoicePage />} />
         <Route path="settings/blinds-line-matrices" element={<SettingsBlindsLineMatricesPage />} />
         <Route path="settings/blinds-category-matrix" element={<Navigate to="/settings/blinds-line-matrices" replace />} />
         <Route

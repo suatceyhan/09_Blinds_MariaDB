@@ -3,9 +3,10 @@ import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, CalendarDays, ShoppingBag } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
 import { formatVisitDateTimeList } from '@/lib/formatVisitDisplay'
-import { getJson, postJson } from '@/lib/api'
+import { apiBase, getJson, postJson } from '@/lib/api'
 import { AddressMapLink } from '@/components/ui/AddressMapLink'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
+import { getAccessToken } from '@/lib/authStorage'
 
 type BlindsRef = { id: string; name: string; window_count?: number | null; line_amount?: number | null }
 
@@ -85,6 +86,7 @@ export function EstimateViewPage() {
   const canViewOrders = Boolean(me?.permissions.includes('orders.view'))
   const [row, setRow] = useState<EstimateDetail | null | undefined>(undefined)
   const [err, setErr] = useState<string | null>(null)
+  const [docBusy, setDocBusy] = useState<null | 'send' | 'download'>(null)
   const [restoreOpen, setRestoreOpen] = useState(false)
   const [restorePending, setRestorePending] = useState(false)
 
@@ -120,6 +122,60 @@ export function EstimateViewPage() {
       setErr(e instanceof Error ? e.message : 'Restore failed')
     } finally {
       setRestorePending(false)
+    }
+  }
+
+  async function downloadDepositContract() {
+    if (!estimateId) return
+    const tok = getAccessToken()
+    if (!tok) {
+      setErr('You are signed out. Please sign in again.')
+      return
+    }
+    setErr(null)
+    setDocBusy('download')
+    try {
+      const res = await fetch(`${apiBase()}/estimates/${encodeURIComponent(estimateId)}/documents/deposit-contract`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${tok}` },
+      })
+      if (!res.ok) {
+        let msg = 'Could not download document.'
+        try {
+          const j = (await res.json()) as { detail?: string }
+          if (j?.detail) msg = j.detail
+        } catch {
+          // ignore
+        }
+        throw new Error(msg)
+      }
+      const html = await res.text()
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `deposit-invoice-contract-${estimateId}.html`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not download document')
+    } finally {
+      setDocBusy(null)
+    }
+  }
+
+  async function sendDepositContractEmail() {
+    if (!estimateId) return
+    setErr(null)
+    setDocBusy('send')
+    try {
+      await postJson(`/estimates/${estimateId}/documents/deposit-contract/send-email`, {})
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not send email')
+    } finally {
+      setDocBusy(null)
     }
   }
 
@@ -175,15 +231,36 @@ export function EstimateViewPage() {
               ) : null}
               {row.status?.toLowerCase() === 'pending' &&
               !row.is_deleted &&
-              canCreateOrder &&
               estimateId ? (
-                <Link
-                  to={`/orders?fromEstimate=${encodeURIComponent(estimateId)}`}
-                  className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-700"
-                >
-                  <ShoppingBag className="h-4 w-4" strokeWidth={2} />
-                  Make order
-                </Link>
+                <>
+                  <button
+                    type="button"
+                    disabled={!canEdit || docBusy !== null}
+                    onClick={() => void sendDepositContractEmail()}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                    title={!canEdit ? 'You do not have permission to send emails.' : 'Send by email'}
+                  >
+                    {docBusy === 'send' ? 'Sending…' : 'Send email'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={docBusy !== null}
+                    onClick={() => void downloadDepositContract()}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                    title="Download HTML"
+                  >
+                    {docBusy === 'download' ? 'Preparing…' : 'Download'}
+                  </button>
+                  {canCreateOrder ? (
+                    <Link
+                      to={`/orders?fromEstimate=${encodeURIComponent(estimateId)}`}
+                      className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-700"
+                    >
+                      <ShoppingBag className="h-4 w-4" strokeWidth={2} />
+                      Make order
+                    </Link>
+                  ) : null}
+                </>
               ) : null}
               {row.status?.toLowerCase() === 'converted' &&
               !row.is_deleted &&

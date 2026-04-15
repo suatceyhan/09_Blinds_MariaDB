@@ -50,6 +50,8 @@ APP_PERMISSION_SEEDS: list[tuple[str, str, str, int]] = [
     ("settings.integrations.edit", "Settings — Integrations — edit", "settings", 83),
     ("settings.blinds_line_matrices.view", "Settings — Blinds line matrices — view", "settings", 84),
     ("settings.blinds_line_matrices.edit", "Settings — Blinds line matrices — edit", "settings", 85),
+    ("settings.contract_invoice.view", "Settings — Contract / Invoice — view", "settings", 88),
+    ("settings.contract_invoice.edit", "Settings — Contract / Invoice — edit", "settings", 89),
     ("permissions.access.view", "Permissions hub — view", "permissions", 86),
     ("permissions.access.edit", "Permissions hub — edit", "permissions", 87),
     ("reports.access.view", "Reports — view", "reports", 110),

@@ -35,6 +35,7 @@ from app.domains.business_lookups.api import business_lookups_router
 from app.domains.settings.api.blinds_category_matrix import router as settings_blinds_matrix_router
 from app.domains.settings.api.blinds_extra_matrix import router as settings_blinds_extra_matrix_router
 from app.domains.settings.api.blinds_type_matrix import router as blinds_type_matrix_router
+from app.domains.settings.api.contract_invoice_docs import router as contract_invoice_docs_router
 from app.domains.settings.api.product_category_matrix import router as product_category_matrix_router
 from app.domains.settings.api.status_matrices import router as status_matrices_router
 from app.domains.company.api import companies_router, pending_company_registrations_router
@@ -127,6 +128,7 @@ app.include_router(settings_blinds_extra_matrix_router)
 app.include_router(status_matrices_router)
 app.include_router(product_category_matrix_router)
 app.include_router(blinds_type_matrix_router)
+app.include_router(contract_invoice_docs_router)
 app.include_router(user_audit_logs_router)
 app.include_router(system_audit_logs_router)
 app.include_router(roles_router)

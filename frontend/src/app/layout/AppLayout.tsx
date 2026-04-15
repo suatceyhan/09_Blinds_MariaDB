@@ -72,6 +72,7 @@ const pageIcons: Record<string, LucideIcon> = {
   'settings-company-info': Building2,
   'settings-integrations': CalendarDays,
   'settings-blinds-line-matrices': Grid3x3,
+  'settings-contract-invoice': FileSpreadsheet,
 }
 
 function canSeeNav(me: Me, viewPerm: string): boolean {

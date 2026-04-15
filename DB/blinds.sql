@@ -257,6 +257,21 @@ ALTER TABLE companies ADD COLUMN IF NOT EXISTS country_code VARCHAR(2) NULL;
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS region_code VARCHAR(8) NULL;
 
 UPDATE companies SET is_deleted = FALSE WHERE is_deleted IS NULL;
+
+-- ############################################################################
+-- # Contract / Invoice templates (per company)                                #
+-- ############################################################################
+
+CREATE TABLE IF NOT EXISTS company_document_templates (
+  company_id   UUID NOT NULL REFERENCES companies (id),
+  kind         VARCHAR(64) NOT NULL, -- deposit_contract | final_invoice
+  subject      VARCHAR(300) NOT NULL DEFAULT '',
+  body_html    TEXT NOT NULL DEFAULT '',
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  is_deleted   BOOLEAN NOT NULL DEFAULT FALSE,
+  CONSTRAINT pk_company_document_templates PRIMARY KEY (company_id, kind)
+);
 ALTER TABLE companies ALTER COLUMN is_deleted SET DEFAULT FALSE;
 ALTER TABLE companies ALTER COLUMN is_deleted SET NOT NULL;
 

@@ -52,6 +52,13 @@ export function SettingsHubPage() {
             can create or sync calendar events when the backend is configured.
           </p>
         </section>
+        <section className="space-y-2 border-t border-slate-100 pt-6">
+          <h2 className="text-base font-semibold text-slate-900">Contract / Invoice</h2>
+          <p className="text-sm text-slate-600">
+            Generate printable order documents (deposit invoice + contract, and final invoice). Templates are
+            populated from saved order, customer, and company data.
+          </p>
+        </section>
       </div>
     </div>
   )
