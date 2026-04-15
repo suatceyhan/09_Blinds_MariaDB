@@ -13,7 +13,7 @@ from html import escape
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -63,9 +63,10 @@ def _html_page(title: str, body: str) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <style>
+      @page {{ size: Letter; margin: 18mm 14mm; }}
       :root {{ --ink:#0f172a; --muted:#475569; --line:#cbd5e1; }}
       * {{ box-sizing: border-box; }}
-      body {{ margin: 0; padding: 24px; color: var(--ink); font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }}
+      body {{ margin: 0; padding: 0; color: var(--ink); font: 12px/1.25 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }}
       .page {{ max-width: 820px; margin: 0 auto; }}
       h1 {{ margin: 0 0 6px; font-size: 20px; letter-spacing: 0.2px; }}
       h2 {{ margin: 22px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }}
@@ -77,8 +78,8 @@ def _html_page(title: str, body: str) -> str:
       .v.inline {{ border-bottom: none; padding-bottom: 0; }}
       .mono {{ font-variant-numeric: tabular-nums; }}
       .small {{ font-size: 12px; color: var(--muted); }}
+      .avoid-break {{ break-inside: avoid; page-break-inside: avoid; }}
       @media print {{
-        body {{ padding: 0; }}
         .page {{ max-width: none; margin: 0; }}
       }}
     </style>
@@ -305,6 +306,22 @@ def render_contract_invoice_html(
     return subj, _html_page(page_title, body)
 
 
+def render_contract_invoice_pdf(
+    *,
+    db: Session,
+    company_id: str,
+    kind: str,
+    data: dict[str, str],
+    page_title: str,
+) -> tuple[str, bytes]:
+    from app.utils.pdf import html_to_pdf_bytes
+
+    subject, html = render_contract_invoice_html(
+        db=db, company_id=company_id, kind=kind, data=data, page_title=page_title
+    )
+    return subject, html_to_pdf_bytes(html=html)
+
+
 @router.get("/templates", response_model=list[TemplateOut])
 def list_templates(
     db: Annotated[Session, Depends(get_db)],
@@ -333,7 +350,7 @@ def save_template(
     _upsert_template(db, str(cid), kind, body)
     return None
 
-@router.get("/orders/{order_id}/deposit-contract", response_class=HTMLResponse)
+@router.get("/orders/{order_id}/deposit-contract")
 def deposit_invoice_contract(
     order_id: str,
     db: Annotated[Session, Depends(get_db)],
@@ -358,7 +375,7 @@ def deposit_invoice_contract(
     down = Decimal(str(ctx.get("downpayment") or 0)).quantize(Decimal("0.01"))
     bal = Decimal(str(ctx.get("balance") or 0)).quantize(Decimal("0.01"))
 
-    _subject, html = render_contract_invoice_html(
+    _subject, pdf = render_contract_invoice_pdf(
         db=db,
         company_id=str(cid),
         kind="deposit_contract",
@@ -385,10 +402,14 @@ def deposit_invoice_contract(
             "payment_date": "",
         },
     )
-    return HTMLResponse(content=html)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="deposit-invoice-contract-{oid}.pdf"'},
+    )
 
 
-@router.get("/orders/{order_id}/final-invoice", response_class=HTMLResponse)
+@router.get("/orders/{order_id}/final-invoice")
 def final_invoice(
     order_id: str,
     db: Annotated[Session, Depends(get_db)],
@@ -414,7 +435,7 @@ def final_invoice(
     bal = Decimal(str(ctx.get("balance") or 0)).quantize(Decimal("0.01"))
     paid = abs(bal) <= Decimal("0.01")
 
-    _subject, html = render_contract_invoice_html(
+    _subject, pdf = render_contract_invoice_pdf(
         db=db,
         company_id=str(cid),
         kind="final_invoice",
@@ -440,5 +461,9 @@ def final_invoice(
             "status": "PAID" if paid else "DUE",
         },
     )
-    return HTMLResponse(content=html)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="final-invoice-{oid}.pdf"'},
+    )
 

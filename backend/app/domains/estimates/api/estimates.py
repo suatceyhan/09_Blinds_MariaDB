@@ -8,7 +8,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -26,7 +26,7 @@ from app.domains.business_lookups.services.estimate_status_defaults import (
 )
 from app.domains.user.models.users import Users
 from app.integrations.google_calendar_service import try_push_estimate_to_google_calendar
-from app.domains.settings.api.contract_invoice_docs import render_contract_invoice_html
+from app.domains.settings.api.contract_invoice_docs import render_contract_invoice_pdf
 from app.utils.email import send_html_email
 
 
@@ -1336,7 +1336,7 @@ def _fetch_estimate_doc_context(db: Session, company_id: UUID, estimate_id: str)
     return dict(row) if row else None
 
 
-@router.get("/{estimate_id}/documents/deposit-contract", response_class=HTMLResponse)
+@router.get("/{estimate_id}/documents/deposit-contract")
 def estimate_deposit_contract_download(
     estimate_id: str,
     db: Annotated[Session, Depends(get_db)],
@@ -1368,7 +1368,7 @@ def estimate_deposit_contract_download(
             lines = []
     total_amt = _sum_estimate_line_amounts(lines)
 
-    _subj, html = render_contract_invoice_html(
+    _subj, pdf = render_contract_invoice_pdf(
         db=db,
         company_id=str(cid),
         kind="deposit_contract",
@@ -1395,7 +1395,11 @@ def estimate_deposit_contract_download(
             "payment_date": "",
         },
     )
-    return HTMLResponse(content=html)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="deposit-invoice-contract-{eid}.pdf"'},
+    )
 
 
 @router.post("/{estimate_id}/documents/deposit-contract/send-email", status_code=status.HTTP_204_NO_CONTENT)
@@ -1434,7 +1438,7 @@ def estimate_deposit_contract_send_email(
             lines = []
     total_amt = _sum_estimate_line_amounts(lines)
 
-    subject, html = render_contract_invoice_html(
+    subject, pdf = render_contract_invoice_pdf(
         db=db,
         company_id=str(cid),
         kind="deposit_contract",
@@ -1465,9 +1469,9 @@ def estimate_deposit_contract_send_email(
     ok = send_html_email(
         to_email=to_email,
         subject=subject,
-        html=html,
+        html="<p>Please see the attached invoice &amp; service agreement.</p>",
         text="Please see the attached invoice & service agreement.",
-        attachments=[(f"deposit-invoice-contract-{eid}.html", html.encode("utf-8"), "text/html")],
+        attachments=[(f"deposit-invoice-contract-{eid}.pdf", pdf, "application/pdf")],
     )
     if not ok:
         raise HTTPException(status_code=500, detail="Email could not be sent (SMTP not configured or failed).")

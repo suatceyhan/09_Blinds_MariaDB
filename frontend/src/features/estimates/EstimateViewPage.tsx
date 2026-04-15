@@ -149,12 +149,12 @@ export function EstimateViewPage() {
         }
         throw new Error(msg)
       }
-      const html = await res.text()
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+      const pdf = await res.arrayBuffer()
+      const blob = new Blob([pdf], { type: 'application/pdf' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `deposit-invoice-contract-${estimateId}.html`
+      a.download = `deposit-invoice-contract-${estimateId}.pdf`
       document.body.appendChild(a)
       a.click()
       a.remove()

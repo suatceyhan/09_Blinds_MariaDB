@@ -9,7 +9,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -27,7 +27,7 @@ from app.domains.business_lookups.services.blinds_catalog import (
     validate_blinds_lines_categories,
 )
 from app.integrations.google_calendar_service import try_push_order_installation_to_google_calendar
-from app.domains.settings.api.contract_invoice_docs import render_contract_invoice_html
+from app.domains.settings.api.contract_invoice_docs import render_contract_invoice_pdf
 from app.utils.email import send_html_email
 
 
@@ -1514,7 +1514,7 @@ def _fetch_order_doc_email_context(db: Session, company_id: UUID, order_id: str)
     return dict(row) if row else None
 
 
-@router.get("/{order_id}/documents/final-invoice", response_class=HTMLResponse)
+@router.get("/{order_id}/documents/final-invoice")
 def order_final_invoice_download(
     order_id: str,
     db: Annotated[Session, Depends(get_db)],
@@ -1539,7 +1539,7 @@ def order_final_invoice_download(
     bal = Decimal(str(ctx.get("balance") or 0)).quantize(Decimal("0.01"))
     paid = abs(bal) <= Decimal("0.01")
 
-    _subj, html = render_contract_invoice_html(
+    _subj, pdf = render_contract_invoice_pdf(
         db=db,
         company_id=str(cid),
         kind="final_invoice",
@@ -1565,7 +1565,11 @@ def order_final_invoice_download(
             "status": "PAID" if paid else "DUE",
         },
     )
-    return HTMLResponse(content=html)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename=\"final-invoice-{oid}.pdf\"'},
+    )
 
 
 @router.post("/{order_id}/documents/final-invoice/send-email", status_code=status.HTTP_204_NO_CONTENT)
@@ -1597,7 +1601,7 @@ def order_final_invoice_send_email(
     bal = Decimal(str(ctx.get("balance") or 0)).quantize(Decimal("0.01"))
     paid = abs(bal) <= Decimal("0.01")
 
-    subject, html = render_contract_invoice_html(
+    subject, pdf = render_contract_invoice_pdf(
         db=db,
         company_id=str(cid),
         kind="final_invoice",
@@ -1627,9 +1631,9 @@ def order_final_invoice_send_email(
     ok = send_html_email(
         to_email=to_email,
         subject=subject,
-        html=html,
+        html="<p>Please see the attached final invoice.</p>",
         text="Please see the attached final invoice.",
-        attachments=[(f"final-invoice-{oid}.html", html.encode("utf-8"), "text/html")],
+        attachments=[(f"final-invoice-{oid}.pdf", pdf, "application/pdf")],
     )
     if not ok:
         raise HTTPException(status_code=500, detail="Email could not be sent (SMTP not configured or failed).")
