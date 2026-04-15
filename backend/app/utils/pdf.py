@@ -10,22 +10,9 @@ from app.core.logger import logger
 def html_to_pdf_bytes(*, html: str) -> bytes:
     """Convert HTML to PDF.
 
-    Preferred engine: WeasyPrint.
-    Fallback engine: wkhtmltopdf (external binary) when WeasyPrint isn't available on Windows hosts.
+    Engine: wkhtmltopdf (external binary).
     """
-    try:
-        from weasyprint import HTML  # type: ignore
-    except Exception as e:  # pragma: no cover
-        logger.warning("WeasyPrint unavailable; falling back to wkhtmltopdf (%s)", e)
-        # Windows-friendly fallback.
-        return _wkhtmltopdf_bytes(html)
-
-    try:
-        return HTML(string=html).write_pdf()
-    except Exception as e:  # pragma: no cover
-        logger.warning("WeasyPrint failed; falling back to wkhtmltopdf (%s)", e)
-        # If WeasyPrint is installed but fails due to native deps, try wkhtmltopdf.
-        return _wkhtmltopdf_bytes(html)
+    return _wkhtmltopdf_bytes(html)
 
 
 def _wkhtmltopdf_bytes(html: str) -> bytes:
@@ -33,7 +20,7 @@ def _wkhtmltopdf_bytes(html: str) -> bytes:
     if not exe:
         raise RuntimeError(
             "PDF generation is not available on this server. "
-            "Install WeasyPrint system dependencies (Cairo/Pango) or install wkhtmltopdf and ensure it is on PATH."
+            "Install wkhtmltopdf and ensure it is on PATH."
         )
     try:
         with tempfile.TemporaryDirectory(prefix="wkhtmltopdf_") as td:
