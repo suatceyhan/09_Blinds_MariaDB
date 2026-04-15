@@ -1074,31 +1074,31 @@ export function EstimatesPage() {
                           <>
                             <Link
                               to={`/estimates/${r.id}`}
-                              className="inline-flex rounded-md p-1.5 text-slate-600 hover:bg-slate-100 hover:text-teal-700"
-                              title="View"
+                              className="inline-flex rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
+                              title="View estimate"
                               aria-label="View estimate"
                             >
-                              <Eye className="h-4 w-4" />
+                              <Eye className="h-4 w-4" strokeWidth={2} />
                             </Link>
                             <button
                               type="button"
-                              className="inline-flex rounded-md p-1.5 text-slate-600 hover:bg-teal-50 hover:text-teal-800"
-                              title="Restore"
+                              className="rounded-lg border border-teal-200 p-1.5 text-teal-800 hover:bg-teal-50"
+                              title="Restore estimate"
                               aria-label="Restore estimate"
                               onClick={() => setRestoreTarget(r)}
                             >
-                              <RotateCcw className="h-4 w-4" />
+                              <RotateCcw className="h-4 w-4" strokeWidth={2} />
                             </button>
                           </>
                         ) : r.status?.toLowerCase() === 'converted' ? (
                           <>
                             <Link
                               to={`/estimates/${r.id}`}
-                              className="inline-flex rounded-md p-1.5 text-slate-600 hover:bg-slate-100 hover:text-teal-700"
+                              className="inline-flex rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
                               title="View estimate"
                               aria-label="View estimate"
                             >
-                              <Eye className="h-4 w-4" />
+                              <Eye className="h-4 w-4" strokeWidth={2} />
                             </Link>
                           </>
                         ) : (
@@ -1129,21 +1129,29 @@ export function EstimatesPage() {
                               </Link>
                             ) : null}
                             <Link
+                              to={`/estimates/${r.id}`}
+                              className="inline-flex rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
+                              title="View estimate"
+                              aria-label="View estimate"
+                            >
+                              <Eye className="h-4 w-4" strokeWidth={2} />
+                            </Link>
+                            <Link
                               to={`/estimates/${r.id}/edit`}
-                              className="inline-flex rounded-md p-1.5 text-slate-600 hover:bg-slate-100 hover:text-teal-700"
-                              title="Edit"
+                              className="inline-flex rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
+                              title="Edit estimate"
                               aria-label="Edit estimate"
                             >
-                              <Pencil className="h-4 w-4" />
+                              <Pencil className="h-4 w-4" strokeWidth={2} />
                             </Link>
                             <button
                               type="button"
-                              className="inline-flex rounded-md p-1.5 text-slate-600 hover:bg-red-50 hover:text-red-700"
-                              title="Remove"
+                              className="rounded-lg border border-red-200 p-1.5 text-red-700 hover:bg-red-50"
+                              title="Remove estimate"
                               aria-label="Remove estimate"
                               onClick={() => setDeleteTarget(r)}
                             >
-                              <Trash2 className="h-4 w-4" />
+                              <Trash2 className="h-4 w-4" strokeWidth={2} />
                             </button>
                           </>
                         )}

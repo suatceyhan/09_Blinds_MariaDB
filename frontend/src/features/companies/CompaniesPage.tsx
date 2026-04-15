@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Building2, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { Building2, Eye, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { AddressAutocompleteInput } from '@/components/ui/AddressAutocompleteInput'
 import { ADDRESS_FORMAT_HINT, AddressMapLink } from '@/components/ui/AddressMapLink'
 import { companyCountrySelectOptions } from '@/lib/addressCountryOptions'
@@ -843,7 +843,7 @@ export function CompaniesPage() {
               <th className="whitespace-nowrap px-2 py-3 sm:px-4">Phone</th>
               <th className="whitespace-nowrap px-2 py-3 sm:px-4">Website</th>
               {isSuperadmin ? (
-                <th className="whitespace-nowrap px-2 py-3 text-right sm:px-4">Actions</th>
+                <th className="min-w-[13rem] whitespace-nowrap px-2 py-3 text-right sm:px-4">Actions</th>
               ) : null}
             </tr>
           </thead>
@@ -958,33 +958,41 @@ export function CompaniesPage() {
                       )}
                     </td>
                     {isSuperadmin ? (
-                      <td className="align-top px-2 py-3 sm:px-4">
-                        <div className="flex flex-wrap items-center justify-end gap-1">
+                      <td className="align-top px-2 py-3 text-right sm:px-4">
+                        <div className="flex flex-col items-end gap-1 sm:flex-row sm:flex-wrap sm:justify-end sm:gap-x-2">
+                          <Link
+                            to={`/companies/${r.id}`}
+                            className="inline-flex rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
+                            title="View company"
+                            aria-label="View company"
+                          >
+                            <Eye className="h-4 w-4" strokeWidth={2} />
+                          </Link>
                           <button
                             type="button"
                             onClick={() => openEdit(r)}
-                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                            className="rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
+                            title="Edit company"
                           >
-                            <Pencil className="h-3.5 w-3.5" />
-                            Edit
+                            <Pencil className="h-4 w-4" strokeWidth={2} />
                           </button>
                           {inactive ? (
                             <button
                               type="button"
                               onClick={() => setRestoreId(r.id)}
-                              className="inline-flex items-center gap-1 rounded-lg border border-teal-200 bg-white px-2 py-1 text-xs font-medium text-teal-800 hover:bg-teal-50"
+                              className="rounded-lg border border-teal-200 p-1.5 text-teal-800 hover:bg-teal-50"
+                              title="Restore company"
                             >
-                              <RotateCcw className="h-3.5 w-3.5" />
-                              Restore
+                              <RotateCcw className="h-4 w-4" strokeWidth={2} />
                             </button>
                           ) : (
                             <button
                               type="button"
                               onClick={() => setDeleteTarget(r)}
-                              className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                              className="rounded-lg border border-red-200 p-1.5 text-red-700 hover:bg-red-50"
+                              title="Delete company"
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
-                              Delete
+                              <Trash2 className="h-4 w-4" strokeWidth={2} />
                             </button>
                           )}
                         </div>

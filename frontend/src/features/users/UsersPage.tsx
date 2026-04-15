@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Building2,
+  Eye,
   Link2,
   Pencil,
   RotateCcw,
@@ -756,7 +757,9 @@ export function UsersPage() {
                 <th className="px-4 py-3">Phone</th>
                 <th className="px-4 py-3">Company</th>
                 <th className="px-4 py-3">Roles</th>
-                {canEdit ? <th className="px-4 py-3 text-right">Actions</th> : null}
+                {canEdit ? (
+                  <th className="min-w-[13rem] whitespace-nowrap px-4 py-3 text-right sm:px-4">Actions</th>
+                ) : null}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-800">
@@ -893,17 +896,24 @@ export function UsersPage() {
                       </span>
                     </td>
                     {canEdit ? (
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex flex-wrap justify-end gap-1">
+                      <td className="align-top px-4 py-3 text-right sm:px-4">
+                        <div className="flex flex-col items-end gap-1 sm:flex-row sm:flex-wrap sm:justify-end sm:gap-x-2">
+                          <Link
+                            to={`/users/${r.id}`}
+                            className="inline-flex rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
+                            title="View user"
+                            aria-label="View user"
+                          >
+                            <Eye className="h-4 w-4" strokeWidth={2} />
+                          </Link>
                           {canMutateRow ? (
                             <button
                               type="button"
                               onClick={() => openEdit(r)}
-                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                              title="Edit"
+                              className="rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
+                              title="Edit user"
                             >
-                              <Pencil className="h-3.5 w-3.5" />
-                              Edit
+                              <Pencil className="h-4 w-4" strokeWidth={2} />
                             </button>
                           ) : null}
                           {canMutateRow && !r.is_deleted && r.id !== me.id ? (
@@ -916,11 +926,10 @@ export function UsersPage() {
                                   display: rowDisplayLabel(r),
                                 })
                               }
-                              className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-50"
-                              title="Deactivate"
+                              className="rounded-lg border border-red-200 p-1.5 text-red-700 hover:bg-red-50"
+                              title="Deactivate user"
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
-                              Deactivate
+                              <Trash2 className="h-4 w-4" strokeWidth={2} />
                             </button>
                           ) : null}
                           {canMutateRow && isSuperadmin && showDeleted && r.is_deleted ? (
@@ -933,11 +942,10 @@ export function UsersPage() {
                                   display: rowDisplayLabel(r),
                                 })
                               }
-                              className="inline-flex items-center gap-1 rounded-lg border border-teal-200 px-2 py-1 text-xs font-medium text-teal-800 hover:bg-teal-50"
-                              title="Restore"
+                              className="rounded-lg border border-teal-200 p-1.5 text-teal-800 hover:bg-teal-50"
+                              title="Restore user"
                             >
-                              <RotateCcw className="h-3.5 w-3.5" />
-                              Restore
+                              <RotateCcw className="h-4 w-4" strokeWidth={2} />
                             </button>
                           ) : null}
                           {isSuperadmin && canMutateRow ? (
@@ -947,10 +955,11 @@ export function UsersPage() {
                                 setLinkUserId(r.id)
                                 setLinkCompanyId('')
                               }}
-                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                              className="rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
+                              title="Link company"
+                              aria-label="Link company"
                             >
-                              <Link2 className="h-3.5 w-3.5" />
-                              Link company
+                              <Link2 className="h-4 w-4" strokeWidth={2} />
                             </button>
                           ) : null}
                           {!canMutateRow ? (
