@@ -190,7 +190,11 @@ def _sync_order_done_status_with_balance(db: Session, company_id: UUID, order_id
                 {"cid": str(company_id), "oid": oid, "nsid": done_id},
             )
     elif not zero and is_done:
-        fb = _pick_fallback_order_status_leaving_done(db, company_id)
+        # Workflow: fully-paid Done → removing payments should return to Ready for installation,
+        # not the first matrix row (often "New order").
+        fb = _ready_for_install_order_status_id(db, company_id) or _pick_fallback_order_status_leaving_done(
+            db, company_id
+        )
         if fb:
             db.execute(
                 text(

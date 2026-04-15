@@ -585,6 +585,35 @@ function fmtDisplayDateTime(iso: string | null | undefined): string {
   })
 }
 
+function startOfLocalCalendarDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+}
+
+/** Parse API date or ISO timestamp to local calendar date (midnight). */
+function parseLocalCalendarDate(raw: string | null | undefined): Date | null {
+  if (!raw?.trim()) return null
+  const s = raw.trim()
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(s)
+  if (ymd) {
+    const y = Number(ymd[1])
+    const m = Number(ymd[2]) - 1
+    const day = Number(ymd[3])
+    return new Date(y, m, day)
+  }
+  const d = new Date(s)
+  if (Number.isNaN(d.getTime())) return null
+  return startOfLocalCalendarDay(d)
+}
+
+/** Whole calendar days from the given local day through today (0 if same day). */
+function fmtWholeCalendarDaysElapsedSince(raw: string | null | undefined): string {
+  const from = parseLocalCalendarDate(raw)
+  if (!from) return '—'
+  const today = startOfLocalCalendarDay(new Date())
+  const n = Math.round((today.getTime() - startOfLocalCalendarDay(from).getTime()) / 86400000)
+  return String(Math.max(0, n))
+}
+
 function statusCodeLabel(code: string): string {
   const map: Record<string, string> = {
     order_created: 'Order created',
@@ -2080,19 +2109,25 @@ export function OrdersPage() {
           </div>
         </div>
         <div className="w-full overflow-x-auto overscroll-x-contain">
-          <table className="w-full min-w-[46rem] text-left text-sm [word-break:break-word]">
+          <table className="w-full min-w-[50rem] text-left text-sm [word-break:break-word]">
             <thead className="border-b border-slate-100 bg-slate-50/80 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Customer</th>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Status</th>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Agreement date</th>
+                <th
+                  className="whitespace-nowrap px-2 py-3 sm:px-4"
+                  title="Calendar days from agreement date through today"
+                >
+                  Day Past
+                </th>
+                <th className="whitespace-nowrap px-2 py-3 sm:px-4">Installation date</th>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4" title="Order subtotal plus tax">
                   Total
                 </th>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4" title="Down payment plus recorded payments">
                   Paid
                 </th>
-                <th className="whitespace-nowrap px-2 py-3 sm:px-4">Installation date</th>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Balance</th>
                 <th className="min-w-[13rem] whitespace-nowrap px-2 py-3 text-right sm:px-4">Actions</th>
               </tr>
@@ -2100,13 +2135,13 @@ export function OrdersPage() {
             <tbody className="divide-y divide-slate-100 text-slate-800">
               {loading || rows === null ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
                     Loading…
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
                     No orders yet. Use New order or Make order from an estimate.
                   </td>
                 </tr>
@@ -2142,13 +2177,16 @@ export function OrdersPage() {
                       </div>
                     </td>
                     <td className="px-2 py-3 text-slate-600 sm:px-4">{fmtDisplayDate(r.agreement_date)}</td>
+                    <td className="px-2 py-3 text-right tabular-nums text-slate-600 sm:px-4">
+                      {fmtWholeCalendarDaysElapsedSince(r.agreement_date)}
+                    </td>
+                    <td className="px-2 py-3 text-slate-600 sm:px-4">
+                      {fmtDisplayDateTime(r.installation_scheduled_start_at)}
+                    </td>
                     <td className="px-2 py-3 font-medium sm:px-4">
                       {fmtTotalIncludingTax(r.total_amount, r.tax_amount)}
                     </td>
                     <td className="px-2 py-3 sm:px-4">{orderListPaidDisplay(r)}</td>
-                    <td className="px-2 py-3 text-slate-600 sm:px-4">
-                      {fmtDisplayDateTime(r.installation_scheduled_start_at)}
-                    </td>
                     <td className="px-2 py-3 sm:px-4">{fmtMoney(r.balance)}</td>
                     <td className="align-top px-2 py-3 text-right sm:px-4">
                       <div className="flex flex-col items-end gap-1 sm:flex-row sm:flex-wrap sm:justify-end sm:gap-x-2">

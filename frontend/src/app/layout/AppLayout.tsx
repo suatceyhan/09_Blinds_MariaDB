@@ -17,6 +17,8 @@ import {
   ListOrdered,
   LogOut,
   Menu,
+  PanelLeft,
+  PanelLeftClose,
   Shield,
   SlidersHorizontal,
   Tag,
@@ -91,6 +93,17 @@ type AccordionNavSectionId =
   | 'settings-group'
   | 'permissions-group'
 
+const SIDEBAR_NAV_COLLAPSED_KEY = 'blinds_sidebar_nav_collapsed'
+
+function readInitialSidebarNavCollapsed(): boolean {
+  if (typeof globalThis.window === 'undefined') return false
+  try {
+    return globalThis.localStorage.getItem(SIDEBAR_NAV_COLLAPSED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 function NavSubtree({ nodes, me, depth }: { nodes: PageNode[]; me: Me; depth: number }) {
   const filtered = nodes.filter((node) => canSeeNav(me, node.permissions.view))
   return (
@@ -133,6 +146,7 @@ function CollapsibleNavGroup({
   sectionId,
   setExpandedNavId,
   headerVisible,
+  navCollapsed,
   children,
 }: {
   page: PageNode
@@ -142,6 +156,8 @@ function CollapsibleNavGroup({
   setExpandedNavId: Dispatch<SetStateAction<AccordionNavSectionId | null>>
   /** When set, replaces ``canSeeNav(me, page.permissions.view)`` for the section header row. */
   headerVisible?: (session: Me) => boolean
+  /** Desktop (lg+) icon rail: no submenu list until expanded. */
+  navCollapsed: boolean
   children: React.ReactNode
 }) {
   const navigate = useNavigate()
@@ -156,6 +172,10 @@ function CollapsibleNavGroup({
     pathNorm === base || (base !== '/' && pathNorm.startsWith(`${base}/`))
 
   function handleHeaderClick() {
+    if (navCollapsed) {
+      navigate(to)
+      return
+    }
     if (!open) {
       navigate(to)
       setExpandedNavId(sectionId)
@@ -172,28 +192,35 @@ function CollapsibleNavGroup({
       <button
         type="button"
         onClick={handleHeaderClick}
-        aria-expanded={open}
+        aria-expanded={navCollapsed ? undefined : open}
+        title={page.name}
         aria-label={
-          open
-            ? `Collapse ${page.name} submenu`
-            : `Open ${page.name} submenu and go to overview`
+          navCollapsed
+            ? `Open ${page.name} (overview)`
+            : open
+              ? `Collapse ${page.name} submenu`
+              : `Open ${page.name} submenu and go to overview`
         }
         className={[
           'flex w-full min-h-10 items-center gap-2 rounded-lg py-2 pr-3 text-left text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40 focus-visible:ring-offset-2',
+          navCollapsed ? 'lg:justify-center lg:px-0 lg:pr-0' : '',
           rowActiveClass,
           rowHoverClass,
         ].join(' ')}
       >
-        <span className="flex w-8 shrink-0 items-center justify-center text-slate-500" aria-hidden>
+        <span
+          className={`flex w-8 shrink-0 items-center justify-center text-slate-500 ${navCollapsed ? 'lg:hidden' : ''}`}
+          aria-hidden
+        >
           <ChevronDown
             className={`h-4 w-4 transition-transform ${open ? '' : '-rotate-90'}`}
             strokeWidth={2}
           />
         </span>
         <Icon className="h-4 w-4 shrink-0 opacity-70" strokeWidth={2} />
-        <span className="flex-1">{page.name}</span>
+        <span className={`flex-1 ${navCollapsed ? 'lg:sr-only' : ''}`}>{page.name}</span>
       </button>
-      {open ? <div className="ml-2 border-l border-slate-200 pl-1">{children}</div> : null}
+      {open && !navCollapsed ? <div className="ml-2 border-l border-slate-200 pl-1">{children}</div> : null}
     </div>
   )
 }
@@ -351,7 +378,7 @@ function UserAccountMenu({
   )
 }
 
-function PrimaryNavLink({ page, me }: { page: PageNode; me: Me }) {
+function PrimaryNavLink({ page, me, navCollapsed }: { page: PageNode; me: Me; navCollapsed: boolean }) {
   if (!canSeeNav(me, page.permissions.view)) return null
   const Icon = pageIcons[page.id] ?? LayoutDashboard
   const to = page.basePath ?? '#'
@@ -359,10 +386,12 @@ function PrimaryNavLink({ page, me }: { page: PageNode; me: Me }) {
     <NavLink
       to={to}
       end={to === '/'}
-      style={{ paddingLeft: 10 }}
+      title={page.name}
+      style={{ paddingLeft: navCollapsed ? undefined : 10 }}
       className={({ isActive }) =>
         [
           'flex items-center gap-3 rounded-lg py-2.5 pr-3 text-sm font-medium transition-colors',
+          navCollapsed ? 'lg:justify-center lg:px-2 lg:pl-2' : '',
           isActive
             ? 'bg-teal-50 text-teal-800'
             : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
@@ -370,7 +399,7 @@ function PrimaryNavLink({ page, me }: { page: PageNode; me: Me }) {
       }
     >
       <Icon className="h-4 w-4 shrink-0 opacity-70" strokeWidth={2} />
-      <span className="flex-1">{page.name}</span>
+      <span className={`flex-1 ${navCollapsed ? 'lg:sr-only' : ''}`}>{page.name}</span>
     </NavLink>
   )
 }
@@ -381,6 +410,20 @@ export function AppLayout() {
   const title = appTitle()
   const [me, setMe] = useState<Me | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  /** Desktop (lg+): narrow icon rail; persisted in localStorage. */
+  const [navCollapsed, setNavCollapsed] = useState(readInitialSidebarNavCollapsed)
+
+  function toggleNavCollapsed() {
+    setNavCollapsed((v) => {
+      const next = !v
+      try {
+        globalThis.localStorage.setItem(SIDEBAR_NAV_COLLAPSED_KEY, next ? '1' : '0')
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }
 
   /** Akordiyon: aynı anda tek grup genişler; rota hangi ağaçtaysa o açılır. */
   type ExpandedNavSection = AccordionNavSectionId | null
@@ -513,22 +556,46 @@ export function AppLayout() {
   return (
     <div className="flex min-h-screen bg-slate-50 text-slate-900">
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-slate-200/80 bg-white shadow-sm transition-transform lg:static lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-slate-200/80 bg-white shadow-sm transition-[transform,width] duration-200 ease-out lg:static lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        } ${navCollapsed ? 'lg:w-[4.5rem]' : 'lg:w-64'}`}
       >
-        <div className="flex h-16 items-center gap-2 border-b border-slate-100 px-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-600 text-sm font-bold text-white">
-            {title.slice(0, 1).toUpperCase()}
+        <div className="flex h-16 items-center justify-between gap-2 border-b border-slate-100 px-5 lg:px-3">
+          <div
+            className={`flex min-w-0 items-center gap-2 ${navCollapsed ? 'lg:flex-1 lg:justify-center' : 'flex-1'}`}
+          >
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-600 text-sm font-bold text-white">
+              {title.slice(0, 1).toUpperCase()}
+            </div>
+            <div className={`min-w-0 flex-1 leading-tight ${navCollapsed ? 'lg:hidden' : ''}`}>
+              <p className="truncate text-sm font-semibold text-slate-800">{title}</p>
+              <p className="text-xs text-slate-500">Blinds</p>
+            </div>
           </div>
-          <div className="leading-tight">
-            <p className="text-sm font-semibold text-slate-800">{title}</p>
-            <p className="text-xs text-slate-500">Blinds</p>
-          </div>
+          <button
+            type="button"
+            className="hidden shrink-0 rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 lg:flex"
+            onClick={toggleNavCollapsed}
+            aria-expanded={!navCollapsed}
+            aria-controls="app-primary-nav"
+            title={navCollapsed ? 'Expand menu' : 'Collapse menu'}
+            aria-label={navCollapsed ? 'Expand sidebar menu' : 'Collapse sidebar menu'}
+          >
+            {navCollapsed ? (
+              <PanelLeft className="h-5 w-5" strokeWidth={2} aria-hidden />
+            ) : (
+              <PanelLeftClose className="h-5 w-5" strokeWidth={2} aria-hidden />
+            )}
+          </button>
         </div>
-        <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
+        <nav
+          id="app-primary-nav"
+          className="flex flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden p-3"
+        >
           {me
-            ? primaryRoots.map((p) => <PrimaryNavLink key={p.id} page={p} me={me} />)
+            ? primaryRoots.map((p) => (
+                <PrimaryNavLink key={p.id} page={p} me={me} navCollapsed={navCollapsed} />
+              ))
             : null}
           {me && lookupsRoot ? (
             <CollapsibleNavGroup
@@ -538,6 +605,7 @@ export function AppLayout() {
               sectionId="lookups-root"
               setExpandedNavId={setExpandedNavId}
               headerVisible={canSeeLookupsAccordion}
+              navCollapsed={navCollapsed}
             >
               <NavSubtree nodes={lookupsRoot.children ?? []} me={me} depth={0} />
             </CollapsibleNavGroup>
@@ -549,6 +617,7 @@ export function AppLayout() {
               open={expandedNavId === 'reports-root'}
               sectionId="reports-root"
               setExpandedNavId={setExpandedNavId}
+              navCollapsed={navCollapsed}
             >
               <NavSubtree nodes={reportsRoot.children ?? []} me={me} depth={0} />
             </CollapsibleNavGroup>
@@ -560,6 +629,7 @@ export function AppLayout() {
               open={expandedNavId === 'settings-group'}
               sectionId="settings-group"
               setExpandedNavId={setExpandedNavId}
+              navCollapsed={navCollapsed}
             >
               <NavSubtree nodes={settingsRoot.children ?? []} me={me} depth={0} />
             </CollapsibleNavGroup>
@@ -571,12 +641,15 @@ export function AppLayout() {
               open={expandedNavId === 'permissions-group'}
               sectionId="permissions-group"
               setExpandedNavId={setExpandedNavId}
+              navCollapsed={navCollapsed}
             >
               <NavSubtree nodes={permissionsRoot.children ?? []} me={me} depth={0} />
             </CollapsibleNavGroup>
           ) : null}
         </nav>
-        <div className="border-t border-slate-100 p-3 text-xs text-slate-500">
+        <div
+          className={`border-t border-slate-100 p-3 text-xs text-slate-500 ${navCollapsed ? 'lg:hidden' : ''}`}
+        >
           Branding: set <code className="text-slate-700">VITE_APP_TITLE</code>
         </div>
       </aside>
