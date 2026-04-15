@@ -14,7 +14,9 @@ import {
 import { useAuthSession } from '@/app/authSession'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
+import { VisitStartQuarterPicker } from '@/components/ui/VisitStartQuarterPicker'
 import { deleteJson, getJson, patchJson, postJson, postMultipartJson } from '@/lib/api'
+import { snapWallToQuarterMinutes } from '@/lib/visitSchedule'
 
 type CustomerOpt = { id: string; name: string; surname?: string | null }
 
@@ -98,6 +100,12 @@ function isoToDatetimeLocalValue(iso: string | null | undefined): string {
   if (Number.isNaN(d.getTime())) return ''
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** `YYYY-MM-DDTHH:mm` wall for VisitStartQuarterPicker from API ISO. */
+function installationWallFromIso(iso: string | null | undefined): string {
+  const local = isoToDatetimeLocalValue(iso)
+  return local ? snapWallToQuarterMinutes(local) : ''
 }
 
 function datetimeLocalToIso(local: string): string | null {
@@ -365,11 +373,6 @@ function pickOrderStatusForBucket(statuses: OrderStatusOpt[], bucket: OrderStatu
   return [...matches].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))[0]
 }
 
-function findDoneOrderStatusOpt(statuses: OrderStatusOpt[] | null): OrderStatusOpt | null {
-  if (!statuses?.length) return null
-  return pickOrderStatusForBucket(statuses, 'done')
-}
-
 type OrderAdvanceAction =
   | {
       kind: 'patch'
@@ -614,9 +617,10 @@ function orderListPaidDisplay(r: OrderRow): string {
   return fmtMoney(safeRound2(down + extra))
 }
 
-/** Active row with balance fully paid (for list highlight). */
-function orderListRowBalancePaidInFull(r: OrderRow): boolean {
+/** List row highlight: Done status or zero balance (kept in sync on the server). */
+function orderListRowDoneSyncedHighlight(r: OrderRow): boolean {
   if (r.active === false) return false
+  if (orderStatusWorkflowBucketFromName((r.status_order_label ?? '').trim()) === 'done') return true
   const b = parseMoneyAmount(r.balance)
   return b !== null && Math.abs(b) <= 0.005
 }
@@ -1103,12 +1107,14 @@ export function OrdersPage() {
   const [editInstallationStart, setEditInstallationStart] = useState('')
   const [editInstallationEnd, setEditInstallationEnd] = useState('')
   const [orderStatuses, setOrderStatuses] = useState<OrderStatusOpt[] | null>(null)
-  const [advanceOrderRowId, setAdvanceOrderRowId] = useState<string | null>(null)
-  const [suggestDoneAfterPayment, setSuggestDoneAfterPayment] = useState<{
-    orderId: string
-    doneStatusId: string
+  const [advanceConfirm, setAdvanceConfirm] = useState<{
+    row: OrderRow
+    act: Extract<OrderAdvanceAction, { kind: 'patch' }>
   } | null>(null)
-  const [suggestDoneAfterPayPending, setSuggestDoneAfterPayPending] = useState(false)
+  const [advanceConfirmPending, setAdvanceConfirmPending] = useState(false)
+  const [viewInstallationStart, setViewInstallationStart] = useState('')
+  const [viewInstallationEnd, setViewInstallationEnd] = useState('')
+  const [viewInstallationSaving, setViewInstallationSaving] = useState(false)
   const [orderBalanceInfo, setOrderBalanceInfo] = useState<{
     orderId: string
     customerDisplay: string
@@ -1328,22 +1334,6 @@ export function OrdersPage() {
       setPaymentModalOpen(false)
       setPaymentAmountInput('')
       await reloadList()
-      const bal = parseMoneyAmount(d.balance)
-      const doneOpt = findDoneOrderStatusOpt(orderStatuses)
-      const curName =
-        (orderStatuses ?? []).find((x) => x.id === (d.status_orde_id ?? '').trim())?.name ??
-        d.status_order_label ??
-        ''
-      const curBucket = orderStatusWorkflowBucketFromName(curName)
-      if (
-        doneOpt &&
-        curBucket !== 'done' &&
-        curBucket !== 'cancel' &&
-        bal !== null &&
-        bal <= 0.005
-      ) {
-        setSuggestDoneAfterPayment({ orderId: oid, doneStatusId: doneOpt.id })
-      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not record payment')
     } finally {
@@ -1351,28 +1341,7 @@ export function OrdersPage() {
     }
   }
 
-  async function confirmSuggestDoneAfterPayment() {
-    if (!suggestDoneAfterPayment || !canEdit) return
-    const oid = suggestDoneAfterPayment.orderId
-    const sid = suggestDoneAfterPayment.doneStatusId
-    setSuggestDoneAfterPayPending(true)
-    setErr(null)
-    try {
-      await patchJson(`/orders/${oid}`, { status_orde_id: sid })
-      setSuggestDoneAfterPayment(null)
-      await reloadList()
-      if (viewOrderId === oid) {
-        const d = await getJson<OrderDetail>(`/orders/${oid}`)
-        setViewOrder(d)
-      }
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not update order status')
-    } finally {
-      setSuggestDoneAfterPayPending(false)
-    }
-  }
-
-  async function runAdvanceOrderStatus(row: OrderRow) {
+  function openAdvanceStatusFromRow(row: OrderRow) {
     const act = resolveOrderAdvanceAction(row, orderStatuses)
     if (!act || !canEdit) return
     if (act.kind === 'done_info') {
@@ -1384,10 +1353,17 @@ export function OrdersPage() {
       })
       return
     }
-    setAdvanceOrderRowId(row.id)
+    setAdvanceConfirm({ row, act })
+  }
+
+  async function confirmAdvanceOrderStatus() {
+    if (!advanceConfirm || !canEdit) return
+    const { row, act } = advanceConfirm
+    setAdvanceConfirmPending(true)
     setErr(null)
     try {
       await patchJson(`/orders/${row.id}`, { status_orde_id: act.status_orde_id })
+      setAdvanceConfirm(null)
       await reloadList()
       if (viewOrderId === row.id) {
         const d = await getJson<OrderDetail>(`/orders/${row.id}`)
@@ -1396,7 +1372,32 @@ export function OrdersPage() {
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not update order status')
     } finally {
-      setAdvanceOrderRowId(null)
+      setAdvanceConfirmPending(false)
+    }
+  }
+
+  async function saveViewInstallation() {
+    if (!viewOrderId || !canEdit || !viewOrder) return
+    const startIso = datetimeLocalToIso(viewInstallationStart.trim())
+    if (!startIso) {
+      setErr('Select installation start date and time.')
+      return
+    }
+    setViewInstallationSaving(true)
+    setErr(null)
+    try {
+      const endIso = datetimeLocalToIso(viewInstallationEnd.trim())
+      await patchJson(`/orders/${viewOrderId}`, {
+        installation_scheduled_start_at: startIso,
+        ...(endIso ? { installation_scheduled_end_at: endIso } : { installation_scheduled_end_at: null }),
+      })
+      const d = await getJson<OrderDetail>(`/orders/${viewOrderId}`)
+      setViewOrder(d)
+      await reloadList()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not save installation schedule')
+    } finally {
+      setViewInstallationSaving(false)
     }
   }
 
@@ -1507,6 +1508,16 @@ export function OrdersPage() {
   }, [viewOrderId, canView])
 
   useEffect(() => {
+    if (!viewOrder) {
+      setViewInstallationStart('')
+      setViewInstallationEnd('')
+      return
+    }
+    setViewInstallationStart(installationWallFromIso(viewOrder.installation_scheduled_start_at))
+    setViewInstallationEnd(installationWallFromIso(viewOrder.installation_scheduled_end_at))
+  }, [viewOrder])
+
+  useEffect(() => {
     if (!editOrderId || !canEdit) {
       setEditDraft(null)
       setEditCustomerId('')
@@ -1541,8 +1552,8 @@ export function OrdersPage() {
             status_order_label_fallback: d.status_order_label?.trim() ?? null,
           })
           setEditExtraPaid(safeRound2(parseMoneyAmount(d.final_payment) ?? 0))
-          setEditInstallationStart(isoToDatetimeLocalValue(d.installation_scheduled_start_at))
-          setEditInstallationEnd(isoToDatetimeLocalValue(d.installation_scheduled_end_at))
+          setEditInstallationStart(installationWallFromIso(d.installation_scheduled_start_at))
+          setEditInstallationEnd(installationWallFromIso(d.installation_scheduled_end_at))
           setEditAttachments(d.attachments ?? [])
         }
       } catch {
@@ -2117,14 +2128,14 @@ export function OrdersPage() {
               ) : (
                 rows.map((r) => {
                   const advance = resolveOrderAdvanceAction(r, orderStatuses)
-                  const paidInFull = orderListRowBalancePaidInFull(r)
+                  const doneSyncedHighlight = orderListRowDoneSyncedHighlight(r)
                   return (
                   <tr
                     key={r.id}
                     className={
                       r.active === false
                         ? 'bg-slate-50/90 opacity-80 hover:bg-slate-50/80'
-                        : paidInFull
+                        : doneSyncedHighlight
                           ? 'bg-emerald-50/50 hover:bg-emerald-50/75'
                           : 'hover:bg-slate-50/80'
                     }
@@ -2154,16 +2165,33 @@ export function OrdersPage() {
                     <td className="px-2 py-3 sm:px-4">{fmtMoney(r.balance)}</td>
                     <td className="align-top px-2 py-3 text-right sm:px-4">
                       <div className="flex flex-col items-end gap-1 sm:flex-row sm:flex-wrap sm:justify-end sm:gap-x-2">
+                        {canEdit && r.active !== false && advance ? (
+                          <button
+                            type="button"
+                            title={
+                              advance.kind === 'done_info'
+                                ? 'Open order details and show balance due (mark Done from Edit when ready)'
+                                : `Set status to ${advance.nextLabel}`
+                            }
+                            disabled={advanceConfirmPending && advanceConfirm?.row.id === r.id}
+                            className={`inline-flex items-center justify-center whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-semibold shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 disabled:cursor-not-allowed disabled:opacity-60 ${orderAdvanceTextButtonClass[orderAdvanceStage(advance)]}`}
+                            onClick={() => openAdvanceStatusFromRow(r)}
+                          >
+                            {advanceConfirmPending && advanceConfirm?.row.id === r.id
+                              ? 'Updating…'
+                              : orderAdvanceButtonLabel(advance)}
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          title="View details"
+                          className="rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
+                          onClick={() => openOrderView(r.id)}
+                        >
+                          <Eye className="h-4 w-4" strokeWidth={2} />
+                        </button>
                         {canEdit && r.active !== false ? (
                           <>
-                            <button
-                              type="button"
-                              title="Delete order"
-                              className="rounded-lg border border-red-200 p-1.5 text-red-700 hover:bg-red-50"
-                              onClick={() => setDeleteOrderId(r.id)}
-                            >
-                              <Trash2 className="h-4 w-4" strokeWidth={2} />
-                            </button>
                             <button
                               type="button"
                               title="Edit order"
@@ -2171,6 +2199,14 @@ export function OrdersPage() {
                               onClick={() => setEditOrderId(r.id)}
                             >
                               <Pencil className="h-4 w-4" strokeWidth={2} />
+                            </button>
+                            <button
+                              type="button"
+                              title="Delete order"
+                              className="rounded-lg border border-red-200 p-1.5 text-red-700 hover:bg-red-50"
+                              onClick={() => setDeleteOrderId(r.id)}
+                            >
+                              <Trash2 className="h-4 w-4" strokeWidth={2} />
                             </button>
                           </>
                         ) : null}
@@ -2182,29 +2218,6 @@ export function OrdersPage() {
                             onClick={() => setRestoreOrderId(r.id)}
                           >
                             <RotateCcw className="h-4 w-4" strokeWidth={2} />
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          title="View details"
-                          className="rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
-                          onClick={() => openOrderView(r.id)}
-                        >
-                          <Eye className="h-4 w-4" strokeWidth={2} />
-                        </button>
-                        {canEdit && r.active !== false && advance ? (
-                          <button
-                            type="button"
-                            title={
-                              advance.kind === 'done_info'
-                                ? 'Open order details and show balance due (mark Done from Edit when ready)'
-                                : `Set status to ${advance.nextLabel}`
-                            }
-                            disabled={advanceOrderRowId === r.id}
-                            className={`inline-flex items-center justify-center whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-semibold shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 disabled:cursor-not-allowed disabled:opacity-60 ${orderAdvanceTextButtonClass[orderAdvanceStage(advance)]}`}
-                            onClick={() => void runAdvanceOrderStatus(r)}
-                          >
-                            {advanceOrderRowId === r.id ? 'Updating…' : orderAdvanceButtonLabel(advance)}
                           </button>
                         ) : null}
                       </div>
@@ -2409,6 +2422,68 @@ export function OrdersPage() {
                     </dl>
                   </section>
 
+                  <section className="rounded-xl border border-amber-100 bg-amber-50/40 p-4">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-900">
+                      Installation schedule
+                    </h3>
+                    {viewOrder.status_orde_id &&
+                    isReadyForInstallationStatus(viewOrder.status_orde_id, orderStatuses ?? []) &&
+                    canEdit &&
+                    viewOrder.active !== false ? (
+                      <div className="mt-3 space-y-3 text-sm text-slate-800">
+                        <p className="text-[11px] text-amber-950/90">
+                          Same date and time format as estimate visits (15-minute steps). Syncs to Google Calendar when
+                          connected.
+                        </p>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <span className="mb-1 block text-xs font-medium text-slate-700">Start</span>
+                            <VisitStartQuarterPicker
+                              value={
+                                viewInstallationStart.trim()
+                                  ? snapWallToQuarterMinutes(viewInstallationStart)
+                                  : snapWallToQuarterMinutes('')
+                              }
+                              onChange={(w) => setViewInstallationStart(w)}
+                              compact
+                            />
+                          </div>
+                          <div>
+                            <span className="mb-1 block text-xs font-medium text-slate-700">End (optional)</span>
+                            <VisitStartQuarterPicker
+                              value={
+                                viewInstallationEnd.trim()
+                                  ? snapWallToQuarterMinutes(viewInstallationEnd)
+                                  : snapWallToQuarterMinutes('')
+                              }
+                              onChange={(w) => setViewInstallationEnd(w)}
+                              compact
+                            />
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={viewInstallationSaving}
+                          onClick={() => void saveViewInstallation()}
+                          className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+                        >
+                          {viewInstallationSaving ? 'Saving…' : 'Save installation'}
+                        </button>
+                      </div>
+                    ) : (
+                      <dl className="mt-2 space-y-1 text-sm text-slate-700">
+                        <div className="flex justify-between gap-4">
+                          <dt className="text-slate-500">Start</dt>
+                          <dd>{fmtDisplayDateTime(viewOrder.installation_scheduled_start_at)}</dd>
+                        </div>
+                        <div className="flex justify-between gap-4">
+                          <dt className="text-slate-500">End</dt>
+                          <dd>{fmtDisplayDateTime(viewOrder.installation_scheduled_end_at)}</dd>
+                        </div>
+                      </dl>
+                    )}
+                  </section>
+
                   {viewOrderId ? (
                     <OrderAttachmentsBlock
                       blockId="view-order-att"
@@ -2598,34 +2673,45 @@ export function OrdersPage() {
                         ))}
                       </select>
                     </label>
-                    {isReadyForInstallationStatus(editDraft.status_orde_id, orderStatuses ?? []) ? (
-                      <div className="sm:col-span-2 rounded-lg border border-amber-100 bg-amber-50/80 p-3">
-                        <p className="text-xs font-semibold text-amber-950">Installation schedule</p>
-                        <p className="mt-1 text-[11px] text-amber-900">
-                          Required for this status. Syncs to Google Calendar when the company calendar is connected.
-                        </p>
-                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                          <label className="block text-xs text-slate-800">
-                            <span className="mb-1 block font-medium">Start</span>
-                            <input
-                              type="datetime-local"
-                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-teal-500"
-                              value={editInstallationStart}
-                              onChange={(e) => setEditInstallationStart(e.target.value)}
-                            />
-                          </label>
-                          <label className="block text-xs text-slate-800">
-                            <span className="mb-1 block font-medium">End (optional)</span>
-                            <input
-                              type="datetime-local"
-                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-teal-500"
-                              value={editInstallationEnd}
-                              onChange={(e) => setEditInstallationEnd(e.target.value)}
-                            />
-                          </label>
+                    <div className="sm:col-span-2 rounded-lg border border-amber-100 bg-amber-50/80 p-3">
+                      <p className="text-xs font-semibold text-amber-950">Installation schedule</p>
+                      <p className="mt-1 text-[11px] text-amber-900">
+                        Same date and time format as estimate visits (15-minute steps). Editable only when status is
+                        Ready for installation. Syncs to Google Calendar when the company calendar is connected.
+                      </p>
+                      <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <span className="mb-1 block text-xs font-medium text-slate-800">Start</span>
+                          <VisitStartQuarterPicker
+                            value={
+                              editInstallationStart.trim()
+                                ? snapWallToQuarterMinutes(editInstallationStart)
+                                : snapWallToQuarterMinutes('')
+                            }
+                            onChange={(w) => setEditInstallationStart(w)}
+                            disabled={
+                              !isReadyForInstallationStatus(editDraft.status_orde_id, orderStatuses ?? [])
+                            }
+                            compact
+                          />
+                        </div>
+                        <div>
+                          <span className="mb-1 block text-xs font-medium text-slate-800">End (optional)</span>
+                          <VisitStartQuarterPicker
+                            value={
+                              editInstallationEnd.trim()
+                                ? snapWallToQuarterMinutes(editInstallationEnd)
+                                : snapWallToQuarterMinutes('')
+                            }
+                            onChange={(w) => setEditInstallationEnd(w)}
+                            disabled={
+                              !isReadyForInstallationStatus(editDraft.status_orde_id, orderStatuses ?? [])
+                            }
+                            compact
+                          />
                         </div>
                       </div>
-                    ) : null}
+                    </div>
                     <fieldset className="min-w-0 rounded-lg border border-slate-200 bg-slate-50/60 p-3 sm:col-span-2">
                       <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Blinds types &amp; quantities
@@ -2877,6 +2963,21 @@ export function OrdersPage() {
         onCancel={() => !deletePending && setDeleteOrderId(null)}
       />
 
+      <ConfirmModal
+        open={advanceConfirm !== null}
+        title="Change order status?"
+        description={
+          advanceConfirm
+            ? `Set this order’s status to “${advanceConfirm.act.nextLabel}”?`
+            : ''
+        }
+        confirmLabel="Confirm"
+        cancelLabel="Cancel"
+        pending={advanceConfirmPending}
+        onConfirm={() => void confirmAdvanceOrderStatus()}
+        onCancel={() => !advanceConfirmPending && setAdvanceConfirm(null)}
+      />
+
       <OrderInfoModal
         open={orderBalanceInfo !== null}
         title="Order balance"
@@ -2888,16 +2989,6 @@ export function OrdersPage() {
         onClose={() => setOrderBalanceInfo(null)}
       />
 
-      <ConfirmModal
-        open={suggestDoneAfterPayment !== null}
-        title="Payment complete"
-        description="The balance for this order is fully paid. Set the order status to Done?"
-        confirmLabel="Set status to Done"
-        cancelLabel="Not now"
-        pending={suggestDoneAfterPayPending}
-        onConfirm={() => void confirmSuggestDoneAfterPayment()}
-        onCancel={() => !suggestDoneAfterPayPending && setSuggestDoneAfterPayment(null)}
-      />
     </div>
   )
 }

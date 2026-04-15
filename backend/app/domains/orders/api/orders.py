@@ -84,6 +84,126 @@ def _order_balance(
     return t - d - fp + tax_part
 
 
+_DONE_BALANCE_EPS = Decimal("0.005")
+
+
+def _order_status_name_lower(db: Session, company_id: UUID, status_orde_id: str | None) -> str:
+    if not status_orde_id or not str(status_orde_id).strip():
+        return ""
+    row = db.execute(
+        text(
+            """
+            SELECT lower(trim(so.name)) AS n
+            FROM status_order so
+            INNER JOIN company_status_order_matrix m
+              ON m.status_order_id = so.id AND m.company_id = CAST(:cid AS uuid)
+            WHERE so.id = :sid AND so.active IS TRUE
+            LIMIT 1
+            """
+        ),
+        {"cid": str(company_id), "sid": str(status_orde_id).strip()},
+    ).mappings().first()
+    return str(row["n"] or "") if row else ""
+
+
+def _order_status_name_implies_done(db: Session, company_id: UUID, status_orde_id: str | None) -> bool:
+    n = _order_status_name_lower(db, company_id, status_orde_id)
+    return "done" in n
+
+
+def _pick_done_order_status_id(db: Session, company_id: UUID) -> str | None:
+    row = db.execute(
+        text(
+            """
+            SELECT so.id::text AS id
+            FROM status_order so
+            INNER JOIN company_status_order_matrix m
+              ON m.status_order_id = so.id AND m.company_id = CAST(:cid AS uuid)
+            WHERE so.active IS TRUE AND lower(trim(so.name)) LIKE '%done%'
+            ORDER BY so.sort_order ASC, so.name ASC
+            LIMIT 1
+            """
+        ),
+        {"cid": str(company_id)},
+    ).mappings().first()
+    return str(row["id"]) if row else None
+
+
+def _pick_fallback_order_status_leaving_done(db: Session, company_id: UUID) -> str | None:
+    """First matrix status (sort_order) that is not done-like and not cancel-like."""
+    rows = db.execute(
+        text(
+            """
+            SELECT so.id::text AS id, lower(trim(so.name)) AS n
+            FROM status_order so
+            INNER JOIN company_status_order_matrix m
+              ON m.status_order_id = so.id AND m.company_id = CAST(:cid AS uuid)
+            WHERE so.active IS TRUE
+            ORDER BY so.sort_order ASC, so.name ASC
+            """
+        ),
+        {"cid": str(company_id)},
+    ).mappings().all()
+    for r in rows:
+        n = str(r.get("n") or "")
+        if "done" in n or "cancel" in n:
+            continue
+        return str(r["id"])
+    return None
+
+
+def _sync_order_done_status_with_balance(db: Session, company_id: UUID, order_id: str) -> None:
+    """Keep Done status and zero balance aligned (list UI + business rule)."""
+    oid = order_id.strip()
+    row = db.execute(
+        text(
+            """
+            SELECT o.status_orde_id::text AS sid, o.balance
+            FROM orders o
+            WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid AND o.active IS TRUE
+            LIMIT 1
+            """
+        ),
+        {"cid": str(company_id), "oid": oid},
+    ).mappings().first()
+    if not row:
+        return
+    bal_raw = row.get("balance")
+    sid = (row.get("sid") or "").strip() or None
+    if bal_raw is None:
+        return
+    bal_d = Decimal(str(bal_raw)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    is_done = _order_status_name_implies_done(db, company_id, sid)
+    zero = abs(bal_d) <= _DONE_BALANCE_EPS
+
+    if zero and not is_done:
+        done_id = _pick_done_order_status_id(db, company_id)
+        if done_id:
+            db.execute(
+                text(
+                    """
+                    UPDATE orders
+                    SET status_orde_id = :nsid, updated_at = NOW()
+                    WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+                    """
+                ),
+                {"cid": str(company_id), "oid": oid, "nsid": done_id},
+            )
+    elif not zero and is_done:
+        fb = _pick_fallback_order_status_leaving_done(db, company_id)
+        if fb:
+            db.execute(
+                text(
+                    """
+                    UPDATE orders
+                    SET status_orde_id = :nsid, updated_at = NOW()
+                    WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+                    """
+                ),
+                {"cid": str(company_id), "oid": oid, "nsid": fb},
+            )
+
+
 def _new_order_id() -> str:
     return secrets.token_hex(8)
 
@@ -148,6 +268,7 @@ def _sync_order_final_payment_from_entries(db: Session, cid: UUID, oid: str) -> 
         ),
         {"cid": str(cid), "oid": oid, "fp": sum_fp, "bal": bal},
     )
+    _sync_order_done_status_with_balance(db, cid, oid)
 
 
 _SQL_BLINDS_SUMMARY = """
@@ -1598,6 +1719,7 @@ def create_order(
                     "order_note": _normalize_order_note(body.order_note),
                 },
             )
+            _sync_order_done_status_with_balance(db, cid, new_id)
             db.commit()
         except IntegrityError:
             db.rollback()
@@ -1771,6 +1893,28 @@ def patch_order(
         sets.append("balance = :balance")
         params["balance"] = _order_balance(eff_total, eff_down, eff_tax, eff_fp)
 
+    eff_bal = _order_balance(eff_total, eff_down, eff_tax, eff_fp)
+    if eff_bal is not None:
+        eff_bal = eff_bal.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    zb = eff_bal is not None and abs(eff_bal) <= _DONE_BALANCE_EPS
+    done_now = bool(
+        final_status_ord_id and _order_status_name_implies_done(db, cid, final_status_ord_id)
+    )
+
+    if zb and "status_orde_id" in patch_fields:
+        if not final_status_ord_id or not done_now:
+            raise HTTPException(
+                status_code=400,
+                detail="Order is fully paid; status must be Done.",
+            )
+
+    if "status_orde_id" in patch_fields and final_status_ord_id and done_now and not zb:
+        raise HTTPException(
+            status_code=400,
+            detail="Order balance must be fully paid before status can be set to Done.",
+        )
+
     if not sets:
         raise HTTPException(status_code=400, detail="No changes submitted.")
 
@@ -1834,6 +1978,7 @@ def patch_order(
         ),
         params,
     )
+    _sync_order_done_status_with_balance(db, cid, oid)
     est_link = (cur.get("estimate_id") or "").strip()
     if est_link:
         old_sid = (cur.get("status_orde_id") or "").strip() or None
