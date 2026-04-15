@@ -42,6 +42,7 @@ type OrderRow = {
   balance: string | number | null
   tax_amount?: string | number | null
   status_code: string
+  status_orde_id?: string | null
   status_order_label: string | null
   agreement_date?: string | null
   created_at: string | null
@@ -345,6 +346,148 @@ function statusColorClasses(name: string): { base: string; active: string } {
   return { base: 'bg-slate-50 text-slate-800 ring-slate-200', active: 'bg-slate-800 text-white ring-slate-800' }
 }
 
+/** Semantic bucket for workflow (matches filter chip heuristics on display name). */
+type OrderStatusWorkflowBucket = 'new' | 'production' | 'rfi' | 'done' | 'cancel' | 'other'
+
+function orderStatusWorkflowBucketFromName(name: string): OrderStatusWorkflowBucket {
+  const n = (name || '').trim().toLowerCase()
+  if (n.includes('cancel')) return 'cancel'
+  if (n.includes('done')) return 'done'
+  if (n.includes('ready') && n.includes('install')) return 'rfi'
+  if (n.includes('production')) return 'production'
+  if (n.includes('new')) return 'new'
+  return 'other'
+}
+
+function pickOrderStatusForBucket(statuses: OrderStatusOpt[], bucket: OrderStatusWorkflowBucket): OrderStatusOpt | null {
+  const matches = statuses.filter((s) => orderStatusWorkflowBucketFromName(s.name) === bucket)
+  if (matches.length === 0) return null
+  return [...matches].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))[0]
+}
+
+function findDoneOrderStatusOpt(statuses: OrderStatusOpt[] | null): OrderStatusOpt | null {
+  if (!statuses?.length) return null
+  return pickOrderStatusForBucket(statuses, 'done')
+}
+
+type OrderAdvanceAction =
+  | {
+      kind: 'patch'
+      status_orde_id: string
+      nextLabel: string
+      title: string
+      stage: 'to_production' | 'to_rfi'
+    }
+  | { kind: 'done_info'; stage: 'done_review' }
+
+type OrderAdvanceStage = 'to_production' | 'to_rfi' | 'done_review'
+
+const orderAdvanceTextButtonClass: Record<OrderAdvanceStage, string> = {
+  to_production:
+    'border-amber-300 bg-amber-50 text-amber-950 hover:border-amber-400 hover:bg-amber-100 focus-visible:outline-amber-500 disabled:border-amber-200 disabled:bg-amber-50/80 disabled:text-amber-800 disabled:opacity-60 disabled:shadow-none disabled:hover:bg-amber-50/80',
+  to_rfi:
+    'border-violet-300 bg-violet-50 text-violet-950 hover:border-violet-400 hover:bg-violet-100 focus-visible:outline-violet-500 disabled:border-violet-200 disabled:bg-violet-50/80 disabled:text-violet-800 disabled:opacity-60 disabled:shadow-none disabled:hover:bg-violet-50/80',
+  done_review:
+    'border-sky-300 bg-sky-50 text-sky-950 hover:border-sky-400 hover:bg-sky-100 focus-visible:outline-sky-500 disabled:border-sky-200 disabled:bg-sky-50/80 disabled:text-sky-800 disabled:opacity-60 disabled:shadow-none disabled:hover:bg-sky-50/80',
+}
+
+function orderAdvanceStage(act: OrderAdvanceAction): OrderAdvanceStage {
+  return act.kind === 'patch' ? act.stage : 'done_review'
+}
+
+function orderAdvanceButtonLabel(act: OrderAdvanceAction): string {
+  if (act.kind === 'done_info') return 'Balance review'
+  return `Next: ${act.nextLabel}`
+}
+
+function resolveOrderAdvanceAction(row: OrderRow, statuses: OrderStatusOpt[] | null): OrderAdvanceAction | null {
+  if (!statuses?.length || row.active === false) return null
+  const sid = row.status_orde_id?.trim() ?? ''
+  const cur =
+    (sid ? statuses.find((s) => s.id === sid) : null) ??
+    statuses.find((s) => s.name.trim().toLowerCase() === (row.status_order_label ?? '').trim().toLowerCase())
+  const curName = (cur?.name ?? row.status_order_label ?? '').trim()
+  const bucket = orderStatusWorkflowBucketFromName(curName)
+  if (bucket === 'cancel' || bucket === 'done' || bucket === 'other') return null
+
+  if (bucket === 'new') {
+    const next = pickOrderStatusForBucket(statuses, 'production')
+    if (!next) return null
+    return {
+      kind: 'patch',
+      status_orde_id: next.id,
+      nextLabel: next.name,
+      title: `Set status to ${next.name}`,
+      stage: 'to_production',
+    }
+  }
+  if (bucket === 'production') {
+    const next = pickOrderStatusForBucket(statuses, 'rfi')
+    if (!next) return null
+    return {
+      kind: 'patch',
+      status_orde_id: next.id,
+      nextLabel: next.name,
+      title: `Set status to ${next.name}`,
+      stage: 'to_rfi',
+    }
+  }
+  if (bucket === 'rfi') {
+    return { kind: 'done_info', stage: 'done_review' }
+  }
+  return null
+}
+
+function OrderStatusBadge(props: { label: string | null | undefined }) {
+  const text = (props.label ?? '').trim() || '—'
+  const c = statusColorClasses(text === '—' ? '' : text)
+  return (
+    <span
+      className={`inline-flex max-w-full rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${c.base}`}
+      title={text}
+    >
+      {text}
+    </span>
+  )
+}
+
+function OrderInfoModal(props: {
+  open: boolean
+  title: string
+  description: string
+  onClose: () => void
+}) {
+  if (!props.open) return null
+  return (
+    <div
+      className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/50 p-4"
+      role="presentation"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) props.onClose()
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-lg font-semibold text-slate-900">{props.title}</h2>
+        <p className="mt-2 text-sm text-slate-600">{props.description}</p>
+        <div className="mt-6 flex flex-wrap justify-end">
+          <button
+            type="button"
+            onClick={props.onClose}
+            className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700"
+          >
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function customerLabel(c: CustomerOpt): string {
   const n = `${c.name ?? ''} ${c.surname ?? ''}`.trim()
   return n || c.id
@@ -469,6 +612,13 @@ function orderListPaidDisplay(r: OrderRow): string {
   const down = parseMoneyAmount(r.downpayment) ?? 0
   const extra = parseMoneyAmount(r.final_payment) ?? 0
   return fmtMoney(safeRound2(down + extra))
+}
+
+/** Active row with balance fully paid (for list highlight). */
+function orderListRowBalancePaidInFull(r: OrderRow): boolean {
+  if (r.active === false) return false
+  const b = parseMoneyAmount(r.balance)
+  return b !== null && Math.abs(b) <= 0.005
 }
 
 function sumBlindsLineAmounts(lines: BlindsLineState[]): number {
@@ -953,6 +1103,17 @@ export function OrdersPage() {
   const [editInstallationStart, setEditInstallationStart] = useState('')
   const [editInstallationEnd, setEditInstallationEnd] = useState('')
   const [orderStatuses, setOrderStatuses] = useState<OrderStatusOpt[] | null>(null)
+  const [advanceOrderRowId, setAdvanceOrderRowId] = useState<string | null>(null)
+  const [suggestDoneAfterPayment, setSuggestDoneAfterPayment] = useState<{
+    orderId: string
+    doneStatusId: string
+  } | null>(null)
+  const [suggestDoneAfterPayPending, setSuggestDoneAfterPayPending] = useState(false)
+  const [orderBalanceInfo, setOrderBalanceInfo] = useState<{
+    orderId: string
+    customerDisplay: string
+    balance: string | number | null
+  } | null>(null)
 
   const fromEstimateQ = useMemo(() => searchParams.get('fromEstimate')?.trim() ?? '', [searchParams])
   const viewOrderFromUrl = useMemo(() => searchParams.get('viewOrder')?.trim() ?? '', [searchParams])
@@ -1167,10 +1328,75 @@ export function OrdersPage() {
       setPaymentModalOpen(false)
       setPaymentAmountInput('')
       await reloadList()
+      const bal = parseMoneyAmount(d.balance)
+      const doneOpt = findDoneOrderStatusOpt(orderStatuses)
+      const curName =
+        (orderStatuses ?? []).find((x) => x.id === (d.status_orde_id ?? '').trim())?.name ??
+        d.status_order_label ??
+        ''
+      const curBucket = orderStatusWorkflowBucketFromName(curName)
+      if (
+        doneOpt &&
+        curBucket !== 'done' &&
+        curBucket !== 'cancel' &&
+        bal !== null &&
+        bal <= 0.005
+      ) {
+        setSuggestDoneAfterPayment({ orderId: oid, doneStatusId: doneOpt.id })
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not record payment')
     } finally {
       setPaymentPending(false)
+    }
+  }
+
+  async function confirmSuggestDoneAfterPayment() {
+    if (!suggestDoneAfterPayment || !canEdit) return
+    const oid = suggestDoneAfterPayment.orderId
+    const sid = suggestDoneAfterPayment.doneStatusId
+    setSuggestDoneAfterPayPending(true)
+    setErr(null)
+    try {
+      await patchJson(`/orders/${oid}`, { status_orde_id: sid })
+      setSuggestDoneAfterPayment(null)
+      await reloadList()
+      if (viewOrderId === oid) {
+        const d = await getJson<OrderDetail>(`/orders/${oid}`)
+        setViewOrder(d)
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not update order status')
+    } finally {
+      setSuggestDoneAfterPayPending(false)
+    }
+  }
+
+  async function runAdvanceOrderStatus(row: OrderRow) {
+    const act = resolveOrderAdvanceAction(row, orderStatuses)
+    if (!act || !canEdit) return
+    if (act.kind === 'done_info') {
+      openOrderView(row.id)
+      setOrderBalanceInfo({
+        orderId: row.id,
+        customerDisplay: row.customer_display || row.customer_id,
+        balance: row.balance,
+      })
+      return
+    }
+    setAdvanceOrderRowId(row.id)
+    setErr(null)
+    try {
+      await patchJson(`/orders/${row.id}`, { status_orde_id: act.status_orde_id })
+      await reloadList()
+      if (viewOrderId === row.id) {
+        const d = await getJson<OrderDetail>(`/orders/${row.id}`)
+        setViewOrder(d)
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not update order status')
+    } finally {
+      setAdvanceOrderRowId(null)
     }
   }
 
@@ -1220,6 +1446,7 @@ export function OrdersPage() {
   const closeOrderView = () => {
     setViewOrderId(null)
     setViewOrder(null)
+    setOrderBalanceInfo(null)
     setPaymentModalOpen(false)
     setPaymentAmountInput('')
     setSearchParams(
@@ -1788,7 +2015,7 @@ export function OrdersPage() {
             </button>
             <button
               type="submit"
-              disabled={saving || !customerId.trim()}
+              disabled={saving || (!linkedEstimateId && !customerId.trim())}
               className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
             >
               {saving ? 'Saving…' : 'Create order'}
@@ -1871,7 +2098,7 @@ export function OrdersPage() {
                 </th>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Down payment</th>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Balance</th>
-                <th className="whitespace-nowrap px-2 py-3 text-right sm:px-4">Actions</th>
+                <th className="min-w-[13rem] whitespace-nowrap px-2 py-3 text-right sm:px-4">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-800">
@@ -1888,10 +2115,19 @@ export function OrdersPage() {
                   </td>
                 </tr>
               ) : (
-                rows.map((r) => (
+                rows.map((r) => {
+                  const advance = resolveOrderAdvanceAction(r, orderStatuses)
+                  const paidInFull = orderListRowBalancePaidInFull(r)
+                  return (
                   <tr
                     key={r.id}
-                    className={`hover:bg-slate-50/80 ${r.active === false ? 'bg-slate-50/90 opacity-80' : ''}`.trim()}
+                    className={
+                      r.active === false
+                        ? 'bg-slate-50/90 opacity-80 hover:bg-slate-50/80'
+                        : paidInFull
+                          ? 'bg-emerald-50/50 hover:bg-emerald-50/75'
+                          : 'hover:bg-slate-50/80'
+                    }
                   >
                     <td className="px-2 py-3 sm:px-4">
                       <Link
@@ -1902,10 +2138,12 @@ export function OrdersPage() {
                       </Link>
                     </td>
                     <td className="px-2 py-3 text-slate-800 sm:px-4">
-                      <span className="block">{r.status_order_label?.trim() || '—'}</span>
-                      {r.active === false ? (
-                        <span className="mt-1 block text-[11px] font-medium text-slate-500">Deleted</span>
-                      ) : null}
+                      <div className="flex flex-col items-start gap-1">
+                        <OrderStatusBadge label={r.status_order_label} />
+                        {r.active === false ? (
+                          <span className="block text-[11px] font-medium text-slate-500">Deleted</span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="px-2 py-3 text-slate-600 sm:px-4">{fmtDisplayDate(r.agreement_date)}</td>
                     <td className="px-2 py-3 font-medium sm:px-4">
@@ -1914,16 +2152,28 @@ export function OrdersPage() {
                     <td className="px-2 py-3 sm:px-4">{orderListPaidDisplay(r)}</td>
                     <td className="px-2 py-3 sm:px-4">{fmtMoney(r.downpayment)}</td>
                     <td className="px-2 py-3 sm:px-4">{fmtMoney(r.balance)}</td>
-                    <td className="px-2 py-3 text-right sm:px-4">
-                      <div className="inline-flex flex-wrap items-center justify-end gap-1">
-                        <button
-                          type="button"
-                          title="View details"
-                          className="rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
-                          onClick={() => openOrderView(r.id)}
-                        >
-                          <Eye className="h-4 w-4" strokeWidth={2} />
-                        </button>
+                    <td className="align-top px-2 py-3 text-right sm:px-4">
+                      <div className="flex flex-col items-end gap-1 sm:flex-row sm:flex-wrap sm:justify-end sm:gap-x-2">
+                        {canEdit && r.active !== false ? (
+                          <>
+                            <button
+                              type="button"
+                              title="Delete order"
+                              className="rounded-lg border border-red-200 p-1.5 text-red-700 hover:bg-red-50"
+                              onClick={() => setDeleteOrderId(r.id)}
+                            >
+                              <Trash2 className="h-4 w-4" strokeWidth={2} />
+                            </button>
+                            <button
+                              type="button"
+                              title="Edit order"
+                              className="rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
+                              onClick={() => setEditOrderId(r.id)}
+                            >
+                              <Pencil className="h-4 w-4" strokeWidth={2} />
+                            </button>
+                          </>
+                        ) : null}
                         {canEdit && r.active === false ? (
                           <button
                             type="button"
@@ -1934,30 +2184,34 @@ export function OrdersPage() {
                             <RotateCcw className="h-4 w-4" strokeWidth={2} />
                           </button>
                         ) : null}
-                        {canEdit && r.active !== false ? (
+                        <button
+                          type="button"
+                          title="View details"
+                          className="rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
+                          onClick={() => openOrderView(r.id)}
+                        >
+                          <Eye className="h-4 w-4" strokeWidth={2} />
+                        </button>
+                        {canEdit && r.active !== false && advance ? (
                           <button
                             type="button"
-                            title="Edit order"
-                            className="rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
-                            onClick={() => setEditOrderId(r.id)}
+                            title={
+                              advance.kind === 'done_info'
+                                ? 'Open order details and show balance due (mark Done from Edit when ready)'
+                                : `Set status to ${advance.nextLabel}`
+                            }
+                            disabled={advanceOrderRowId === r.id}
+                            className={`inline-flex items-center justify-center whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-semibold shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 disabled:cursor-not-allowed disabled:opacity-60 ${orderAdvanceTextButtonClass[orderAdvanceStage(advance)]}`}
+                            onClick={() => void runAdvanceOrderStatus(r)}
                           >
-                            <Pencil className="h-4 w-4" strokeWidth={2} />
-                          </button>
-                        ) : null}
-                        {canEdit && r.active !== false ? (
-                          <button
-                            type="button"
-                            title="Delete order"
-                            className="rounded-lg border border-red-200 p-1.5 text-red-700 hover:bg-red-50"
-                            onClick={() => setDeleteOrderId(r.id)}
-                          >
-                            <Trash2 className="h-4 w-4" strokeWidth={2} />
+                            {advanceOrderRowId === r.id ? 'Updating…' : orderAdvanceButtonLabel(advance)}
                           </button>
                         ) : null}
                       </div>
                     </td>
                   </tr>
-                ))
+                  )
+                })
               )}
             </tbody>
           </table>
@@ -1978,10 +2232,12 @@ export function OrdersPage() {
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-800/90">Order detail</p>
                 <h2 className="font-mono text-xl font-semibold tracking-tight text-slate-900">{viewOrderId}</h2>
                 {viewOrder && !viewLoading ? (
-                  <p className="mt-1 text-sm text-slate-600">
-                    <span className="font-medium text-slate-700">Status:</span>{' '}
-                    {viewOrder.status_order_label?.trim() || statusCodeLabel(viewOrder.status_code)}
-                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                    <span className="font-medium text-slate-700">Status</span>
+                    <OrderStatusBadge
+                      label={viewOrder.status_order_label?.trim() || statusCodeLabel(viewOrder.status_code)}
+                    />
+                  </div>
                 ) : null}
               </div>
               <button
@@ -2619,6 +2875,28 @@ export function OrdersPage() {
         pending={deletePending}
         onConfirm={() => void runDeleteOrder()}
         onCancel={() => !deletePending && setDeleteOrderId(null)}
+      />
+
+      <OrderInfoModal
+        open={orderBalanceInfo !== null}
+        title="Order balance"
+        description={
+          orderBalanceInfo
+            ? `Customer: ${orderBalanceInfo.customerDisplay}. Remaining balance due for this order: ${fmtMoney(orderBalanceInfo.balance)}.`
+            : ''
+        }
+        onClose={() => setOrderBalanceInfo(null)}
+      />
+
+      <ConfirmModal
+        open={suggestDoneAfterPayment !== null}
+        title="Payment complete"
+        description="The balance for this order is fully paid. Set the order status to Done?"
+        confirmLabel="Set status to Done"
+        cancelLabel="Not now"
+        pending={suggestDoneAfterPayPending}
+        onConfirm={() => void confirmSuggestDoneAfterPayment()}
+        onCancel={() => !suggestDoneAfterPayPending && setSuggestDoneAfterPayment(null)}
       />
     </div>
   )

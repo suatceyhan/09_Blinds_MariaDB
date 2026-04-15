@@ -616,6 +616,7 @@ class OrderListItemOut(BaseModel):
     tax_uygulanacak_miktar: Decimal | None = None
     tax_amount: Decimal | None = None
     status_code: str
+    status_orde_id: str | None = None
     status_order_label: str | None = None
     agreement_date: date | None = None
     created_at: Any | None = None
@@ -1015,6 +1016,7 @@ def list_orders(
               o.tax_uygulanacak_miktar,
               o.tax_amount,
               o.status_code,
+              o.status_orde_id,
               so.name AS status_order_label,
               o.agreement_date,
               o.created_at,
