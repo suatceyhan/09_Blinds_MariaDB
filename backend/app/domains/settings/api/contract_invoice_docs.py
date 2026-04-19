@@ -1,8 +1,7 @@
 """
 Contract / invoice printable documents.
 
-Returns HTML suitable for browser print-to-PDF. The frontend fetches the HTML with Authorization
-and opens it in a new tab via a Blob URL (so we do not rely on cookie auth).
+PDFs are rendered server-side (HTML → wkhtmltopdf). Deposit templates can be chosen from built-in presets.
 """
 
 from __future__ import annotations
@@ -12,8 +11,8 @@ from decimal import Decimal
 from html import escape
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse, Response
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -22,22 +21,63 @@ from typing_extensions import Annotated
 from app.core.authorization import is_effective_superadmin
 from app.core.database import get_db
 from app.dependencies.auth import effective_company_id, require_permissions
+from app.domains.settings.deposit_contract_presets import (
+    DEPOSIT_CONTRACT_PRESETS,
+    DEPOSIT_PRESET_LABELS,
+    default_deposit_preset,
+    deposit_preset_keys_in_order,
+)
 from app.domains.user.models.users import Users
 
 router = APIRouter(prefix="/settings/contract-invoice", tags=["Settings — contract / invoice"])
 
 TEMPLATE_KINDS: tuple[str, str] = ("deposit_contract", "final_invoice")
 
+_PRESET_KEY_COLUMN_CACHE_KEY = "cdt_has_preset_key_column"
+
+
+def _company_document_templates_has_preset_key(db: Session) -> bool:
+    """True if migration DB/34 added preset_key; avoids crashes before ALTER TABLE."""
+    cached = db.info.get(_PRESET_KEY_COLUMN_CACHE_KEY)
+    if cached is not None:
+        return bool(cached)
+    exists = db.execute(
+        text(
+            """
+            SELECT EXISTS (
+              SELECT 1
+              FROM information_schema.columns
+              WHERE table_catalog = current_database()
+                AND table_name = 'company_document_templates'
+                AND column_name = 'preset_key'
+            )
+            """
+        )
+    ).scalar()
+    db.info[_PRESET_KEY_COLUMN_CACHE_KEY] = bool(exists)
+    return bool(exists)
+
 
 class TemplateOut(BaseModel):
     kind: str
     subject: str
     body_html: str
+    preset_key: str | None = None
+    legacy_custom: bool = False
 
 
 class TemplateIn(BaseModel):
     subject: str = Field(default="", max_length=300)
     body_html: str = Field(default="", max_length=200_000)
+    preset_key: str | None = Field(default=None, max_length=64)
+
+
+class PresetCatalogItem(BaseModel):
+    kind: str
+    key: str
+    name: str
+    description: str
+    body_html: str
 
 
 def _fmt_money(v: Any) -> str:
@@ -79,6 +119,16 @@ def _html_page(title: str, body: str) -> str:
       .mono {{ font-variant-numeric: tabular-nums; }}
       .small {{ font-size: 12px; color: var(--muted); }}
       .avoid-break {{ break-inside: avoid; page-break-inside: avoid; }}
+      .doc-card {{ border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; background: #f8fafc; }}
+      .doc-accent {{ border-left: 4px solid #0d9488; padding-left: 14px; background: #f8fafc; border-radius: 10px; }}
+      .doc-badge {{ font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #0f766e; text-transform: uppercase; }}
+      .doc-h1 {{ margin: 8px 0 4px; font-size: 21px; letter-spacing: -0.02em; }}
+      .doc-meta {{ font-size: 11px; color: var(--muted); }}
+      .doc-price-table {{ width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }}
+      .doc-price-table td {{ padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }}
+      .doc-price-table td:last-child {{ text-align: right; font-variant-numeric: tabular-nums; }}
+      .doc-price-table tr:last-child td {{ border-bottom: none; font-weight: 600; }}
+      .doc-terms {{ font-size: 11px; color: var(--muted); line-height: 1.45; }}
       @media print {{
         .page {{ max-width: none; margin: 0; }}
       }}
@@ -131,69 +181,20 @@ def _invoice_number_for_order(order_id: str) -> str:
     return f"INV-{order_id}"
 
 
+def _default_deposit_template_out() -> TemplateOut:
+    key, preset = default_deposit_preset()
+    return TemplateOut(
+        kind="deposit_contract",
+        subject=preset.subject,
+        body_html=preset.body_html,
+        preset_key=key,
+        legacy_custom=False,
+    )
+
+
 def _default_template(kind: str) -> TemplateOut:
     if kind == "deposit_contract":
-        return TemplateOut(
-            kind=kind,
-            subject="Invoice & Service Agreement",
-            body_html="""
-<h1>INVOICE &amp; SERVICE AGREEMENT</h1>
-<div class="small">Deposit invoice + contract (combined)</div>
-<div class="rule"></div>
-<div class="grid">
-  <div>
-    <h2>Business</h2>
-    <div class="row"><div class="k">Business Name</div><div class="v">{{business_name}}</div></div>
-    <div class="row"><div class="k">Address</div><div class="v">{{business_address}}</div></div>
-    <div class="row"><div class="k">Phone</div><div class="v">{{business_phone}}</div></div>
-    <div class="row"><div class="k">Email</div><div class="v">{{business_email}}</div></div>
-  </div>
-  <div>
-    <h2>Invoice</h2>
-    <div class="row"><div class="k">Invoice Number</div><div class="v mono">{{invoice_number}}</div></div>
-    <div class="row"><div class="k">Date</div><div class="v">{{invoice_date}}</div></div>
-  </div>
-</div>
-<div class="rule"></div>
-<h2>Customer</h2>
-<div class="row"><div class="k">Customer Name</div><div class="v">{{customer_name}}</div></div>
-<div class="row"><div class="k">Customer Address</div><div class="v">{{customer_address}}</div></div>
-<div class="row"><div class="k">Phone</div><div class="v">{{customer_phone}}</div></div>
-<div class="rule"></div>
-<h2>Project details</h2>
-<div class="row"><div class="k">Product</div><div class="v inline">{{product}}</div></div>
-<div class="row"><div class="k">Description</div><div class="v">{{description}}</div></div>
-<div class="row"><div class="k">Measurements</div><div class="v">{{measurements}}</div></div>
-<div class="row"><div class="k">Installation Address</div><div class="v">{{installation_address}}</div></div>
-<div class="rule"></div>
-<h2>Pricing</h2>
-<div class="row"><div class="k">Total Project Price</div><div class="v mono">${{total_project_price}}</div></div>
-<div class="row"><div class="k">Deposit Required</div><div class="v mono">${{deposit_required}}</div></div>
-<div class="row"><div class="k">Balance Remaining</div><div class="v mono">${{balance_remaining}}</div></div>
-<div class="rule"></div>
-<h2>Terms &amp; conditions</h2>
-<div class="small">
-  <div>- A deposit is required to start production.</div>
-  <div>- Deposit is non-refundable once production has started.</div>
-  <div>- Estimated completion time: ______ days/weeks.</div>
-  <div>- Final payment is due upon completion/installation.</div>
-  <div>- Any changes after order confirmation may affect price and timeline.</div>
-</div>
-<div class="rule"></div>
-<h2>Agreement</h2>
-<div class="small">I confirm that I approve the above details, measurements, and pricing. I agree to proceed with the order and pay the required deposit.</div>
-<div class="grid" style="margin-top: 10px;">
-  <div class="row"><div class="k">Customer Name</div><div class="v"></div></div>
-  <div class="row"><div class="k">Date</div><div class="v"></div></div>
-</div>
-<div class="row"><div class="k">Signature</div><div class="v"></div></div>
-<div class="rule"></div>
-<h2>Payment status</h2>
-<div class="row"><div class="k">Deposit Paid</div><div class="v mono">${{deposit_paid}}</div></div>
-<div class="row"><div class="k">Payment Method</div><div class="v">{{payment_method}}</div></div>
-<div class="row"><div class="k">Date</div><div class="v">{{payment_date}}</div></div>
-""".strip(),
-        )
+        return _default_deposit_template_out()
     return TemplateOut(
         kind=kind,
         subject="Final invoice",
@@ -241,48 +242,133 @@ def _default_template(kind: str) -> TemplateOut:
 <div class="row"><div class="k">Date</div><div class="v">{{payment_date}}</div></div>
 <div class="row"><div class="k">Status</div><div class="v inline mono">{{status}}</div></div>
 """.strip(),
+        preset_key=None,
+        legacy_custom=False,
     )
 
 
 def _load_template(db: Session, company_id: str, kind: str) -> TemplateOut:
     if kind not in TEMPLATE_KINDS:
         raise HTTPException(status_code=400, detail="Invalid template kind.")
-    row = db.execute(
-        text(
+    has_pk = _company_document_templates_has_preset_key(db)
+    sql = (
+        """
+            SELECT subject, body_html, preset_key
+            FROM company_document_templates
+            WHERE company_id = CAST(:cid AS uuid) AND kind = :k AND is_deleted IS NOT TRUE
+            LIMIT 1
             """
+        if has_pk
+        else """
             SELECT subject, body_html
             FROM company_document_templates
             WHERE company_id = CAST(:cid AS uuid) AND kind = :k AND is_deleted IS NOT TRUE
             LIMIT 1
             """
-        ),
-        {"cid": company_id, "k": kind},
-    ).mappings().first()
+    )
+    row = db.execute(text(sql), {"cid": company_id, "k": kind}).mappings().first()
     if not row:
         return _default_template(kind)
-    return TemplateOut(
-        kind=kind,
-        subject=str(row.get("subject") or ""),
-        body_html=str(row.get("body_html") or ""),
-    )
+
+    subj_db = str(row.get("subject") or "").strip()
+    body_db = str(row.get("body_html") or "").strip()
+    pk_row = str(row.get("preset_key") or "").strip() if has_pk else ""
+
+    if kind == "deposit_contract":
+        if pk_row and pk_row in DEPOSIT_CONTRACT_PRESETS:
+            preset = DEPOSIT_CONTRACT_PRESETS[pk_row]
+            return TemplateOut(
+                kind=kind,
+                subject=preset.subject,
+                body_html=preset.body_html,
+                preset_key=pk_row,
+                legacy_custom=False,
+            )
+        if body_db:
+            return TemplateOut(
+                kind=kind,
+                subject=subj_db,
+                body_html=body_db,
+                preset_key=None,
+                legacy_custom=True,
+            )
+        return _default_deposit_template_out()
+
+    if body_db or subj_db:
+        return TemplateOut(
+            kind=kind,
+            subject=subj_db,
+            body_html=body_db,
+            preset_key=None,
+            legacy_custom=False,
+        )
+    return _default_template(kind)
 
 
-def _upsert_template(db: Session, company_id: str, kind: str, payload: TemplateIn) -> None:
+def _upsert_legacy_template(db: Session, company_id: str, kind: str, payload: TemplateIn) -> None:
     if kind not in TEMPLATE_KINDS:
         raise HTTPException(status_code=400, detail="Invalid template kind.")
+    has_pk = _company_document_templates_has_preset_key(db)
+    if has_pk:
+        db.execute(
+            text(
+                """
+                INSERT INTO company_document_templates
+                  (company_id, kind, subject, body_html, preset_key, created_at, updated_at, is_deleted)
+                VALUES (CAST(:cid AS uuid), :k, :subj, :html, NULL, NOW(), NOW(), FALSE)
+                ON CONFLICT (company_id, kind) DO UPDATE
+                  SET subject = EXCLUDED.subject,
+                      body_html = EXCLUDED.body_html,
+                      preset_key = NULL,
+                      updated_at = NOW(),
+                      is_deleted = FALSE
+                """
+            ),
+            {"cid": company_id, "k": kind, "subj": payload.subject.strip(), "html": payload.body_html},
+        )
+    else:
+        db.execute(
+            text(
+                """
+                INSERT INTO company_document_templates
+                  (company_id, kind, subject, body_html, created_at, updated_at, is_deleted)
+                VALUES (CAST(:cid AS uuid), :k, :subj, :html, NOW(), NOW(), FALSE)
+                ON CONFLICT (company_id, kind) DO UPDATE
+                  SET subject = EXCLUDED.subject,
+                      body_html = EXCLUDED.body_html,
+                      updated_at = NOW(),
+                      is_deleted = FALSE
+                """
+            ),
+            {"cid": company_id, "k": kind, "subj": payload.subject.strip(), "html": payload.body_html},
+        )
+    db.commit()
+
+
+def _upsert_deposit_preset(db: Session, company_id: str, preset_key: str) -> None:
+    if not _company_document_templates_has_preset_key(db):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Database migration required: run SQL from DB/34_company_document_templates_preset_key.sql "
+                "(adds column preset_key to company_document_templates)."
+            ),
+        )
     db.execute(
         text(
             """
-            INSERT INTO company_document_templates (company_id, kind, subject, body_html, created_at, updated_at, is_deleted)
-            VALUES (CAST(:cid AS uuid), :k, :subj, :html, NOW(), NOW(), FALSE)
+            INSERT INTO company_document_templates
+              (company_id, kind, subject, body_html, preset_key, created_at, updated_at, is_deleted)
+            VALUES (CAST(:cid AS uuid), 'deposit_contract', '', '', :pk, NOW(), NOW(), FALSE)
             ON CONFLICT (company_id, kind) DO UPDATE
-              SET subject = EXCLUDED.subject,
-                  body_html = EXCLUDED.body_html,
+              SET subject = '',
+                  body_html = '',
+                  preset_key = EXCLUDED.preset_key,
                   updated_at = NOW(),
                   is_deleted = FALSE
             """
         ),
-        {"cid": company_id, "k": kind, "subj": payload.subject.strip(), "html": payload.body_html},
+        {"cid": company_id, "pk": preset_key},
     )
     db.commit()
 
@@ -335,6 +421,34 @@ def list_templates(
     return [_load_template(db, str(cid), k) for k in TEMPLATE_KINDS]
 
 
+@router.get("/presets", response_model=list[PresetCatalogItem])
+def list_preset_catalog(
+    kind: Annotated[str, Query(min_length=1)],
+    current_user: Annotated[Users, Depends(require_permissions("settings.contract_invoice.view"))],
+):
+    cid = effective_company_id(current_user)
+    if not cid and not is_effective_superadmin(current_user):
+        raise HTTPException(status_code=403, detail="No active company.")
+    if not cid:
+        raise HTTPException(status_code=400, detail="Select a company first.")
+    if kind.strip() != "deposit_contract":
+        raise HTTPException(status_code=400, detail="Unsupported preset kind.")
+    out: list[PresetCatalogItem] = []
+    for key in deposit_preset_keys_in_order():
+        meta = DEPOSIT_PRESET_LABELS.get(key, ("Preset", ""))
+        preset = DEPOSIT_CONTRACT_PRESETS[key]
+        out.append(
+            PresetCatalogItem(
+                kind="deposit_contract",
+                key=key,
+                name=meta[0],
+                description=meta[1],
+                body_html=preset.body_html,
+            )
+        )
+    return out
+
+
 @router.put("/templates/{kind}", status_code=204)
 def save_template(
     kind: str,
@@ -347,8 +461,20 @@ def save_template(
         raise HTTPException(status_code=403, detail="No active company.")
     if not cid:
         raise HTTPException(status_code=400, detail="Select a company first.")
-    _upsert_template(db, str(cid), kind, body)
+    k = kind.strip()
+    if k not in TEMPLATE_KINDS:
+        raise HTTPException(status_code=400, detail="Invalid template kind.")
+    pk = (body.preset_key or "").strip()
+    if pk:
+        if k != "deposit_contract":
+            raise HTTPException(status_code=400, detail="Presets are only supported for deposit_contract.")
+        if pk not in DEPOSIT_CONTRACT_PRESETS:
+            raise HTTPException(status_code=400, detail="Unknown preset.")
+        _upsert_deposit_preset(db, str(cid), pk)
+        return None
+    _upsert_legacy_template(db, str(cid), k, body)
     return None
+
 
 @router.get("/orders/{order_id}/deposit-contract")
 def deposit_invoice_contract(
