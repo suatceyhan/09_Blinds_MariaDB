@@ -247,9 +247,9 @@ export function EstimateViewPage() {
                     disabled={docBusy !== null}
                     onClick={() => void downloadDepositContract()}
                     className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                    title="Download HTML"
+                    title="Download deposit invoice and agreement (PDF)"
                   >
-                    {docBusy === 'download' ? 'Preparing…' : 'Download'}
+                    {docBusy === 'download' ? 'Preparing…' : 'Download PDF'}
                   </button>
                   {canCreateOrder ? (
                     <Link

@@ -29,8 +29,10 @@ def _wkhtmltopdf_bytes(html: str) -> bytes:
             with open(in_path, "w", encoding="utf-8") as f:
                 f.write(html)
             # Minimal args: quiet + local file input → PDF file output
+            # --background: render header fills / navy bars (default off).
+            # --print-media-type: honor print-oriented CSS where applicable.
             proc = subprocess.run(
-                [exe, "--quiet", in_path, out_path],
+                [exe, "--quiet", "--background", "--print-media-type", in_path, out_path],
                 capture_output=True,
                 text=True,
                 check=False,

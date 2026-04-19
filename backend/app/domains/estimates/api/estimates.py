@@ -1301,6 +1301,26 @@ def _sum_estimate_line_amounts(lines: Any) -> Decimal | None:
     return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def _estimate_deposit_pdf_money_fields(total_amt: Decimal | None) -> dict[str, str]:
+    """Placeholder business rule: 50% deposit vs balance when line totals exist; avoids bare '$' in PDF."""
+    dash = "—"
+    if total_amt is None:
+        return {
+            "total_project_price": dash,
+            "deposit_required": dash,
+            "balance_remaining": dash,
+            "deposit_paid": dash,
+        }
+    half = (total_amt / Decimal("2")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    remainder = (total_amt - half).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return {
+        "total_project_price": f"{total_amt:,.2f}",
+        "deposit_required": f"{half:,.2f}",
+        "balance_remaining": f"{remainder:,.2f}",
+        "deposit_paid": dash,
+    }
+
+
 def _fetch_estimate_doc_context(db: Session, company_id: UUID, estimate_id: str) -> dict[str, Any] | None:
     row = db.execute(
         text(
@@ -1367,6 +1387,7 @@ def estimate_deposit_contract_download(
         except json.JSONDecodeError:
             lines = []
     total_amt = _sum_estimate_line_amounts(lines)
+    money = _estimate_deposit_pdf_money_fields(total_amt)
 
     _subj, pdf = render_contract_invoice_pdf(
         db=db,
@@ -1387,12 +1408,9 @@ def estimate_deposit_contract_download(
             "description": "",
             "measurements": "",
             "installation_address": cust_addr,
-            "total_project_price": "" if total_amt is None else f"{total_amt:,.2f}",
-            "deposit_required": "",
-            "balance_remaining": "",
-            "deposit_paid": "",
-            "payment_method": "",
-            "payment_date": "",
+            **money,
+            "payment_method": "—",
+            "payment_date": "—",
         },
     )
     return Response(
@@ -1437,6 +1455,7 @@ def estimate_deposit_contract_send_email(
         except json.JSONDecodeError:
             lines = []
     total_amt = _sum_estimate_line_amounts(lines)
+    money = _estimate_deposit_pdf_money_fields(total_amt)
 
     subject, pdf = render_contract_invoice_pdf(
         db=db,
@@ -1457,12 +1476,9 @@ def estimate_deposit_contract_send_email(
             "description": "",
             "measurements": "",
             "installation_address": cust_addr,
-            "total_project_price": "" if total_amt is None else f"{total_amt:,.2f}",
-            "deposit_required": "",
-            "balance_remaining": "",
-            "deposit_paid": "",
-            "payment_method": "",
-            "payment_date": "",
+            **money,
+            "payment_method": "—",
+            "payment_date": "—",
         },
     )
 

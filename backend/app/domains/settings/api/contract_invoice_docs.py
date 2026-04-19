@@ -12,7 +12,7 @@ from html import escape
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -80,6 +80,30 @@ class PresetCatalogItem(BaseModel):
     body_html: str
 
 
+# Same sample values as Settings UI — used only for HTML preview (matches PDF CSS via _html_page).
+DEPOSIT_PREVIEW_SAMPLE: dict[str, str] = {
+    "business_name": "Acme Blinds Inc.",
+    "business_address": "123 Main St, Toronto, ON M5J 2N1",
+    "business_phone": "(416) 555-0100",
+    "business_email": "jobs@acmeblinds.example",
+    "customer_name": "John Doe",
+    "customer_address": "88 King St, Toronto, ON",
+    "customer_phone": "(647) 555-7788",
+    "invoice_number": "INV-EST-abc12345",
+    "invoice_date": "Apr 18, 2026",
+    "product": "Custom Zebra Blinds",
+    "description": "Living room — 3× windows, blackout fabric",
+    "measurements": "Per field measure sheet",
+    "installation_address": "88 King St, Toronto, ON",
+    "total_project_price": "3,834.00",
+    "deposit_required": "1,917.00",
+    "balance_remaining": "1,917.00",
+    "deposit_paid": "1,917.00",
+    "payment_method": "E-transfer",
+    "payment_date": "Apr 18, 2026",
+}
+
+
 def _fmt_money(v: Any) -> str:
     if v is None:
         return ""
@@ -104,31 +128,189 @@ def _html_page(title: str, body: str) -> str:
     <title>{title}</title>
     <style>
       @page {{ size: Letter; margin: 18mm 14mm; }}
-      :root {{ --ink:#0f172a; --muted:#475569; --line:#cbd5e1; }}
+      /* Literal colors: wkhtmltopdf’s Qt WebKit often does not support CSS variables — var() drops backgrounds. */
       * {{ box-sizing: border-box; }}
-      body {{ margin: 0; padding: 0; color: var(--ink); font: 12px/1.25 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }}
+      body {{ margin: 0; padding: 0; color: #0f172a; font: 12px/1.25 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }}
       .page {{ max-width: 820px; margin: 0 auto; }}
       h1 {{ margin: 0 0 6px; font-size: 20px; letter-spacing: 0.2px; }}
-      h2 {{ margin: 22px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }}
-      .rule {{ border-top: 1px solid var(--line); margin: 14px 0; }}
-      .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; }}
-      .row {{ display: grid; grid-template-columns: 160px 1fr; gap: 10px; padding: 2px 0; }}
-      .k {{ color: var(--muted); }}
-      .v {{ min-height: 18px; border-bottom: 1px solid var(--line); padding-bottom: 2px; }}
-      .v.inline {{ border-bottom: none; padding-bottom: 0; }}
+      h2 {{ margin: 22px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #475569; }}
+      .rule {{ border-top: 1px solid #cbd5e1; margin: 14px 0; }}
+      /* wkhtmltopdf uses Qt WebKit: CSS Grid is unreliable — use floats for PDF parity with browser preview. */
+      .grid {{ width: 100%; overflow: hidden; }}
+      .grid > * {{ float: left; width: 49%; margin-right: 2%; box-sizing: border-box; }}
+      .grid > *:nth-child(2n) {{ margin-right: 0; }}
+      .grid:after {{ content: ""; display: block; clear: both; }}
+      .row {{ overflow: hidden; padding: 3px 0; zoom: 1; }}
+      .row .k {{ float: left; width: 158px; padding-right: 10px; color: #475569; }}
+      .row .v {{ margin-left: 168px; min-height: 18px; border-bottom: 1px solid #cbd5e1; padding-bottom: 2px; }}
+      .row .v.inline {{ border-bottom: none; padding-bottom: 0; }}
       .mono {{ font-variant-numeric: tabular-nums; }}
-      .small {{ font-size: 12px; color: var(--muted); }}
+      .small {{ font-size: 12px; color: #475569; }}
       .avoid-break {{ break-inside: avoid; page-break-inside: avoid; }}
-      .doc-card {{ border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; background: #f8fafc; }}
-      .doc-accent {{ border-left: 4px solid #0d9488; padding-left: 14px; background: #f8fafc; border-radius: 10px; }}
+      .doc-card {{ border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px 16px; background: #f8fafc; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+      .doc-accent {{ border-left: 4px solid #0d9488; padding-left: 14px; background: #f8fafc; border-radius: 10px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
       .doc-badge {{ font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #0f766e; text-transform: uppercase; }}
       .doc-h1 {{ margin: 8px 0 4px; font-size: 21px; letter-spacing: -0.02em; }}
-      .doc-meta {{ font-size: 11px; color: var(--muted); }}
+      .doc-meta {{ font-size: 11px; color: #475569; }}
+      .doc-inv-no {{ font-size: 15px; font-weight: 600; margin-top: 3px; }}
+      .doc-sub {{ margin: 8px 0 0; max-width: 42rem; }}
+      .doc-header-wrap {{
+        border: 1px solid #cbd5e1;
+        border-radius: 10px;
+        padding: 18px 18px 16px;
+        margin-bottom: 14px;
+        border-left: 4px solid #0d9488;
+        background: #ffffff;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }}
+      .doc-card-pad {{ padding: 16px 18px; }}
+      .doc-h2-rule {{
+        margin: 0 0 12px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #cbd5e1;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #475569;
+      }}
+      .doc-sheet {{ width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 12px; table-layout: auto; }}
+      .doc-sheet-lbl {{
+        white-space: nowrap;
+        vertical-align: baseline;
+        padding: 9px 10px 9px 0;
+        color: #475569;
+        font-weight: 500;
+      }}
+      .doc-sheet-lead {{ vertical-align: baseline; padding: 0 8px; width: 100%; }}
+      .doc-lead-fill {{
+        display: block;
+        border-bottom: 1px dotted #94a3b8;
+        margin: 0 2px 5px 2px;
+        line-height: 0;
+        font-size: 0;
+        height: 1px;
+        overflow: visible;
+      }}
+      .doc-sheet-amt {{
+        white-space: nowrap;
+        text-align: right;
+        vertical-align: baseline;
+        padding: 9px 0 9px 14px;
+        font-variant-numeric: tabular-nums;
+      }}
+      .doc-sheet-strong {{ font-weight: 600; }}
+      .doc-ol {{ margin: 0; padding-left: 18px; color: #0f172a; line-height: 1.55; font-size: 11px; }}
+      .doc-ol li {{ margin: 0 0 6px; }}
+      .sig-k {{ font-size: 10px; color: #475569; text-transform: uppercase; letter-spacing: 0.06em; }}
+      .sig-line {{ border-bottom: 1px solid #cbd5e1; min-height: 28px; padding-top: 6px; }}
+      .sig-block {{ margin-top: 18px; border-bottom: 1px solid #cbd5e1; min-height: 36px; padding-top: 6px; }}
       .doc-price-table {{ width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }}
-      .doc-price-table td {{ padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }}
+      .doc-price-table td {{ padding: 8px 10px; border-bottom: 1px solid #cbd5e1; vertical-align: top; }}
       .doc-price-table td:last-child {{ text-align: right; font-variant-numeric: tabular-nums; }}
       .doc-price-table tr:last-child td {{ border-bottom: none; font-weight: 600; }}
-      .doc-terms {{ font-size: 11px; color: var(--muted); line-height: 1.45; }}
+      .doc-terms {{ font-size: 11px; color: #475569; line-height: 1.45; }}
+
+      /* —— Corporate deposit preset (teal_pro_01 “Corporate Navy”) —— */
+      .doc-inv-root {{ font-size: 11px; }}
+      .doc-top-band {{ width: 100%; margin-bottom: 14px; border-bottom: 2px solid #1e3a8f; padding-bottom: 12px; }}
+      .doc-top-left {{ width: 52%; padding-right: 12px; vertical-align: top; }}
+      .doc-top-right {{ width: 48%; padding-left: 12px; vertical-align: top; text-align: right; }}
+      .doc-meta-mini {{
+        display: inline-block;
+        text-align: left;
+        vertical-align: top;
+        border-collapse: collapse;
+        font-size: 10px;
+      }}
+      .doc-logo-ph {{
+        font-size: 9px; color: #94a3b8; border: 1px dashed #cbd5e1; display: inline-block;
+        padding: 7px 12px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.08em;
+      }}
+      .doc-brand-name {{ font-size: 16px; font-weight: 700; letter-spacing: -0.02em; color: #1e3a8f; }}
+      .doc-brand-sub {{ font-size: 10px; color: #475569; margin-top: 4px; }}
+      .doc-main-invoice-title {{
+        font-size: 21px; font-weight: 800; letter-spacing: 0.05em; color: #1e3a8f; line-height: 1.15;
+      }}
+      .doc-main-invoice-sub {{ font-size: 10px; color: #475569; margin: 6px 0 12px; }}
+      .doc-meta-mini-k {{
+        text-align: left; padding: 5px 12px 5px 0; color: #475569; font-weight: 600;
+        border-bottom: 1px solid #cbd5e1; white-space: nowrap;
+      }}
+      .doc-meta-mini-v {{ text-align: right; padding: 5px 0 5px 12px; border-bottom: 1px solid #cbd5e1; }}
+      .doc-pair-grid {{ width: 100%; border-collapse: collapse; margin-bottom: 14px; table-layout: fixed; }}
+      .doc-pair-cell {{ width: 50%; vertical-align: top; }}
+      .doc-pair-gap {{ padding-left: 10px; }}
+      .doc-sec-hd {{
+        background: #1e3a8f; color: #fff; font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+        padding: 7px 10px; text-transform: uppercase;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }}
+      .doc-sec-hd-sm {{ font-size: 9px; padding: 6px 8px; }}
+      .doc-sec-bd {{
+        border: 1px solid #cbd5e1; border-top: none; padding: 10px 12px; background: #fff; min-height: 72px;
+      }}
+      .doc-sec-bd-tight {{ padding: 8px 10px; min-height: 0; }}
+      .doc-line {{ margin: 0 0 5px; line-height: 1.45; font-size: 11px; }}
+      .doc-line-strong {{ font-weight: 600; font-size: 12px; }}
+      .doc-lab {{ color: #475569; font-size: 10px; margin-right: 6px; }}
+      .doc-sec-full {{ margin-bottom: 14px; }}
+      .doc-inner-kv {{ width: 100%; font-size: 11px; }}
+      .doc-ik {{ color: #475569; padding: 4px 12px 4px 0; vertical-align: top; width: 34%; white-space: nowrap; }}
+      .doc-iv {{ padding: 4px 0; vertical-align: top; }}
+      .doc-desc-table {{ width: 100%; border-collapse: collapse; border: 1px solid #1e293b; }}
+      .doc-desc-hd-l {{
+        background: #1e3a8f; color: #fff; font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+        padding: 8px 10px; width: 75%;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }}
+      .doc-desc-hd-r {{
+        background: #1e3a8f; color: #fff; font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+        padding: 8px 10px; width: 25%;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }}
+      .doc-desc-body {{ border-right: 1px solid #cbd5e1; padding: 12px 10px; vertical-align: top; }}
+      .doc-desc-amt {{ padding: 12px 10px; font-size: 12px; font-weight: 600; }}
+      .doc-li-title {{ font-weight: 700; font-size: 12px; margin-bottom: 6px; }}
+      .doc-li-note {{ font-size: 10px; color: #475569; line-height: 1.45; }}
+      .doc-bottom-split {{ width: 100%; overflow: hidden; margin-top: 14px; }}
+      .doc-notes-col {{ float: left; width: 58%; padding-right: 12px; box-sizing: border-box; }}
+      .doc-totals-wrap {{ float: right; width: 40%; max-width: 300px; box-sizing: border-box; }}
+      .doc-notes-body {{
+        border: 1px solid #cbd5e1; border-top: none; padding: 10px 12px 14px; background: #fff; min-height: 180px;
+      }}
+      .doc-ol-tight {{ margin: 0; padding-left: 16px; font-size: 10px; line-height: 1.5; color: #0f172a; }}
+      .doc-ol-tight li {{ margin-bottom: 5px; }}
+      .doc-auth-note {{ font-size: 10px; color: #475569; margin: 12px 0 14px; line-height: 1.45; }}
+      .doc-totals-box {{ width: 100%; border-collapse: collapse; border: 1px solid #cbd5e1; font-size: 11px; margin-bottom: 10px; }}
+      .doc-totals-box td {{ padding: 8px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: middle; }}
+      .doc-totals-box tr:last-child td {{ border-bottom: none; }}
+      .doc-tl {{ color: #475569; font-weight: 500; }}
+      .doc-tv {{ text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }}
+      .doc-totals-grand td {{
+        background: #1e3a8f; color: #fff; font-weight: 700; border-bottom: none;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }}
+      .doc-totals-grand .doc-tl {{ color: #fff; }}
+      .doc-totals-grand .doc-tv {{ color: #fff; }}
+      .doc-totals-lite .doc-tl {{ font-size: 10px; }}
+      .doc-pay-subhd {{
+        font-size: 9px; font-weight: 700; letter-spacing: 0.1em; color: #1e3a8f;
+        margin: 12px 0 6px; text-transform: uppercase;
+      }}
+      .doc-sig-grid {{ width: 100%; margin-top: 8px; }}
+      .doc-sig-cell {{ width: 50%; vertical-align: bottom; padding-right: 8px; }}
+      .doc-sig-padl {{ padding-left: 8px; padding-right: 0; }}
+      .doc-sig-cap {{ font-size: 9px; color: #475569; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }}
+      .doc-sig-line {{ border-bottom: 1px solid #0f172a; min-height: 22px; }}
+      .doc-sig-wide {{ margin-top: 4px; }}
+      .doc-footer-thanks {{
+        clear: both; text-align: center; font-size: 11px; font-weight: 600; letter-spacing: 0.14em;
+        color: #1e3a8f; text-transform: uppercase; padding: 22px 8px 6px; margin-top: 10px; border-top: 1px solid #cbd5e1;
+      }}
+      .doc-bottom-split:after {{ content: ""; display: block; clear: both; }}
+
       @media print {{
         .page {{ max-width: none; margin: 0; }}
       }}
@@ -373,6 +555,36 @@ def _upsert_deposit_preset(db: Session, company_id: str, preset_key: str) -> Non
     db.commit()
 
 
+def _render_html_from_template(
+    tpl: TemplateOut,
+    kind: str,
+    data: dict[str, str],
+    page_title: str,
+) -> tuple[str, str]:
+    """Apply escaped placeholder data and wrap with _html_page."""
+    subj = tpl.subject.strip() or _default_template(kind).subject
+    safe = {k: escape(v or "") for k, v in data.items()}
+    body = tpl.body_html
+    for k, v in safe.items():
+        body = body.replace(f"{{{{{k}}}}}", v)
+    return subj, _html_page(page_title, body)
+
+
+def _deposit_template_for_preview(db: Session, company_id: str, preset_key_param: str | None) -> TemplateOut:
+    """Use explicit preset when picking an unsaved card in Settings; otherwise saved company template."""
+    pk = (preset_key_param or "").strip()
+    if pk and pk in DEPOSIT_CONTRACT_PRESETS:
+        preset = DEPOSIT_CONTRACT_PRESETS[pk]
+        return TemplateOut(
+            kind="deposit_contract",
+            subject=preset.subject,
+            body_html=preset.body_html,
+            preset_key=pk,
+            legacy_custom=False,
+        )
+    return _load_template(db, company_id, "deposit_contract")
+
+
 def render_contract_invoice_html(
     *,
     db: Session,
@@ -383,13 +595,7 @@ def render_contract_invoice_html(
 ) -> tuple[str, str]:
     """Return (subject, full_html_page)."""
     tpl = _load_template(db, company_id, kind)
-    subj = tpl.subject.strip() or _default_template(kind).subject
-
-    safe = {k: escape(v or "") for k, v in data.items()}
-    body = tpl.body_html
-    for k, v in safe.items():
-        body = body.replace(f"{{{{{k}}}}}", v)
-    return subj, _html_page(page_title, body)
+    return _render_html_from_template(tpl, kind, data, page_title)
 
 
 def render_contract_invoice_pdf(
@@ -447,6 +653,28 @@ def list_preset_catalog(
             )
         )
     return out
+
+
+@router.get("/preview/deposit-contract", response_class=HTMLResponse)
+def preview_deposit_contract_html(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("settings.contract_invoice.view"))],
+    preset_key: Annotated[str | None, Query()] = None,
+):
+    """Exact same HTML/CSS as PDF generation (`_html_page`), with fixed sample placeholder values."""
+    cid = effective_company_id(current_user)
+    if not cid and not is_effective_superadmin(current_user):
+        raise HTTPException(status_code=403, detail="No active company.")
+    if not cid:
+        raise HTTPException(status_code=400, detail="Select a company first.")
+    tpl = _deposit_template_for_preview(db, str(cid), preset_key)
+    _, html = _render_html_from_template(
+        tpl,
+        "deposit_contract",
+        DEPOSIT_PREVIEW_SAMPLE,
+        "Invoice & Service Agreement",
+    )
+    return HTMLResponse(content=html)
 
 
 @router.put("/templates/{kind}", status_code=204)

@@ -1,7 +1,7 @@
 """
 Built-in deposit invoice + contract PDF/HTML presets.
 
-Keys are stable IDs stored per company in company_document_templates.preset_key.
+Corporate invoice layout: navy section bars, compact right-aligned totals (wkhtmltopdf-safe tables).
 """
 
 from __future__ import annotations
@@ -17,114 +17,164 @@ class DepositPreset:
 
 DEFAULT_DEPOSIT_PRESET_KEY = "teal_pro_01"
 
-# Title + short line for catalog cards (settings UI).
 DEPOSIT_PRESET_LABELS: dict[str, tuple[str, str]] = {
     "teal_pro_01": (
-        "Professional (Teal)",
-        "Structured invoice header, business / customer panels, pricing summary, compact terms, and signature block.",
+        "Corporate (Navy)",
+        "Deposit invoice with navy header bars, line-item row, compact totals block, and formal notes — similar to standard pro-forma / deposit templates.",
     ),
 }
 
 
+def _ph(key: str) -> str:
+    return "{{" + key + "}}"
+
+
 DEPOSIT_CONTRACT_PRESETS: dict[str, DepositPreset] = {
     "teal_pro_01": DepositPreset(
-        subject="Invoice & Service Agreement",
+        subject="Deposit invoice & service agreement",
         body_html=r"""
-<div class="doc-accent doc-card avoid-break">
-  <table style="width:100%;border-collapse:collapse;">
+<div class="doc-inv-root avoid-break">
+
+  <table class="doc-top-band" cellspacing="0" cellpadding="0">
     <tr>
-      <td style="vertical-align:top;padding-right:12px;">
-        <div class="doc-badge">Deposit invoice · Service agreement</div>
-        <div class="doc-h1">Invoice &amp; Service Agreement</div>
-        <div class="small" style="margin-top:4px;">Custom window treatments — measurements and pricing as listed below.</div>
+      <td class="doc-top-left" valign="top">
+        <div class="doc-logo-ph">Logo</div>
+        <div class="doc-brand-name">""" + _ph("business_name") + r"""</div>
+        <div class="doc-brand-sub">Custom window treatments</div>
       </td>
-      <td style="vertical-align:top;text-align:right;white-space:nowrap;width:160px;">
-        <div class="doc-meta">Invoice number</div>
-        <div class="mono" style="font-size:15px;font-weight:600;margin-top:2px;">{{invoice_number}}</div>
-        <div class="doc-meta" style="margin-top:10px;">Date</div>
-        <div class="mono">{{invoice_date}}</div>
-      </td>
-    </tr>
-  </table>
-</div>
-
-<div class="grid avoid-break">
-  <div class="doc-card">
-    <h2>Business</h2>
-    <div class="row"><div class="k">Name</div><div class="v">{{business_name}}</div></div>
-    <div class="row"><div class="k">Address</div><div class="v">{{business_address}}</div></div>
-    <div class="row"><div class="k">Phone</div><div class="v">{{business_phone}}</div></div>
-    <div class="row"><div class="k">Email</div><div class="v">{{business_email}}</div></div>
-  </div>
-  <div class="doc-card">
-    <h2>Bill to</h2>
-    <div class="row"><div class="k">Customer</div><div class="v">{{customer_name}}</div></div>
-    <div class="row"><div class="k">Address</div><div class="v">{{customer_address}}</div></div>
-    <div class="row"><div class="k">Phone</div><div class="v">{{customer_phone}}</div></div>
-  </div>
-</div>
-
-<div class="doc-card avoid-break">
-  <h2>Project</h2>
-  <div class="row"><div class="k">Product</div><div class="v inline">{{product}}</div></div>
-  <div class="row"><div class="k">Scope / notes</div><div class="v">{{description}}</div></div>
-  <div class="row"><div class="k">Measurements</div><div class="v">{{measurements}}</div></div>
-  <div class="row"><div class="k">Installation address</div><div class="v">{{installation_address}}</div></div>
-</div>
-
-<div class="doc-card avoid-break">
-  <h2>Pricing</h2>
-  <table class="doc-price-table">
-    <tr>
-      <td>Total project price</td>
-      <td class="mono">${{total_project_price}}</td>
-    </tr>
-    <tr>
-      <td>Deposit required</td>
-      <td class="mono">${{deposit_required}}</td>
-    </tr>
-    <tr>
-      <td>Balance remaining</td>
-      <td class="mono">${{balance_remaining}}</td>
-    </tr>
-  </table>
-</div>
-
-<div class="doc-card avoid-break">
-  <h2>Terms</h2>
-  <div class="doc-terms">
-    <div style="margin-bottom:6px;">· A deposit is required before production begins.</div>
-    <div style="margin-bottom:6px;">· Once production has started, the deposit is non-refundable.</div>
-    <div style="margin-bottom:6px;">· Estimated completion depends on materials and schedule — final payment is due on completion / installation unless otherwise agreed.</div>
-    <div>· Changes after approval may affect price and lead time.</div>
-  </div>
-</div>
-
-<div class="doc-card avoid-break">
-  <h2>Agreement</h2>
-  <div class="small" style="margin-bottom:10px;line-height:1.45;">
-    By proceeding, the customer confirms the details above (including measurements where provided) and authorizes work to begin subject to the deposit below.
-  </div>
-  <table style="width:100%;border-collapse:collapse;margin-top:8px;">
-    <tr>
-      <td style="width:50%;padding-right:10px;vertical-align:bottom;">
-        <div class="row"><div class="k">Customer name</div><div class="v"></div></div>
-      </td>
-      <td style="width:50%;padding-left:10px;vertical-align:bottom;">
-        <div class="row"><div class="k">Date</div><div class="v"></div></div>
+      <td class="doc-top-right" valign="top" align="right">
+        <div class="doc-main-invoice-title">DEPOSIT INVOICE</div>
+        <div class="doc-main-invoice-sub">Service agreement — deposit schedule</div>
+        <table class="doc-meta-mini" cellspacing="0">
+          <tr>
+            <td class="doc-meta-mini-k">DATE</td>
+            <td class="doc-meta-mini-v mono">""" + _ph("invoice_date") + r"""</td>
+          </tr>
+          <tr>
+            <td class="doc-meta-mini-k">INVOICE NO.</td>
+            <td class="doc-meta-mini-v mono">""" + _ph("invoice_number") + r"""</td>
+          </tr>
+        </table>
       </td>
     </tr>
   </table>
-  <div class="row" style="margin-top:12px;"><div class="k">Signature</div><div class="v"></div></div>
-</div>
 
-<div class="rule"></div>
+  <table class="doc-pair-grid" cellspacing="0" cellpadding="0">
+    <tr>
+      <td class="doc-pair-cell" valign="top">
+        <div class="doc-sec-hd">FROM</div>
+        <div class="doc-sec-bd">
+          <div class="doc-line">""" + _ph("business_address") + r"""</div>
+          <div class="doc-line"><span class="doc-lab">Phone</span> """ + _ph("business_phone") + r"""</div>
+          <div class="doc-line"><span class="doc-lab">Email</span> """ + _ph("business_email") + r"""</div>
+        </div>
+      </td>
+      <td class="doc-pair-cell doc-pair-gap" valign="top">
+        <div class="doc-sec-hd">BILL TO</div>
+        <div class="doc-sec-bd">
+          <div class="doc-line doc-line-strong">""" + _ph("customer_name") + r"""</div>
+          <div class="doc-line">""" + _ph("customer_address") + r"""</div>
+          <div class="doc-line"><span class="doc-lab">Phone</span> """ + _ph("customer_phone") + r"""</div>
+        </div>
+      </td>
+    </tr>
+  </table>
 
-<div class="doc-card avoid-break">
-  <h2>Deposit payment status</h2>
-  <div class="row"><div class="k">Deposit paid</div><div class="v mono">${{deposit_paid}}</div></div>
-  <div class="row"><div class="k">Payment method</div><div class="v">{{payment_method}}</div></div>
-  <div class="row"><div class="k">Payment date</div><div class="v">{{payment_date}}</div></div>
+  <div class="doc-sec-full avoid-break">
+    <div class="doc-sec-hd">PROJECT &amp; SITE</div>
+    <div class="doc-sec-bd doc-sec-bd-tight">
+      <table class="doc-inner-kv" cellspacing="0" cellpadding="0">
+        <tr>
+          <td class="doc-ik">Installation address</td>
+          <td class="doc-iv">""" + _ph("installation_address") + r"""</td>
+        </tr>
+        <tr>
+          <td class="doc-ik">Measurements</td>
+          <td class="doc-iv">""" + _ph("measurements") + r"""</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="doc-sec-full avoid-break">
+    <table class="doc-desc-table" cellspacing="0" cellpadding="0">
+      <tr>
+        <td class="doc-desc-hd-l">DESCRIPTION</td>
+        <td class="doc-desc-hd-r" align="right">AMOUNT</td>
+      </tr>
+      <tr>
+        <td class="doc-desc-body" valign="top">
+          <div class="doc-li-title">""" + _ph("product") + r"""</div>
+          <div class="doc-li-note">""" + _ph("description") + r"""</div>
+        </td>
+        <td class="doc-desc-amt mono" valign="top" align="right">$""" + _ph("total_project_price") + r"""</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="doc-bottom-split avoid-break">
+    <div class="doc-notes-col">
+      <div class="doc-sec-hd doc-sec-hd-sm">NOTES &amp; TERMS</div>
+      <div class="doc-notes-body">
+        <ol class="doc-ol-tight">
+          <li>Deposit is required before materials are ordered or production begins.</li>
+          <li>After fabrication starts, the deposit is non-refundable.</li>
+          <li>Balance due as agreed — typically at completion / installation.</li>
+          <li>Approved changes may affect price and schedule.</li>
+        </ol>
+        <div class="doc-auth-note">By signing below, the customer accepts the scope and deposit above.</div>
+        <table class="doc-sig-grid" cellspacing="0" cellpadding="0">
+          <tr>
+            <td class="doc-sig-cell">
+              <div class="doc-sig-cap">Customer name</div>
+              <div class="doc-sig-line">&nbsp;</div>
+            </td>
+            <td class="doc-sig-cell doc-sig-padl">
+              <div class="doc-sig-cap">Date</div>
+              <div class="doc-sig-line">&nbsp;</div>
+            </td>
+          </tr>
+        </table>
+        <div class="doc-sig-cap" style="margin-top:14px;">Signature</div>
+        <div class="doc-sig-line doc-sig-wide">&nbsp;</div>
+      </div>
+    </div>
+    <div class="doc-totals-wrap">
+      <div class="doc-sec-hd doc-sec-hd-sm">SUMMARY</div>
+      <table class="doc-totals-box" cellspacing="0" cellpadding="0">
+        <tr>
+          <td class="doc-tl">Total project price</td>
+          <td class="doc-tv mono">$""" + _ph("total_project_price") + r"""</td>
+        </tr>
+        <tr>
+          <td class="doc-tl">Deposit due</td>
+          <td class="doc-tv mono">$""" + _ph("deposit_required") + r"""</td>
+        </tr>
+        <tr class="doc-totals-grand">
+          <td class="doc-tl">Balance after deposit</td>
+          <td class="doc-tv mono">$""" + _ph("balance_remaining") + r"""</td>
+        </tr>
+      </table>
+      <div class="doc-pay-subhd">Deposit payment</div>
+      <table class="doc-totals-box doc-totals-lite" cellspacing="0" cellpadding="0">
+        <tr>
+          <td class="doc-tl">Amount received</td>
+          <td class="doc-tv mono">$""" + _ph("deposit_paid") + r"""</td>
+        </tr>
+        <tr>
+          <td class="doc-tl">Method</td>
+          <td class="doc-tv">""" + _ph("payment_method") + r"""</td>
+        </tr>
+        <tr>
+          <td class="doc-tl">Payment date</td>
+          <td class="doc-tv">""" + _ph("payment_date") + r"""</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="doc-footer-thanks">Thank you for your business</div>
+
 </div>
 """.strip(),
     ),
@@ -132,7 +182,6 @@ DEPOSIT_CONTRACT_PRESETS: dict[str, DepositPreset] = {
 
 
 def deposit_preset_keys_in_order() -> tuple[str, ...]:
-    """Stable ordering for catalog / UI."""
     return tuple(DEPOSIT_CONTRACT_PRESETS.keys())
 
 

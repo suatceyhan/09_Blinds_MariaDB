@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Check, FileText } from 'lucide-react'
-import { getJson, putJson } from '@/lib/api'
+import { apiBase, getJson, putJson } from '@/lib/api'
 import { useAuthSession } from '@/app/authSession'
+import { getAccessToken } from '@/lib/authStorage'
 
 type TemplateKind = 'deposit_contract' | 'final_invoice'
 
@@ -21,6 +22,7 @@ type PresetCatalogItem = {
   body_html: string
 }
 
+/** Final invoice iframe only — deposit preview uses GET /preview/deposit-contract (same HTML as PDF). */
 const PREVIEW_SAMPLE: Record<string, string> = {
   '{{business_name}}': 'Acme Blinds Inc.',
   '{{business_address}}': '123 Main St, Toronto, ON M5J 2N1',
@@ -44,47 +46,6 @@ const PREVIEW_SAMPLE: Record<string, string> = {
   '{{payment_method}}': 'E-transfer',
   '{{payment_date}}': 'Apr 18, 2026',
   '{{status}}': 'PAID',
-}
-
-/** Mirrors backend `_html_page` print styles enough for settings preview. */
-function previewDocumentHtml(innerBody: string): string {
-  let body = innerBody
-  for (const [k, v] of Object.entries(PREVIEW_SAMPLE)) {
-    body = body.split(k).join(v)
-  }
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8"/>
-<style>
-  :root { --ink:#0f172a; --muted:#475569; --line:#cbd5e1; }
-  * { box-sizing: border-box; }
-  body { margin: 0; padding: 16px; color: var(--ink); font: 12px/1.25 ui-sans-serif, system-ui, Segoe UI, Roboto, Arial; }
-  h1 { margin: 0 0 6px; font-size: 20px; letter-spacing: 0.2px; }
-  h2 { margin: 22px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
-  .rule { border-top: 1px solid var(--line); margin: 14px 0; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; }
-  .row { display: grid; grid-template-columns: 160px 1fr; gap: 10px; padding: 2px 0; }
-  .k { color: var(--muted); }
-  .v { min-height: 18px; border-bottom: 1px solid var(--line); padding-bottom: 2px; }
-  .v.inline { border-bottom: none; padding-bottom: 0; }
-  .mono { font-variant-numeric: tabular-nums; }
-  .small { font-size: 12px; color: var(--muted); }
-  .avoid-break { break-inside: avoid; page-break-inside: avoid; }
-  .doc-card { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; background: #f8fafc; }
-  .doc-accent { border-left: 4px solid #0d9488; padding-left: 14px; background: #f8fafc; border-radius: 10px; }
-  .doc-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #0f766e; text-transform: uppercase; }
-  .doc-h1 { margin: 8px 0 4px; font-size: 21px; letter-spacing: -0.02em; }
-  .doc-meta { font-size: 11px; color: var(--muted); }
-  .doc-price-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
-  .doc-price-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  .doc-price-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
-  .doc-price-table tr:last-child td { border-bottom: none; font-weight: 600; }
-  .doc-terms { font-size: 11px; color: var(--muted); line-height: 1.45; }
-</style>
-</head>
-<body><div class="page">${body}</div></body>
-</html>`
 }
 
 function previewFinalInvoiceHtml(raw: string): string {
@@ -121,6 +82,9 @@ export function SettingsContractInvoicePage() {
   const [depositPresets, setDepositPresets] = useState<PresetCatalogItem[]>([])
   const [templates, setTemplates] = useState<Record<TemplateKind, TemplateRow> | null>(null)
   const [selectedDepositKey, setSelectedDepositKey] = useState<string | null>(null)
+  const [depositPreviewHtml, setDepositPreviewHtml] = useState<string>('')
+  const [depositPreviewLoading, setDepositPreviewLoading] = useState(false)
+  const [depositPreviewErr, setDepositPreviewErr] = useState<string | null>(null)
 
   const loadAll = useCallback(async () => {
     setErr(null)
@@ -168,13 +132,45 @@ export function SettingsContractInvoicePage() {
     void loadAll()
   }, [me, canView, loadAll])
 
-  const previewDepositSrcDoc = useMemo(() => {
-    const key = selectedDepositKey
-    const preset = depositPresets.find((p) => p.key === key)
-    const body = preset?.body_html ?? templates?.deposit_contract.body_html ?? ''
-    if (!body.trim()) return previewDocumentHtml('<p class="small">Select a template.</p>')
-    return previewDocumentHtml(body)
-  }, [depositPresets, selectedDepositKey, templates])
+  useEffect(() => {
+    if (!canView || loading || !selectedDepositKey) {
+      setDepositPreviewHtml('')
+      setDepositPreviewLoading(false)
+      setDepositPreviewErr(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      setDepositPreviewLoading(true)
+      setDepositPreviewErr(null)
+      try {
+        const tok = getAccessToken()
+        if (!tok) {
+          setDepositPreviewErr('Sign in required for preview.')
+          setDepositPreviewHtml('')
+          return
+        }
+        const url = `${apiBase()}/settings/contract-invoice/preview/deposit-contract?preset_key=${encodeURIComponent(selectedDepositKey)}`
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${tok}` } })
+        if (!res.ok) {
+          const t = await res.text()
+          throw new Error(t || `${res.status} preview failed`)
+        }
+        const html = await res.text()
+        if (!cancelled) setDepositPreviewHtml(html)
+      } catch (e) {
+        if (!cancelled) {
+          setDepositPreviewHtml('')
+          setDepositPreviewErr(e instanceof Error ? e.message : 'Could not load preview')
+        }
+      } finally {
+        if (!cancelled) setDepositPreviewLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [canView, loading, selectedDepositKey])
 
   async function saveDepositPreset() {
     if (!selectedDepositKey || !canEdit) return
@@ -300,11 +296,37 @@ export function SettingsContractInvoicePage() {
 
                   <div>
                     <p className="mb-2 text-sm font-medium text-slate-700">Preview</p>
-                    <div className="h-[min(32rem,70vh)] overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-inner">
-                      <iframe title="Deposit template preview" className="h-full w-full bg-white" srcDoc={previewDepositSrcDoc} />
+                    {depositPreviewErr ? (
+                      <p className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                        {depositPreviewErr}
+                      </p>
+                    ) : null}
+                    <div
+                      className="overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-inner"
+                      style={{ height: 'min(calc(100dvh - 14rem), 900px)' }}
+                    >
+                      {depositPreviewLoading ? (
+                        <div
+                          className="flex w-full items-center justify-center text-sm text-slate-500"
+                          style={{ height: 'min(calc(100dvh - 14rem), 900px)' }}
+                        >
+                          Loading preview…
+                        </div>
+                      ) : (
+                        <iframe
+                          title="Deposit template preview"
+                          className="w-full border-0 bg-white"
+                          style={{ height: 'min(calc(100dvh - 14rem), 900px)' }}
+                          srcDoc={
+                            depositPreviewHtml ||
+                            '<!doctype html><html><body style="font:14px sans-serif;padding:16px;color:#64748b">Select a template.</body></html>'
+                          }
+                        />
+                      )}
                     </div>
                     <p className="mt-2 text-[11px] text-slate-500">
-                      Sample data only. Generated PDFs use live fields from your estimate or order.
+                      Same HTML/CSS stack as the PDF generator (sample placeholder values). Estimate downloads insert live
+                      DB fields.
                     </p>
                   </div>
                 </div>
