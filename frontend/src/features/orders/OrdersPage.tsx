@@ -1507,6 +1507,7 @@ export function OrdersPage() {
       })
       const d = await getJson<OrderDetail>(`/orders/${viewOrderId}`)
       setViewOrder(d)
+      setViewInstallEditOpen(false)
       await reloadList()
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not save installation schedule')
@@ -2476,39 +2477,12 @@ export function OrdersPage() {
           <div className="relative max-h-[92vh] w-full min-w-0 max-w-2xl overflow-hidden rounded-t-2xl border border-slate-200/90 bg-white shadow-2xl sm:rounded-2xl">
             <div className="border-b border-slate-100 bg-gradient-to-br from-teal-50/90 via-white to-white px-5 py-4 sm:px-6">
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-800/90">Order Details</p>
-                  <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                    <h2 className="text-xl font-semibold tracking-tight text-slate-900">
-                      {viewOrder && !viewLoading ? (viewOrder.customer_display || viewOrder.customer_id) : '—'}
-                    </h2>
-                    <span className="font-mono text-sm font-semibold text-slate-600">{viewOrderId}</span>
-                  </div>
+                <div className="flex min-w-0 items-center gap-3">
+                  <p className="text-sm font-semibold tracking-tight text-slate-900">Order Details</p>
                   {viewOrder && !viewLoading ? (
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <OrderStatusBadge
-                        label={viewOrder.status_order_label?.trim() || statusCodeLabel(viewOrder.status_code)}
-                      />
-                      <span className="text-sm text-slate-500">Agreement: {fmtDisplayDate(viewOrder.agreement_date)}</span>
-                      <span className="text-slate-300">·</span>
-                      <span className="text-sm text-slate-500">
-                        Installation: {fmtDisplayDateTime(viewOrder.installation_scheduled_start_at)}
-                      </span>
-                      {viewOrder.status_orde_id &&
-                      isReadyForInstallationStatus(viewOrder.status_orde_id, orderStatuses ?? []) &&
-                      canEdit &&
-                      viewOrder.active !== false ? (
-                        <button
-                          type="button"
-                          onClick={() => setViewInstallEditOpen((v) => !v)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                          title="Edit installation date & time"
-                        >
-                          <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
-                          Edit
-                        </button>
-                      ) : null}
-                    </div>
+                    <OrderStatusBadge
+                      label={viewOrder.status_order_label?.trim() || statusCodeLabel(viewOrder.status_code)}
+                    />
                   ) : null}
                 </div>
                 <div className="flex items-start gap-2">
@@ -2520,7 +2494,7 @@ export function OrdersPage() {
                       title="Edit order"
                     >
                       <Pencil className="h-4 w-4" strokeWidth={2} />
-                      Edit
+                      Edit order
                     </button>
                   ) : null}
                   <button
@@ -2534,34 +2508,85 @@ export function OrdersPage() {
                 </div>
               </div>
 
-              {viewOrder &&
-              !viewLoading &&
-              viewInstallEditOpen &&
-              viewOrder.status_orde_id &&
-              isReadyForInstallationStatus(viewOrder.status_orde_id, orderStatuses ?? []) &&
-              canEdit &&
-              viewOrder.active !== false ? (
-                <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-teal-100 bg-white/70 px-3 py-2">
-                  <div className="min-w-[16rem]">
-                    <VisitStartQuarterPicker
-                      value={
-                        viewInstallationStart.trim()
-                          ? snapWallToQuarterMinutes(viewInstallationStart)
-                          : snapWallToQuarterMinutes('')
-                      }
-                      onChange={(w) => setViewInstallationStart(w)}
-                      compact
-                    />
+              {viewOrder && !viewLoading ? (
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 shadow-sm">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Customer</div>
+                    <div className="mt-1 text-base font-semibold text-slate-900">
+                      {viewOrder.customer_display || viewOrder.customer_id}
+                    </div>
+                    <div className="mt-1 text-xs font-semibold text-slate-500">Order ID</div>
+                    <div className="mt-0.5 font-mono text-sm font-semibold text-slate-700">{viewOrderId}</div>
                   </div>
-                  <button
-                    type="button"
-                    disabled={viewInstallationSaving}
-                    onClick={() => void saveViewInstallation()}
-                    className="ml-auto rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
-                    title="Save installation date and time"
-                  >
-                    {viewInstallationSaving ? 'Saving…' : 'Save'}
-                  </button>
+
+                  <div className="rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 shadow-sm">
+                    <div className="grid grid-cols-1 gap-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Agreement date
+                          </div>
+                          <div className="mt-0.5 text-sm font-semibold text-slate-900">
+                            {fmtDisplayDate(viewOrder.agreement_date)}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Installation date
+                          </div>
+                          <div className="mt-0.5 text-sm font-semibold text-slate-900">
+                            {fmtDisplayDateTime(viewOrder.installation_scheduled_start_at)}
+                          </div>
+                        </div>
+                        {viewOrder.status_orde_id &&
+                        isReadyForInstallationStatus(viewOrder.status_orde_id, orderStatuses ?? []) &&
+                        canEdit &&
+                        viewOrder.active !== false ? (
+                          <button
+                            type="button"
+                            onClick={() => setViewInstallEditOpen((v) => !v)}
+                            className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50"
+                            title="Edit installation date & time"
+                            aria-label="Edit installation date and time"
+                          >
+                            <Pencil className="h-4 w-4" strokeWidth={2} />
+                          </button>
+                        ) : null}
+                      </div>
+
+                      {viewInstallEditOpen &&
+                      viewOrder.status_orde_id &&
+                      isReadyForInstallationStatus(viewOrder.status_orde_id, orderStatuses ?? []) &&
+                      canEdit &&
+                      viewOrder.active !== false ? (
+                        <div className="mt-1 flex flex-wrap items-center gap-2 rounded-xl border border-teal-100 bg-white px-3 py-2">
+                          <div className="min-w-[16rem]">
+                            <VisitStartQuarterPicker
+                              value={
+                                viewInstallationStart.trim()
+                                  ? snapWallToQuarterMinutes(viewInstallationStart)
+                                  : snapWallToQuarterMinutes('')
+                              }
+                              onChange={(w) => setViewInstallationStart(w)}
+                              compact
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            disabled={viewInstallationSaving}
+                            onClick={() => void saveViewInstallation()}
+                            className="ml-auto rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+                            title="Save installation date and time"
+                          >
+                            {viewInstallationSaving ? 'Saving…' : 'Save'}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
               ) : null}
             </div>
