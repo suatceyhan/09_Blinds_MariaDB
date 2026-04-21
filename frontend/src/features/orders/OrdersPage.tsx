@@ -1132,6 +1132,7 @@ export function OrdersPage() {
   const [viewOrderId, setViewOrderId] = useState<string | null>(null)
   const [viewOrder, setViewOrder] = useState<OrderDetail | null>(null)
   const [viewLoading, setViewLoading] = useState(false)
+  const [viewInstallEditOpen, setViewInstallEditOpen] = useState(false)
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [paymentAmountInput, setPaymentAmountInput] = useState('')
   const [paymentPending, setPaymentPending] = useState(false)
@@ -1615,6 +1616,7 @@ export function OrdersPage() {
     setViewOrderId(null)
     setViewOrder(null)
     setOrderBalanceInfo(null)
+    setViewInstallEditOpen(false)
     setPaymentModalOpen(false)
     setPaymentAmountInput('')
     setSearchParams(
@@ -2472,51 +2474,96 @@ export function OrdersPage() {
             onClick={closeOrderView}
           />
           <div className="relative max-h-[92vh] w-full min-w-0 max-w-2xl overflow-hidden rounded-t-2xl border border-slate-200/90 bg-white shadow-2xl sm:rounded-2xl">
-            <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-br from-teal-50/90 via-white to-white px-5 py-4 sm:px-6">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-800/90">Order detail</p>
-                <h2 className="font-mono text-xl font-semibold tracking-tight text-slate-900">{viewOrderId}</h2>
-                {viewOrder && !viewLoading ? (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                    <span className="font-medium text-slate-700">Status</span>
-                    <OrderStatusBadge
-                      label={viewOrder.status_order_label?.trim() || statusCodeLabel(viewOrder.status_code)}
-                    />
-                    {orderStatusWorkflowBucketFromName(viewOrder.status_order_label ?? '') === 'done' &&
-                    viewOrder.active !== false ? (
-                      <>
-                        <span className="text-slate-300">·</span>
-                        <button
-                          type="button"
-                          disabled={!canEdit || finalInvoiceBusy !== null}
-                          onClick={() => void sendFinalInvoiceEmail()}
-                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                          title={!canEdit ? 'You do not have permission to send emails.' : 'Send final invoice by email'}
-                        >
-                          {finalInvoiceBusy === 'send' ? 'Sending…' : 'Send email'}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={finalInvoiceBusy !== null}
-                          onClick={() => void downloadFinalInvoice()}
-                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                          title="Download final invoice (PDF)"
-                        >
-                          {finalInvoiceBusy === 'download' ? 'Preparing…' : 'Download'}
-                        </button>
-                      </>
-                    ) : null}
+            <div className="border-b border-slate-100 bg-gradient-to-br from-teal-50/90 via-white to-white px-5 py-4 sm:px-6">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-800/90">Order Details</p>
+                  <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <h2 className="text-xl font-semibold tracking-tight text-slate-900">
+                      {viewOrder && !viewLoading ? (viewOrder.customer_display || viewOrder.customer_id) : '—'}
+                    </h2>
+                    <span className="font-mono text-sm font-semibold text-slate-600">{viewOrderId}</span>
                   </div>
-                ) : null}
+                  {viewOrder && !viewLoading ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <OrderStatusBadge
+                        label={viewOrder.status_order_label?.trim() || statusCodeLabel(viewOrder.status_code)}
+                      />
+                      <span className="text-sm text-slate-500">Agreement: {fmtDisplayDate(viewOrder.agreement_date)}</span>
+                      <span className="text-slate-300">·</span>
+                      <span className="text-sm text-slate-500">
+                        Installation: {fmtDisplayDateTime(viewOrder.installation_scheduled_start_at)}
+                      </span>
+                      {viewOrder.status_orde_id &&
+                      isReadyForInstallationStatus(viewOrder.status_orde_id, orderStatuses ?? []) &&
+                      canEdit &&
+                      viewOrder.active !== false ? (
+                        <button
+                          type="button"
+                          onClick={() => setViewInstallEditOpen((v) => !v)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          title="Edit installation date & time"
+                        >
+                          <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+                          Edit
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="flex items-start gap-2">
+                  {canEdit && viewOrder?.active !== false ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+                      onClick={() => setEditOrderId(viewOrderId)}
+                      title="Edit order"
+                    >
+                      <Pencil className="h-4 w-4" strokeWidth={2} />
+                      Edit
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="rounded-xl border border-slate-200/80 bg-white p-2 text-slate-600 shadow-sm hover:bg-slate-50"
+                    title="Close"
+                    onClick={closeOrderView}
+                  >
+                    <X className="h-4 w-4" strokeWidth={2} />
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                className="rounded-full border border-slate-200/80 bg-white p-2 text-slate-600 shadow-sm hover:bg-slate-50"
-                title="Close"
-                onClick={closeOrderView}
-              >
-                <X className="h-4 w-4" strokeWidth={2} />
-              </button>
+
+              {viewOrder &&
+              !viewLoading &&
+              viewInstallEditOpen &&
+              viewOrder.status_orde_id &&
+              isReadyForInstallationStatus(viewOrder.status_orde_id, orderStatuses ?? []) &&
+              canEdit &&
+              viewOrder.active !== false ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-teal-100 bg-white/70 px-3 py-2">
+                  <div className="min-w-[16rem]">
+                    <VisitStartQuarterPicker
+                      value={
+                        viewInstallationStart.trim()
+                          ? snapWallToQuarterMinutes(viewInstallationStart)
+                          : snapWallToQuarterMinutes('')
+                      }
+                      onChange={(w) => setViewInstallationStart(w)}
+                      compact
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={viewInstallationSaving}
+                    onClick={() => void saveViewInstallation()}
+                    className="ml-auto rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+                    title="Save installation date and time"
+                  >
+                    {viewInstallationSaving ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              ) : null}
             </div>
             <div className="max-h-[calc(92vh-5.5rem)] min-w-0 overflow-x-hidden overflow-y-auto px-5 py-5 sm:px-6">
               {viewLoading ? (
@@ -2530,61 +2577,7 @@ export function OrdersPage() {
                       This order is soft-deleted (inactive). You can review the details below; editing is disabled.
                     </p>
                   ) : null}
-                  <section className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
-                    <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Customer &amp; links</h3>
-                    <div className="mt-3 space-y-2">
-                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                        <span className="text-slate-500">Customer</span>
-                        <Link
-                          to={`/customers/${viewOrder.customer_id}`}
-                          className="font-semibold text-teal-700 hover:underline"
-                          onClick={closeOrderView}
-                        >
-                          {viewOrder.customer_display || viewOrder.customer_id}
-                        </Link>
-                        {canEditCustomers ? (
-                          <>
-                            <span className="text-slate-300">·</span>
-                            <Link
-                              to={`/customers?edit=${encodeURIComponent(viewOrder.customer_id)}`}
-                              className="text-sm font-medium text-teal-700 hover:underline"
-                              onClick={closeOrderView}
-                            >
-                              Edit
-                            </Link>
-                          </>
-                        ) : null}
-                      </div>
-                      {viewOrder.estimate_id ? (
-                        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                          <span className="text-slate-500">Estimate</span>
-                          <Link
-                            to={`/estimates/${viewOrder.estimate_id}`}
-                            className="font-mono font-medium text-teal-700 hover:underline"
-                            onClick={closeOrderView}
-                          >
-                            {viewOrder.estimate_id}
-                          </Link>
-                          {canEditEstimates ? (
-                            <>
-                              <span className="text-slate-300">·</span>
-                              {(viewOrder.estimate_status ?? '').toLowerCase() === 'converted' ? (
-                                <span className="text-sm font-medium text-slate-500">View only (converted)</span>
-                              ) : (
-                                <Link
-                                  to={`/estimates/${viewOrder.estimate_id}/edit`}
-                                  className="text-sm font-medium text-teal-700 hover:underline"
-                                  onClick={closeOrderView}
-                                >
-                                  Edit
-                                </Link>
-                              )}
-                            </>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </div>
-                  </section>
+                  {/* Header includes the primary identity; keep the body focused on finance, payments, and work. */}
 
                   <div className="space-y-3">
                     {!viewOrder.parent_order_id?.trim() ? (
@@ -2695,61 +2688,7 @@ export function OrdersPage() {
                     </div>
                   ) : null}
 
-                  <section className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
-                    <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Dates</h3>
-                    <dl className="mt-2 space-y-1 text-slate-700">
-                      <div className="flex justify-between gap-4">
-                        <dt className="text-slate-500">Agreement</dt>
-                        <dd>{fmtDisplayDate(viewOrder.agreement_date)}</dd>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <dt className="text-slate-500">Created</dt>
-                        <dd>{fmtDisplayDate(viewOrder.created_at)}</dd>
-                      </div>
-                    </dl>
-                  </section>
-
-                  <section className="rounded-xl border border-amber-100 bg-amber-50/40 p-4">
-                    <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-900">Installation</h3>
-                    {viewOrder.status_orde_id &&
-                    isReadyForInstallationStatus(viewOrder.status_orde_id, orderStatuses ?? []) &&
-                    canEdit &&
-                    viewOrder.active !== false ? (
-                      <div className="mt-3 space-y-3 text-sm text-slate-800">
-                        <p className="text-[11px] text-amber-950/90">
-                          Single date and time (same format as estimate visits, 15-minute steps). Syncs to Google
-                          Calendar when connected.
-                        </p>
-                        <div>
-                          <span className="mb-1 block text-xs font-medium text-slate-700">Date &amp; time</span>
-                          <VisitStartQuarterPicker
-                            value={
-                              viewInstallationStart.trim()
-                                ? snapWallToQuarterMinutes(viewInstallationStart)
-                                : snapWallToQuarterMinutes('')
-                            }
-                            onChange={(w) => setViewInstallationStart(w)}
-                            compact
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          disabled={viewInstallationSaving}
-                          onClick={() => void saveViewInstallation()}
-                          className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
-                        >
-                          {viewInstallationSaving ? 'Saving…' : 'Save installation'}
-                        </button>
-                      </div>
-                    ) : (
-                      <dl className="mt-2 space-y-1 text-sm text-slate-700">
-                        <div className="flex justify-between gap-4">
-                          <dt className="text-slate-500">Date &amp; time</dt>
-                          <dd>{fmtDisplayDateTime(viewOrder.installation_scheduled_start_at)}</dd>
-                        </div>
-                      </dl>
-                    )}
-                  </section>
+                  {/* Dates + Installation moved to header (Agreement + Installation date-time). */}
 
                   {viewOrderId ? (
                     <OrderAttachmentsBlock
@@ -2809,22 +2748,7 @@ export function OrdersPage() {
                     </section>
                   ) : null}
 
-                  {canEdit && viewOrder.active !== false ? (
-                    <div className="flex justify-end border-t border-slate-100 pt-4">
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-teal-700"
-                        onClick={() => {
-                          const oid = viewOrderId
-                          closeOrderView()
-                          setEditOrderId(oid)
-                        }}
-                      >
-                        <Pencil className="h-4 w-4" />
-                        Edit order
-                      </button>
-                    </div>
-                  ) : null}
+                  {/* Edit order button moved to header */}
                 </div>
               )}
             </div>
@@ -3166,7 +3090,7 @@ export function OrdersPage() {
 
       {lineItemAdditionOpen && viewOrderId ? (
         <div
-          className="fixed inset-0 z-[101] flex items-end justify-center overflow-y-auto bg-slate-900/50 p-4 sm:items-center"
+          className="fixed inset-0 z-[101] flex items-end justify-center bg-slate-900/50 p-4 sm:items-center"
           role="presentation"
           onMouseDown={(e) => {
             if (!lineItemAdditionSaving && e.target === e.currentTarget) {
@@ -3178,7 +3102,7 @@ export function OrdersPage() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="line-item-addition-title"
-            className="my-auto w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
+            className="my-auto w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
             onMouseDown={(e) => e.stopPropagation()}
             onSubmit={(e) => void submitLineItemAddition(e)}
           >
@@ -3316,34 +3240,42 @@ export function OrdersPage() {
                     <span className="text-xs text-slate-500">{fmtDisplayDateTime(viewOrder?.created_at)}</span>
                   </div>
                   <p className="mt-1 text-xs font-medium text-slate-700">Original order</p>
-                  <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-700 sm:grid-cols-3">
-                    <span>
-                      Total (incl. tax):{' '}
-                      <strong className="tabular-nums">
-                        {fmtTotalIncludingTax(viewOrder?.total_amount, viewOrder?.tax_amount)}
-                      </strong>
-                    </span>
-                    <span>
-                      Taxable base:{' '}
-                      <strong className="tabular-nums">{fmtMoney(viewOrder?.tax_uygulanacak_miktar)}</strong>
-                    </span>
-                    <span>
-                      Down: <strong className="tabular-nums">{fmtMoney(viewOrder?.downpayment)}</strong>
-                    </span>
-                    <span>
-                      Paid:{' '}
-                      <strong className="tabular-nums">
-                        {(() => {
-                          const down = parseMoneyAmount(viewOrder?.downpayment) ?? 0
-                          const extra = parseMoneyAmount(viewOrder?.final_payment) ?? 0
-                          return fmtMoney(safeRound2(down + extra))
-                        })()}
-                      </strong>
-                    </span>
-                    <span className="sm:col-span-2">
-                      Balance:{' '}
-                      <strong className="tabular-nums text-teal-900">{fmtMoney(viewOrder?.balance)}</strong>
-                    </span>
+                  <div className="mt-3 space-y-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div className="block min-w-0 text-sm text-slate-700">
+                        <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Total (incl. tax)
+                        </span>
+                        <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900">
+                          {fmtTotalIncludingTax(viewOrder?.total_amount, viewOrder?.tax_amount)}
+                        </p>
+                      </div>
+                      <div className="block min-w-0 text-sm text-slate-700">
+                        <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Down payment
+                        </span>
+                        <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900">
+                          {fmtMoney(viewOrder?.downpayment)}
+                        </p>
+                      </div>
+                      <div className="block min-w-0 text-sm text-slate-700">
+                        <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Taxable base
+                        </span>
+                        <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900">
+                          {fmtMoney(viewOrder?.tax_uygulanacak_miktar)}
+                        </p>
+                      </div>
+                    </div>
+                    <OrderFinancialSecondRow
+                      paidDisplay={(() => {
+                        const down = parseMoneyAmount(viewOrder?.downpayment) ?? 0
+                        const extra = parseMoneyAmount(viewOrder?.final_payment) ?? 0
+                        return fmtMoney(safeRound2(down + extra))
+                      })()}
+                      balance={viewOrder?.balance}
+                      tax={viewOrder?.tax_amount}
+                    />
                   </div>
                 </li>
 
@@ -3356,66 +3288,88 @@ export function OrdersPage() {
                     <span className="font-mono text-sm font-semibold text-slate-900">{row.order_id}</span>
                     <span className="text-xs text-slate-500">{fmtDisplayDateTime(row.created_at)}</span>
                   </div>
-                  {row.status_order_label ? (
-                    <p className="mt-1 text-xs text-slate-600">{row.status_order_label}</p>
+                  <p className="mt-1 text-xs font-medium text-slate-700">Additional order</p>
+                  {row.status_order_label &&
+                  row.status_order_label.trim().toLowerCase() !== 'new order' ? (
+                    <p className="mt-0.5 text-xs text-slate-500">{row.status_order_label}</p>
                   ) : null}
-                  <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-700 sm:grid-cols-3">
-                    <span>
-                      Total (incl. tax):{' '}
-                      <strong className="tabular-nums">
-                        {fmtTotalIncludingTax(row.subtotal_ex_tax, row.tax_amount)}
-                      </strong>
-                    </span>
-                    <span>
-                      Taxable base:{' '}
-                      <strong className="tabular-nums">{fmtMoney(row.taxable_base)}</strong>
-                    </span>
-                    <span>
-                      Down: <strong className="tabular-nums">{fmtMoney(row.downpayment)}</strong>
-                    </span>
-                    <span>
-                      Paid: <strong className="tabular-nums">{fmtMoney(row.paid_total)}</strong>
-                    </span>
-                    <span className="sm:col-span-2">
-                      Balance:{' '}
-                      <strong className="tabular-nums text-teal-900">{fmtMoney(row.balance)}</strong>
-                    </span>
+                  <div className="mt-3 space-y-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div className="block min-w-0 text-sm text-slate-700">
+                        <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Total (incl. tax)
+                        </span>
+                        <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900">
+                          {fmtTotalIncludingTax(row.subtotal_ex_tax, row.tax_amount)}
+                        </p>
+                      </div>
+                      <div className="block min-w-0 text-sm text-slate-700">
+                        <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Down payment
+                        </span>
+                        <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900">
+                          {fmtMoney(row.downpayment)}
+                        </p>
+                      </div>
+                      <div className="block min-w-0 text-sm text-slate-700">
+                        <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Taxable base
+                        </span>
+                        <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900">
+                          {fmtMoney(row.taxable_base)}
+                        </p>
+                      </div>
+                    </div>
+                    <OrderFinancialSecondRow
+                      paidDisplay={fmtMoney(row.paid_total)}
+                      balance={row.balance}
+                      tax={row.tax_amount}
+                    />
                   </div>
                 </li>
               ))}
               </ul>
 
-              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50/70 px-4 py-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Totals</span>
                   <span className="text-xs text-slate-500">Anchor + additions</span>
                 </div>
-                <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-700 sm:grid-cols-3">
-                  <span>
-                    Total (incl. tax):{' '}
-                    <strong className="tabular-nums">
-                      {fmtTotalIncludingTax(
-                        viewOrder?.financial_totals?.subtotal_ex_tax,
-                        viewOrder?.financial_totals?.tax_amount,
-                      )}
-                    </strong>
-                  </span>
-                  <span>
-                    Taxable base:{' '}
-                    <strong className="tabular-nums">{fmtMoney(viewOrder?.financial_totals?.taxable_base)}</strong>
-                  </span>
-                  <span>
-                    Down: <strong className="tabular-nums">{fmtMoney(viewOrder?.financial_totals?.downpayment)}</strong>
-                  </span>
-                  <span>
-                    Paid: <strong className="tabular-nums">{fmtMoney(viewOrder?.financial_totals?.paid_total)}</strong>
-                  </span>
-                  <span className="sm:col-span-2">
-                    Balance:{' '}
-                    <strong className="tabular-nums text-teal-900">
-                      {fmtMoney(viewOrder?.financial_totals?.balance)}
-                    </strong>
-                  </span>
+                <div className="mt-3 space-y-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="block min-w-0 text-sm text-slate-700">
+                      <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        Total (incl. tax)
+                      </span>
+                      <p className="rounded-lg border border-rose-100 bg-white px-3 py-2 text-sm font-semibold text-slate-900">
+                        {fmtTotalIncludingTax(
+                          viewOrder?.financial_totals?.subtotal_ex_tax,
+                          viewOrder?.financial_totals?.tax_amount,
+                        )}
+                      </p>
+                    </div>
+                    <div className="block min-w-0 text-sm text-slate-700">
+                      <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        Down payment
+                      </span>
+                      <p className="rounded-lg border border-rose-100 bg-white px-3 py-2 text-sm font-semibold text-slate-900">
+                        {fmtMoney(viewOrder?.financial_totals?.downpayment)}
+                      </p>
+                    </div>
+                    <div className="block min-w-0 text-sm text-slate-700">
+                      <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        Taxable base
+                      </span>
+                      <p className="rounded-lg border border-rose-100 bg-white px-3 py-2 text-sm font-semibold text-slate-900">
+                        {fmtMoney(viewOrder?.financial_totals?.taxable_base)}
+                      </p>
+                    </div>
+                  </div>
+                  <OrderFinancialSecondRow
+                    paidDisplay={fmtMoney(viewOrder?.financial_totals?.paid_total)}
+                    balance={viewOrder?.financial_totals?.balance}
+                    tax={viewOrder?.financial_totals?.tax_amount}
+                  />
                 </div>
               </div>
 

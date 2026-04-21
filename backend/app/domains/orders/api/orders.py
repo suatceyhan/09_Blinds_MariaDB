@@ -1210,12 +1210,12 @@ def list_orders(
               o.customer_id,
               trim(concat_ws(' ', c.name, c.surname)) AS customer_display,
               o.estimate_id,
-              o.total_amount,
-              o.downpayment,
-              o.final_payment,
-              o.balance,
-              o.tax_uygulanacak_miktar,
-              o.tax_amount,
+              COALESCE(o.total_amount, 0) + COALESCE(ch.total_amount, 0) AS total_amount,
+              COALESCE(o.downpayment, 0) + COALESCE(ch.downpayment, 0) AS downpayment,
+              COALESCE(o.final_payment, 0) + COALESCE(ch.final_payment, 0) AS final_payment,
+              COALESCE(o.balance, 0) + COALESCE(ch.balance, 0) AS balance,
+              COALESCE(o.tax_uygulanacak_miktar, 0) + COALESCE(ch.tax_uygulanacak_miktar, 0) AS tax_uygulanacak_miktar,
+              COALESCE(o.tax_amount, 0) + COALESCE(ch.tax_amount, 0) AS tax_amount,
               o.status_code,
               o.status_orde_id,
               so.name AS status_order_label,
@@ -1226,13 +1226,29 @@ def list_orders(
             FROM orders o
             JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
             LEFT JOIN status_order so ON so.id = o.status_orde_id
+            LEFT JOIN (
+              SELECT
+                o2.company_id,
+                o2.parent_order_id,
+                COALESCE(SUM(o2.total_amount), 0) AS total_amount,
+                COALESCE(SUM(o2.downpayment), 0) AS downpayment,
+                COALESCE(SUM(o2.final_payment), 0) AS final_payment,
+                COALESCE(SUM(o2.balance), 0) AS balance,
+                COALESCE(SUM(o2.tax_uygulanacak_miktar), 0) AS tax_uygulanacak_miktar,
+                COALESCE(SUM(o2.tax_amount), 0) AS tax_amount
+              FROM orders o2
+              WHERE o2.company_id = CAST(:cid AS uuid)
+                AND o2.parent_order_id IS NOT NULL
+                AND (CASE WHEN :include_deleted THEN TRUE ELSE o2.active IS TRUE END)
+              GROUP BY o2.company_id, o2.parent_order_id
+            ) ch ON ch.company_id = o.company_id AND ch.parent_order_id = o.id
             WHERE {w}
               AND (o.parent_order_id IS NULL)
             ORDER BY o.created_at DESC NULLS LAST
             LIMIT :limit
             """
         ),
-        params,
+        {**params, "include_deleted": include_deleted},
     ).mappings().all()
     return [OrderListItemOut(**dict(r)) for r in rows]
 
