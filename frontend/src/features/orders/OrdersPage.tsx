@@ -15,8 +15,7 @@ import { useAuthSession } from '@/app/authSession'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
 import { VisitStartQuarterPicker } from '@/components/ui/VisitStartQuarterPicker'
-import { apiBase, deleteJson, getJson, patchJson, postJson, postMultipartJson } from '@/lib/api'
-import { getAccessToken } from '@/lib/authStorage'
+import { deleteJson, getJson, patchJson, postJson, postMultipartJson } from '@/lib/api'
 import { snapWallToQuarterMinutes } from '@/lib/visitSchedule'
 
 type CustomerOpt = { id: string; name: string; surname?: string | null }
@@ -85,6 +84,8 @@ type OrderLineItemAdditionRow = {
   balance?: string | number | null
   status_order_label?: string | null
 }
+
+type PaymentEntry = { id: string; amount: string | number; paid_at: string }
 
 type OrderDetail = {
   id: string
@@ -1099,8 +1100,6 @@ export function OrdersPage() {
   const me = useAuthSession()
   const canView = Boolean(me?.permissions.includes('orders.view'))
   const canEdit = Boolean(me?.permissions.includes('orders.edit'))
-  const canEditEstimates = Boolean(me?.permissions.includes('estimates.edit'))
-  const canEditCustomers = Boolean(me?.permissions.includes('customers.edit'))
   const canViewCompanies = Boolean(me?.permissions.includes('companies.view'))
   const sessionCompanyId = me?.active_company_id ?? me?.company_id ?? null
   const [searchParams, setSearchParams] = useSearchParams()
@@ -1111,7 +1110,6 @@ export function OrdersPage() {
   const blindsTypes = blindsOrderOptions?.blinds_types ?? null
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [finalInvoiceBusy, setFinalInvoiceBusy] = useState<null | 'send' | 'download'>(null)
 
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -1132,7 +1130,7 @@ export function OrdersPage() {
   const [viewOrderId, setViewOrderId] = useState<string | null>(null)
   const [viewOrder, setViewOrder] = useState<OrderDetail | null>(null)
   const [viewLoading, setViewLoading] = useState(false)
-  const [viewInstallEditOpen, setViewInstallEditOpen] = useState(false)
+  const [viewAdditionDetails, setViewAdditionDetails] = useState<Record<string, OrderDetail>>({})
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [paymentAmountInput, setPaymentAmountInput] = useState('')
   const [paymentPending, setPaymentPending] = useState(false)
@@ -1169,15 +1167,30 @@ export function OrdersPage() {
   const [editLoading, setEditLoading] = useState(false)
   const [editSaving, setEditSaving] = useState(false)
   const [editExtraPaid, setEditExtraPaid] = useState(0)
+  const [editPaymentEntries, setEditPaymentEntries] = useState<PaymentEntry[]>([])
   const [editInstallationStart, setEditInstallationStart] = useState('')
   const [orderStatuses, setOrderStatuses] = useState<OrderStatusOpt[] | null>(null)
+  const [editAdditionOrders, setEditAdditionOrders] = useState<
+    Array<{
+      order_id: string
+      created_at?: string | null
+      status_order_label?: string | null
+      blinds_lines: BlindsLineState[]
+      downpayment: string
+      tax_base: string
+      agreement_date: string
+      order_note: string
+      final_payment: string | number | null | undefined
+      balance: string | number | null | undefined
+      tax_amount: string | number | null | undefined
+      total_amount: string | number | null | undefined
+    }>
+  >([])
   const [advanceConfirm, setAdvanceConfirm] = useState<{
     row: OrderRow
     act: Extract<OrderAdvanceAction, { kind: 'patch' }>
   } | null>(null)
   const [advanceConfirmPending, setAdvanceConfirmPending] = useState(false)
-  const [viewInstallationStart, setViewInstallationStart] = useState('')
-  const [viewInstallationSaving, setViewInstallationSaving] = useState(false)
   const [orderBalanceInfo, setOrderBalanceInfo] = useState<{
     orderId: string
     customerDisplay: string
@@ -1237,6 +1250,65 @@ export function OrdersPage() {
     if (!editDraft) return null
     return safeRound2(editTotalInclTax - editPaidTotal)
   }, [editDraft, editTotalInclTax, editPaidTotal])
+
+  const editAdditionComputed = useMemo(() => {
+    const pct = companyTaxRatePercent
+    return editAdditionOrders.map((a) => {
+      const sub = sumBlindsLineAmounts(a.blinds_lines)
+      const tb = parseOptionalDecimal(a.tax_base)
+      const dp = parseOptionalDecimal(a.downpayment)
+      const tax =
+        pct == null || tb == null ? null : pct <= 0 || tb <= 0 ? safeRound2(0) : safeRound2((tb * pct) / 100)
+      const totalIncl = safeRound2(sub + (tax ?? 0))
+      const paid = safeRound2(dp ?? 0) + safeRound2(parseMoneyAmount(a.final_payment) ?? 0)
+      const balance = safeRound2(totalIncl - paid)
+      return { order_id: a.order_id, sub, tb, dp, tax, totalIncl, paid, balance }
+    })
+  }, [editAdditionOrders, companyTaxRatePercent])
+
+  const editRollupTotals = useMemo(() => {
+    const anchorSub = editLineSubtotalParsed
+    const anchorTaxBase = editTaxBaseParsed ?? 0
+    const anchorDp = editDpParsed ?? 0
+    const anchorTax = editComputedTaxAmount ?? 0
+    const anchorTotalIncl = editTotalInclTax
+    const anchorPaid = editPaidTotal
+    const anchorBal = editComputedBalance ?? 0
+
+    let sub = anchorSub
+    let tb = safeRound2(anchorTaxBase)
+    let dp = safeRound2(anchorDp)
+    let tax = safeRound2(anchorTax)
+    let totalIncl = safeRound2(anchorTotalIncl)
+    let paid = safeRound2(anchorPaid)
+    let bal = safeRound2(anchorBal)
+    for (const x of editAdditionComputed) {
+      sub = safeRound2(sub + x.sub)
+      tb = safeRound2(tb + (x.tb ?? 0))
+      dp = safeRound2(dp + (x.dp ?? 0))
+      tax = safeRound2(tax + (x.tax ?? 0))
+      totalIncl = safeRound2(totalIncl + x.totalIncl)
+      paid = safeRound2(paid + x.paid)
+      bal = safeRound2(bal + x.balance)
+    }
+    return { sub, tb, dp, tax, totalIncl, paid, bal }
+  }, [
+    editLineSubtotalParsed,
+    editTaxBaseParsed,
+    editDpParsed,
+    editComputedTaxAmount,
+    editTotalInclTax,
+    editPaidTotal,
+    editComputedBalance,
+    editAdditionComputed,
+  ])
+
+  const editCustomerDisplay = useMemo(() => {
+    const cid = editCustomerId.trim()
+    if (!cid) return ''
+    const c = (customers ?? []).find((x) => x.id === cid)
+    return c ? customerLabel(c) : cid
+  }, [editCustomerId, customers])
 
   const viewPaidFormatted = useMemo(() => {
     if (!viewOrder) return '—'
@@ -1310,6 +1382,19 @@ export function OrdersPage() {
     setEditSaving(true)
     setErr(null)
     try {
+      // Save additions first (so roll-up totals settle after the anchor save).
+      for (const a of editAdditionOrders) {
+        await patchJson(`/orders/${a.order_id}`, {
+          downpayment: parseOptionalDecimal(a.downpayment),
+          tax_uygulanacak_miktar: parseOptionalDecimal(a.tax_base),
+          agreement_date: a.agreement_date.trim() || null,
+          order_note: (() => {
+            const n = a.order_note.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
+            return n ? n.slice(0, 4000) : null
+          })(),
+          blinds_lines: a.blinds_lines.map((b) => blindsLineToPayload(b, blindsOrderOptions)),
+        })
+      }
       const body: Record<string, unknown> = {
         ...(editEstimateId ? {} : { customer_id: editCustomerId.trim() }),
         downpayment: parseOptionalDecimal(editDraft.downpayment),
@@ -1336,6 +1421,7 @@ export function OrdersPage() {
       setEditExtraPaid(0)
       setEditInstallationStart('')
       setEditAttachments([])
+      setEditAdditionOrders([])
       await reloadList()
       if (viewOrderId === oid) {
         const d = await getJson<OrderDetail>(`/orders/${oid}`)
@@ -1397,12 +1483,13 @@ export function OrdersPage() {
 
   async function submitLineItemAddition(e: React.FormEvent) {
     e.preventDefault()
-    if (!viewOrderId || !canEdit) return
+    const parentOrderId = viewOrderId ?? editOrderId
+    if (!parentOrderId || !canEdit) return
     if (additionBlindsLines.length === 0) {
       setErr('Choose at least one blinds type for the addition.')
       return
     }
-    const oid = viewOrderId
+    const oid = parentOrderId
     setLineItemAdditionSaving(true)
     setErr(null)
     try {
@@ -1418,8 +1505,39 @@ export function OrdersPage() {
       const note = additionOrderNote.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
       if (note) body.order_note = note.slice(0, 4000)
       await postJson(`/orders/${oid}/line-item-additions`, body)
-      const d = await getJson<OrderDetail>(`/orders/${oid}`)
-      setViewOrder(d)
+      if (viewOrderId === oid) {
+        const d = await getJson<OrderDetail>(`/orders/${oid}`)
+        setViewOrder(d)
+      }
+      if (editOrderId === oid) {
+        const d = await getJson<OrderDetail>(`/orders/${oid}`)
+        const addIds = (d.line_item_additions ?? []).map((x) => x.order_id).filter(Boolean)
+        if (addIds.length) {
+          const adds = await Promise.all(addIds.map((id) => getJson<OrderDetail>(`/orders/${id}`)))
+          setEditAdditionOrders(
+            adds
+              .map((ad) => ({
+                order_id: ad.id,
+                created_at: ad.created_at ?? null,
+                status_order_label: ad.status_order_label ?? null,
+                blinds_lines: ad.blinds_lines?.length
+                  ? ad.blinds_lines.map((x) => normalizeBlindsLineFromApi(x as Record<string, unknown>))
+                  : [],
+                downpayment: ad.downpayment != null ? String(ad.downpayment) : '',
+                tax_base: ad.tax_uygulanacak_miktar != null ? String(ad.tax_uygulanacak_miktar) : '',
+                agreement_date: (ad.agreement_date ?? '').toString().trim().slice(0, 10),
+                order_note: ad.order_note ?? '',
+                final_payment: ad.final_payment,
+                balance: ad.balance,
+                tax_amount: ad.tax_amount,
+                total_amount: ad.total_amount,
+              }))
+              .sort((a, b) => String(a.created_at ?? '').localeCompare(String(b.created_at ?? ''))),
+          )
+        } else {
+          setEditAdditionOrders([])
+        }
+      }
       setLineItemAdditionOpen(false)
       resetLineItemAdditionForm()
       await reloadList()
@@ -1431,19 +1549,23 @@ export function OrdersPage() {
   }
 
   async function submitRecordPayment() {
-    if (!viewOrderId || !canEdit) return
+    const oid = viewOrderId ?? editOrderId
+    if (!oid || !canEdit) return
     const amt = parseOptionalDecimal(paymentAmountInput.trim())
     if (amt == null || amt <= 0) {
       setErr('Enter a valid payment amount.')
       return
     }
-    const oid = viewOrderId
     setPaymentPending(true)
     setErr(null)
     try {
       await postJson<OrderDetail>(`/orders/${oid}/record-payment`, { amount: amt })
       const d = await getJson<OrderDetail>(`/orders/${oid}`)
-      setViewOrder(d)
+      if (viewOrderId === oid) setViewOrder(d)
+      if (editOrderId === oid) {
+        setEditExtraPaid(safeRound2(parseMoneyAmount(d.final_payment) ?? 0))
+        setEditPaymentEntries(d.payment_entries ?? [])
+      }
       setPaymentModalOpen(false)
       setPaymentAmountInput('')
       await reloadList()
@@ -1491,95 +1613,22 @@ export function OrdersPage() {
     }
   }
 
-  async function saveViewInstallation() {
-    if (!viewOrderId || !canEdit || !viewOrder) return
-    const startIso = datetimeLocalToIso(viewInstallationStart.trim())
-    if (!startIso) {
-      setErr('Select installation date and time.')
-      return
-    }
-    setViewInstallationSaving(true)
-    setErr(null)
-    try {
-      await patchJson(`/orders/${viewOrderId}`, {
-        installation_scheduled_start_at: startIso,
-        installation_scheduled_end_at: null,
-      })
-      const d = await getJson<OrderDetail>(`/orders/${viewOrderId}`)
-      setViewOrder(d)
-      setViewInstallEditOpen(false)
-      await reloadList()
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not save installation schedule')
-    } finally {
-      setViewInstallationSaving(false)
-    }
-  }
-
-  async function downloadFinalInvoice() {
-    if (!viewOrderId) return
-    const tok = getAccessToken()
-    if (!tok) {
-      setErr('You are signed out. Please sign in again.')
-      return
-    }
-    setErr(null)
-    setFinalInvoiceBusy('download')
-    try {
-      const res = await fetch(`${apiBase()}/orders/${encodeURIComponent(viewOrderId)}/documents/final-invoice`, {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${tok}` },
-      })
-      if (!res.ok) {
-        let msg = 'Could not download final invoice.'
-        try {
-          const j = (await res.json()) as { detail?: string }
-          if (j?.detail) msg = j.detail
-        } catch {
-          // ignore
-        }
-        throw new Error(msg)
-      }
-      const pdf = await res.arrayBuffer()
-      const blob = new Blob([pdf], { type: 'application/pdf' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `final-invoice-${viewOrderId}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      setTimeout(() => URL.revokeObjectURL(url), 10_000)
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not download final invoice')
-    } finally {
-      setFinalInvoiceBusy(null)
-    }
-  }
-
-  async function sendFinalInvoiceEmail() {
-    if (!viewOrderId) return
-    setErr(null)
-    setFinalInvoiceBusy('send')
-    try {
-      await postJson(`/orders/${viewOrderId}/documents/final-invoice/send-email`, {})
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not send email')
-    } finally {
-      setFinalInvoiceBusy(null)
-    }
-  }
+  // (final invoice actions moved to the order details popup)
 
   async function runDeletePaymentEntry() {
-    if (!deletePaymentEntryId || !viewOrderId || !canEdit) return
-    const oid = viewOrderId
+    const oid = viewOrderId ?? editOrderId
+    if (!deletePaymentEntryId || !oid || !canEdit) return
     const eid = deletePaymentEntryId
     setDeletePaymentPending(true)
     setErr(null)
     try {
       await deleteJson(`/orders/${oid}/payment-entries/${eid}`)
       const d = await getJson<OrderDetail>(`/orders/${oid}`)
-      setViewOrder(d)
+      if (viewOrderId === oid) setViewOrder(d)
+      if (editOrderId === oid) {
+        setEditExtraPaid(safeRound2(parseMoneyAmount(d.final_payment) ?? 0))
+        setEditPaymentEntries(d.payment_entries ?? [])
+      }
       setDeletePaymentEntryId(null)
       await reloadList()
     } catch (e) {
@@ -1617,7 +1666,6 @@ export function OrdersPage() {
     setViewOrderId(null)
     setViewOrder(null)
     setOrderBalanceInfo(null)
-    setViewInstallEditOpen(false)
     setPaymentModalOpen(false)
     setPaymentAmountInput('')
     setSearchParams(
@@ -1657,6 +1705,7 @@ export function OrdersPage() {
   useEffect(() => {
     if (!viewOrderId || !canView) {
       setViewOrder(null)
+      setViewAdditionDetails({})
       setViewLoading(false)
       return
     }
@@ -1666,8 +1715,26 @@ export function OrdersPage() {
       try {
         const d = await getJson<OrderDetail>(`/orders/${viewOrderId}`)
         if (!c) setViewOrder(d)
+        if (!c && d && !d.parent_order_id?.trim()) {
+          const addIds = (d.line_item_additions ?? []).map((x) => x.order_id).filter(Boolean)
+          if (addIds.length) {
+            const adds = await Promise.all(addIds.map((id) => getJson<OrderDetail>(`/orders/${id}`)))
+            if (!c) {
+              const byId: Record<string, OrderDetail> = {}
+              for (const ad of adds) byId[ad.id] = ad
+              setViewAdditionDetails(byId)
+            }
+          } else {
+            setViewAdditionDetails({})
+          }
+        } else if (!c) {
+          setViewAdditionDetails({})
+        }
       } catch {
-        if (!c) setViewOrder(null)
+        if (!c) {
+          setViewOrder(null)
+          setViewAdditionDetails({})
+        }
       } finally {
         if (!c) setViewLoading(false)
       }
@@ -1678,20 +1745,13 @@ export function OrdersPage() {
   }, [viewOrderId, canView])
 
   useEffect(() => {
-    if (!viewOrder) {
-      setViewInstallationStart('')
-      return
-    }
-    setViewInstallationStart(installationWallFromIso(viewOrder.installation_scheduled_start_at))
-  }, [viewOrder])
-
-  useEffect(() => {
     if (!editOrderId || !canEdit) {
       setEditDraft(null)
       setEditCustomerId('')
       setEditEstimateId(null)
       setEditBlindsLines([])
       setEditExtraPaid(0)
+      setEditPaymentEntries([])
       setEditInstallationStart('')
       setEditAttachments([])
       setEditLoading(false)
@@ -1719,8 +1779,35 @@ export function OrdersPage() {
             status_order_label_fallback: d.status_order_label?.trim() ?? null,
           })
           setEditExtraPaid(safeRound2(parseMoneyAmount(d.final_payment) ?? 0))
+          setEditPaymentEntries(d.payment_entries ?? [])
           setEditInstallationStart(installationWallFromIso(d.installation_scheduled_start_at))
           setEditAttachments(d.attachments ?? [])
+          const addIds = (d.line_item_additions ?? []).map((x) => x.order_id).filter(Boolean)
+          if (addIds.length) {
+            const adds = await Promise.all(addIds.map((id) => getJson<OrderDetail>(`/orders/${id}`)))
+            if (!c) {
+              setEditAdditionOrders(
+                adds.map((ad) => ({
+                  order_id: ad.id,
+                  created_at: ad.created_at ?? null,
+                  status_order_label: ad.status_order_label ?? null,
+                  blinds_lines: ad.blinds_lines?.length
+                    ? ad.blinds_lines.map((x) => normalizeBlindsLineFromApi(x as Record<string, unknown>))
+                    : [],
+                  downpayment: ad.downpayment != null ? String(ad.downpayment) : '',
+                  tax_base: ad.tax_uygulanacak_miktar != null ? String(ad.tax_uygulanacak_miktar) : '',
+                  agreement_date: (ad.agreement_date ?? '').toString().trim().slice(0, 10),
+                  order_note: ad.order_note ?? '',
+                  final_payment: ad.final_payment,
+                  balance: ad.balance,
+                  tax_amount: ad.tax_amount,
+                  total_amount: ad.total_amount,
+                })),
+              )
+            }
+          } else {
+            setEditAdditionOrders([])
+          }
         }
       } catch {
         if (!c) {
@@ -1729,8 +1816,10 @@ export function OrdersPage() {
           setEditEstimateId(null)
           setEditBlindsLines([])
           setEditExtraPaid(0)
+          setEditPaymentEntries([])
           setEditInstallationStart('')
           setEditAttachments([])
+          setEditAdditionOrders([])
         }
       } finally {
         if (!c) setEditLoading(false)
@@ -2016,6 +2105,79 @@ export function OrdersPage() {
   function editSetBlindsLineAmount(id: string, value: string) {
     const next = sanitizeLineAmountInput(value)
     setEditBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, line_amount: next } : x)))
+  }
+
+  function editAdditionUpdate(orderId: string, patch: Partial<(typeof editAdditionOrders)[number]>) {
+    setEditAdditionOrders((prev) => prev.map((x) => (x.order_id === orderId ? { ...x, ...patch } : x)))
+  }
+
+  function editAdditionToggleBlinds(orderId: string, id: string) {
+    setEditAdditionOrders((prev) =>
+      prev.map((a) => {
+        if (a.order_id !== orderId) return a
+        const exists = a.blinds_lines.some((x) => x.id === id)
+        if (exists) return { ...a, blinds_lines: a.blinds_lines.filter((x) => x.id !== id) }
+        const bt = (blindsTypes ?? []).find((x) => x.id === id)
+        const name = bt?.name ?? id
+        return { ...a, blinds_lines: [...a.blinds_lines, newBlindsLineForType(id, name, blindsOrderOptions)] }
+      }),
+    )
+  }
+
+  function editAdditionSetBlindsCount(orderId: string, id: string, v: string) {
+    const t = v.trim()
+    if (t === '') {
+      setEditAdditionOrders((prev) =>
+        prev.map((a) =>
+          a.order_id === orderId
+            ? { ...a, blinds_lines: a.blinds_lines.map((x) => (x.id === id ? { ...x, window_count: null } : x)) }
+            : a,
+        ),
+      )
+      return
+    }
+    const n = Number.parseInt(t, 10)
+    if (Number.isNaN(n)) return
+    const clamped = Math.min(99, Math.max(1, n))
+    setEditAdditionOrders((prev) =>
+      prev.map((a) =>
+        a.order_id === orderId
+          ? { ...a, blinds_lines: a.blinds_lines.map((x) => (x.id === id ? { ...x, window_count: clamped } : x)) }
+          : a,
+      ),
+    )
+  }
+
+  function editAdditionSetBlindsLineField(orderId: string, id: string, jsonKey: string, value: string) {
+    const v = value.trim() ? value.trim().toLowerCase() : null
+    setEditAdditionOrders((prev) =>
+      prev.map((a) =>
+        a.order_id === orderId
+          ? { ...a, blinds_lines: a.blinds_lines.map((x) => (x.id === id ? { ...x, [jsonKey]: v } : x)) }
+          : a,
+      ),
+    )
+  }
+
+  function editAdditionSetBlindsLineNote(orderId: string, id: string, value: string) {
+    setEditAdditionOrders((prev) =>
+      prev.map((a) =>
+        a.order_id === orderId
+          ? { ...a, blinds_lines: a.blinds_lines.map((x) => (x.id === id ? { ...x, line_note: value } : x)) }
+          : a,
+      ),
+    )
+  }
+
+  function editAdditionSetBlindsLineAmount(orderId: string, id: string, value: string) {
+    const next = sanitizeLineAmountInput(value)
+    setEditAdditionOrders((prev) =>
+      prev.map((a) =>
+        a.order_id === orderId
+          ? { ...a, blinds_lines: a.blinds_lines.map((x) => (x.id === id ? { ...x, line_amount: next } : x)) }
+          : a,
+      ),
+    )
   }
 
   function openNewOrder() {
@@ -2540,50 +2702,8 @@ export function OrdersPage() {
                             {fmtDisplayDateTime(viewOrder.installation_scheduled_start_at)}
                           </div>
                         </div>
-                        {viewOrder.status_orde_id &&
-                        isReadyForInstallationStatus(viewOrder.status_orde_id, orderStatuses ?? []) &&
-                        canEdit &&
-                        viewOrder.active !== false ? (
-                          <button
-                            type="button"
-                            onClick={() => setViewInstallEditOpen((v) => !v)}
-                            className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-teal-200 bg-teal-50/70 text-teal-900 shadow-sm hover:bg-teal-50"
-                            title="Edit installation date & time"
-                            aria-label="Edit installation date and time"
-                          >
-                            <Pencil className="h-4 w-4" strokeWidth={2} />
-                          </button>
-                        ) : null}
+                        {/* Installation editing is handled in Edit order */}
                       </div>
-
-                      {viewInstallEditOpen &&
-                      viewOrder.status_orde_id &&
-                      isReadyForInstallationStatus(viewOrder.status_orde_id, orderStatuses ?? []) &&
-                      canEdit &&
-                      viewOrder.active !== false ? (
-                        <div className="mt-1 flex flex-wrap items-center gap-2 rounded-xl border border-teal-100 bg-white px-3 py-2">
-                          <div className="min-w-[16rem]">
-                            <VisitStartQuarterPicker
-                              value={
-                                viewInstallationStart.trim()
-                                  ? snapWallToQuarterMinutes(viewInstallationStart)
-                                  : snapWallToQuarterMinutes('')
-                              }
-                              onChange={(w) => setViewInstallationStart(w)}
-                              compact
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            disabled={viewInstallationSaving}
-                            onClick={() => void saveViewInstallation()}
-                            className="ml-auto rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
-                            title="Save installation date and time"
-                          >
-                            {viewInstallationSaving ? 'Saving…' : 'Save'}
-                          </button>
-                        </div>
-                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -2605,30 +2725,7 @@ export function OrdersPage() {
 
                   <div className="space-y-3">
                     {!viewOrder.parent_order_id?.trim() ? (
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          disabled={!canEdit || viewOrder.active === false}
-                          onClick={() => openLineItemAddition()}
-                          className="rounded-lg border border-teal-200 bg-teal-50/70 px-3 py-1.5 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
-                          title="Add another blinds package to this job (same tax rate)"
-                        >
-                          Add line-item addition
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!viewOrder.has_line_item_additions}
-                          onClick={() => setLineItemDetailsOpen(true)}
-                          className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-1.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                          title={
-                            viewOrder.has_line_item_additions
-                              ? 'View each addition'
-                              : 'No additions yet'
-                          }
-                        >
-                          Details
-                        </button>
-                      </div>
+                      <div />
                     ) : null}
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <div className="block min-w-0 text-sm text-slate-700">
@@ -2659,20 +2756,6 @@ export function OrdersPage() {
                       paidDisplay={viewPaidFormatted}
                       balance={viewOrder.financial_totals?.balance ?? viewOrder.balance}
                       tax={viewOrder.financial_totals?.tax_amount ?? viewOrder.tax_amount}
-                      belowBalance={
-                        canEdit && viewOrder.active !== false ? (
-                          <button
-                            type="button"
-                            className="w-full rounded-lg border border-teal-200 bg-teal-50/60 px-3 py-2 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50 disabled:opacity-50"
-                            onClick={() => {
-                              setPaymentAmountInput('')
-                              setPaymentModalOpen(true)
-                            }}
-                          >
-                            Payment
-                          </button>
-                        ) : undefined
-                      }
                     />
                   </div>
 
@@ -2695,16 +2778,6 @@ export function OrdersPage() {
                             </div>
                             <div className="flex shrink-0 items-center gap-2">
                               <span className="text-slate-500">{fmtDisplayDateTime(p.paid_at)}</span>
-                              {canEdit && viewOrder.active !== false && p.id !== 'downpayment' ? (
-                                <button
-                                  type="button"
-                                  title="Remove payment"
-                                  className="rounded-lg border border-red-200 p-1.5 text-red-700 hover:bg-red-50"
-                                  onClick={() => setDeletePaymentEntryId(p.id)}
-                                >
-                                  <Trash2 className="h-4 w-4" strokeWidth={2} />
-                                </button>
-                              ) : null}
                             </div>
                           </li>
                         ))}
@@ -2712,64 +2785,133 @@ export function OrdersPage() {
                     </div>
                   ) : null}
 
-                  {/* Dates + Installation moved to header (Agreement + Installation date-time). */}
+                  <details className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm" open>
+                    <summary className="cursor-pointer select-none text-sm font-semibold text-slate-900">
+                      Original order
+                    </summary>
+                    <div className="mt-4 space-y-5">
+                      {viewOrderId ? (
+                        <OrderAttachmentsBlock
+                          blockId="view-order-att"
+                          orderId={viewOrderId}
+                          serverFiles={viewOrder.attachments ?? []}
+                          pendingFiles={[]}
+                          onPendingChange={() => {}}
+                          canEdit={canEdit && viewOrder.active !== false}
+                          uploadBusy={attachmentUploadBusy}
+                          setUploadBusy={setAttachmentUploadBusy}
+                          onAfterServerMutation={async () => {
+                            const d = await getJson<OrderDetail>(`/orders/${viewOrderId}`)
+                            setViewOrder(d)
+                          }}
+                          setErr={setErr}
+                          onRequestDeleteAttachment={(id) => setDeleteAttachmentTarget({ orderId: viewOrderId, id })}
+                        />
+                      ) : null}
 
-                  {viewOrderId ? (
-                    <OrderAttachmentsBlock
-                      blockId="view-order-att"
-                      orderId={viewOrderId}
-                      serverFiles={viewOrder.attachments ?? []}
-                      pendingFiles={[]}
-                      onPendingChange={() => {}}
-                      canEdit={canEdit && viewOrder.active !== false}
-                      uploadBusy={attachmentUploadBusy}
-                      setUploadBusy={setAttachmentUploadBusy}
-                      onAfterServerMutation={async () => {
-                        const d = await getJson<OrderDetail>(`/orders/${viewOrderId}`)
-                        setViewOrder(d)
-                      }}
-                      setErr={setErr}
-                      onRequestDeleteAttachment={(id) =>
-                        setDeleteAttachmentTarget({ orderId: viewOrderId, id })
-                      }
-                    />
-                  ) : null}
+                      {viewOrder.blinds_lines && viewOrder.blinds_lines.length > 0 ? (
+                        <section className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
+                          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Blinds</h3>
+                          <ul className="mt-3 flex flex-wrap gap-2">
+                            {viewOrder.blinds_lines.map((b) => (
+                              <li
+                                key={b.id}
+                                className="rounded-full bg-teal-50 px-3 py-1 text-xs font-medium text-teal-900 ring-1 ring-teal-100"
+                              >
+                                {b.name}
+                                {b.window_count != null ? ` · ${b.window_count}` : ''}
+                                {blindsLineSummarySuffix(
+                                  normalizeBlindsLineFromApi(b as Record<string, unknown>),
+                                  blindsOrderOptions,
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </section>
+                      ) : null}
 
-                  {viewOrder.blinds_lines && viewOrder.blinds_lines.length > 0 ? (
-                    <section className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-                      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Blinds</h3>
-                      <ul className="mt-3 flex flex-wrap gap-2">
-                        {viewOrder.blinds_lines.map((b) => (
-                          <li
-                            key={b.id}
-                            className="rounded-full bg-teal-50 px-3 py-1 text-xs font-medium text-teal-900 ring-1 ring-teal-100"
-                          >
-                            {b.name}
-                            {b.window_count != null ? ` · ${b.window_count}` : ''}
-                            {blindsLineSummarySuffix(
-                              normalizeBlindsLineFromApi(b as Record<string, unknown>),
-                              blindsOrderOptions,
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </section>
-                  ) : null}
+                      {viewOrder.order_note?.trim() ? (
+                        <section className="rounded-xl border border-amber-100 bg-amber-50/40 p-4">
+                          <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-900/80">Note</h3>
+                          <p className="mt-2 whitespace-pre-wrap text-sm text-slate-800">{viewOrder.order_note.trim()}</p>
+                        </section>
+                      ) : null}
 
-                  {viewOrder.order_note?.trim() ? (
-                    <section className="rounded-xl border border-amber-100 bg-amber-50/40 p-4">
-                      <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-900/80">Note</h3>
-                      <p className="mt-2 whitespace-pre-wrap text-sm text-slate-800">{viewOrder.order_note.trim()}</p>
-                    </section>
-                  ) : null}
+                      {viewOrder.agree_data?.trim() ? (
+                        <section className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+                          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Production notes
+                          </h3>
+                          <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-200/80 bg-white p-3 text-xs leading-relaxed text-slate-800">
+                            {viewOrder.agree_data.trim()}
+                          </pre>
+                        </section>
+                      ) : null}
+                    </div>
+                  </details>
 
-                  {viewOrder.agree_data?.trim() ? (
-                    <section className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
-                      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Production notes</h3>
-                      <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-200/80 bg-white p-3 text-xs leading-relaxed text-slate-800">
-                        {viewOrder.agree_data.trim()}
-                      </pre>
-                    </section>
+                  {viewOrder.line_item_additions && viewOrder.line_item_additions.length > 0 ? (
+                    <div className="space-y-3">
+                      {viewOrder.line_item_additions.map((a, idx) => (
+                        <details
+                          key={a.order_id}
+                          className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm"
+                        >
+                          <summary className="cursor-pointer select-none text-sm font-semibold text-slate-900">
+                            Additional order #{idx + 1}{' '}
+                            <span className="ml-2 font-mono text-xs font-medium text-slate-400">{a.order_id}</span>
+                          </summary>
+                          <div className="mt-4 space-y-3">
+                            {viewAdditionDetails[a.order_id]?.blinds_lines &&
+                            viewAdditionDetails[a.order_id]!.blinds_lines!.length > 0 ? (
+                              <section className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
+                                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Blinds</h3>
+                                <ul className="mt-3 flex flex-wrap gap-2">
+                                  {viewAdditionDetails[a.order_id]!.blinds_lines!.map((b) => (
+                                    <li
+                                      key={b.id}
+                                      className="rounded-full bg-teal-50 px-3 py-1 text-xs font-medium text-teal-900 ring-1 ring-teal-100"
+                                    >
+                                      {b.name}
+                                      {b.window_count != null ? ` · ${b.window_count}` : ''}
+                                      {blindsLineSummarySuffix(
+                                        normalizeBlindsLineFromApi(b as Record<string, unknown>),
+                                        blindsOrderOptions,
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </section>
+                            ) : null}
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                              <div className="block min-w-0 text-sm text-slate-700">
+                                <span className="mb-1 block font-medium">Total (incl. tax)</span>
+                                <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+                                  {fmtTotalIncludingTax(a.subtotal_ex_tax, a.tax_amount)}
+                                </p>
+                              </div>
+                              <div className="block min-w-0 text-sm text-slate-700">
+                                <span className="mb-1 block font-medium">Down payment</span>
+                                <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+                                  {fmtMoney(parseMoneyAmount(a.downpayment) ?? 0)}
+                                </p>
+                              </div>
+                              <div className="block min-w-0 text-sm text-slate-700">
+                                <span className="mb-1 block font-medium">Taxable base</span>
+                                <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+                                  {fmtMoney(parseMoneyAmount(a.taxable_base) ?? 0)}
+                                </p>
+                              </div>
+                            </div>
+                            <OrderFinancialSecondRow
+                              paidDisplay={fmtMoney(parseMoneyAmount(a.paid_total) ?? 0)}
+                              balance={parseMoneyAmount(a.balance) ?? 0}
+                              tax={parseMoneyAmount(a.tax_amount) ?? 0}
+                            />
+                          </div>
+                        </details>
+                      ))}
+                    </div>
                   ) : null}
 
                   {/* Edit order button moved to header */}
@@ -2796,6 +2938,7 @@ export function OrdersPage() {
                 setEditExtraPaid(0)
                 setEditInstallationStart('')
                 setEditAttachments([])
+                setEditAdditionOrders([])
               }
             }}
           />
@@ -2816,6 +2959,7 @@ export function OrdersPage() {
                   setEditExtraPaid(0)
                   setEditInstallationStart('')
                   setEditAttachments([])
+                  setEditAdditionOrders([])
                 }}
               >
                 <X className="h-4 w-4" />
@@ -2833,6 +2977,154 @@ export function OrdersPage() {
                   }}
                 >
                   <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="sm:col-span-2 rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 shadow-sm">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 shadow-sm">
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Customer
+                          </div>
+                          <div className="mt-1 text-base font-semibold text-slate-900">
+                            {editCustomerDisplay || editCustomerId}
+                          </div>
+                          <div className="mt-3 text-xs font-semibold text-slate-500">Order ID</div>
+                          <div className="mt-0.5 font-mono text-sm font-semibold text-slate-700">{editOrderId}</div>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 shadow-sm">
+                          <div className="grid grid-cols-1 gap-3">
+                            <div>
+                              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                Status
+                              </div>
+                              <div className="mt-2">
+                                <select
+                                  required
+                                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                                  value={editDraft.status_orde_id}
+                                  onChange={(e) =>
+                                    setEditDraft((d) => (d ? { ...d, status_orde_id: e.target.value } : d))
+                                  }
+                                >
+                                  <option value="">Select status…</option>
+                                  {editDraft.status_orde_id &&
+                                  !(orderStatuses ?? []).some((s) => s.id === editDraft.status_orde_id) ? (
+                                    <option value={editDraft.status_orde_id}>
+                                      {editDraft.status_order_label_fallback ?? 'Current status'} (not in active list)
+                                    </option>
+                                  ) : null}
+                                  {(orderStatuses ?? []).map((s) => (
+                                    <option key={s.id} value={s.id}>
+                                      {s.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+
+                            <div>
+                              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                Installation date-time
+                              </div>
+                              <div className="mt-2">
+                                <VisitStartQuarterPicker
+                                  value={
+                                    editInstallationStart.trim()
+                                      ? snapWallToQuarterMinutes(editInstallationStart)
+                                      : snapWallToQuarterMinutes('')
+                                  }
+                                  onChange={(w) => setEditInstallationStart(w)}
+                                  disabled={
+                                    !isReadyForInstallationStatus(editDraft.status_orde_id, orderStatuses ?? [])
+                                  }
+                                  compact
+                                />
+                              </div>
+                              <p className="mt-1 text-[11px] font-semibold text-slate-500">
+                                Editable only when status is Ready for installation.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="sm:col-span-2 rounded-xl border border-slate-200/80 bg-slate-50/60 p-4">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Job totals</h3>
+                      <p className="mt-1 text-[11px] text-slate-500">Includes the original order + all additional orders.</p>
+                      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <div className="block min-w-0 text-sm text-slate-700">
+                          <span className="mb-1 block font-medium">Total (incl. tax)</span>
+                          <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900">
+                            {fmtMoney(editRollupTotals.totalIncl)}
+                          </p>
+                        </div>
+                        <div className="block min-w-0 text-sm text-slate-700">
+                          <span className="mb-1 block font-medium">Down payment</span>
+                          <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900">
+                            {fmtMoney(editRollupTotals.dp)}
+                          </p>
+                        </div>
+                        <div className="block min-w-0 text-sm text-slate-700">
+                          <span className="mb-1 block font-medium">Taxable base</span>
+                          <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900">
+                            {fmtMoney(editRollupTotals.tb)}
+                          </p>
+                        </div>
+                      </div>
+                      <OrderFinancialSecondRow
+                        paidDisplay={fmtMoney(editRollupTotals.paid)}
+                        balance={editRollupTotals.bal}
+                        tax={editRollupTotals.tax}
+                        belowBalance={
+                          canEdit ? (
+                            <button
+                              type="button"
+                              className="w-full rounded-lg border border-teal-200 bg-teal-50/60 px-3 py-2 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50 disabled:opacity-50"
+                              onClick={() => {
+                                setPaymentAmountInput('')
+                                setPaymentModalOpen(true)
+                              }}
+                            >
+                              Payment
+                            </button>
+                          ) : undefined
+                        }
+                      />
+                    </div>
+                    {editPaymentEntries.length > 0 ? (
+                      <div className="sm:col-span-2 rounded-lg border border-slate-200/80 bg-white px-3 py-3 sm:px-4">
+                        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Recorded payments
+                        </h3>
+                        <ul className="mt-2 divide-y divide-slate-100">
+                          {editPaymentEntries.map((p) => (
+                            <li
+                              key={p.id}
+                              className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <span className="font-medium tabular-nums text-slate-900">{fmtMoney(p.amount)}</span>
+                                {p.id === 'downpayment' ? (
+                                  <span className="ml-2 text-xs font-normal text-slate-500">Down payment</span>
+                                ) : null}
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2">
+                                <span className="text-slate-500">{fmtDisplayDateTime(p.paid_at)}</span>
+                                {canEdit && p.id !== 'downpayment' ? (
+                                  <button
+                                    type="button"
+                                    title="Remove payment"
+                                    className="rounded-lg border border-red-200 p-1.5 text-red-700 hover:bg-red-50"
+                                    onClick={() => setDeletePaymentEntryId(p.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4" strokeWidth={2} />
+                                  </button>
+                                ) : null}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
                     {editEstimateId ? (
                       <p className="rounded-lg border border-teal-100 bg-teal-50/80 px-3 py-2 text-xs text-teal-900 sm:col-span-2">
                         Linked to estimate{' '}
@@ -2842,73 +3134,11 @@ export function OrdersPage() {
                         . Customer matches the estimate and cannot be changed here.
                       </p>
                     ) : null}
-                    <label className="block text-sm text-slate-700 sm:col-span-2">
-                      <span className="mb-1 block font-medium">Customer</span>
-                      <select
-                        required={!editEstimateId}
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:opacity-60"
-                        value={editCustomerId}
-                        disabled={Boolean(editEstimateId)}
-                        onChange={(e) => setEditCustomerId(e.target.value)}
-                      >
-                        <option value="">Select…</option>
-                        {(customers ?? []).map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {customerLabel(c)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="block text-sm text-slate-700 sm:col-span-2">
-                      <span className="mb-1 block font-medium">Status</span>
-                      <span className="mb-1 block text-xs text-slate-500">
-                        Order statuses from Lookups (same labels as the orders table).
-                      </span>
-                      <select
-                        required
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                        value={editDraft.status_orde_id}
-                        onChange={(e) =>
-                          setEditDraft((d) => (d ? { ...d, status_orde_id: e.target.value } : d))
-                        }
-                      >
-                        <option value="">Select status…</option>
-                        {editDraft.status_orde_id &&
-                        !(orderStatuses ?? []).some((s) => s.id === editDraft.status_orde_id) ? (
-                          <option value={editDraft.status_orde_id}>
-                            {editDraft.status_order_label_fallback ?? 'Current status'} (not in active list)
-                          </option>
-                        ) : null}
-                        {(orderStatuses ?? []).map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="sm:col-span-2 rounded-lg border border-amber-100 bg-amber-50/80 p-3">
-                      <p className="text-xs font-semibold text-amber-950">Installation</p>
-                      <p className="mt-1 text-[11px] text-amber-900">
-                        Single date and time (same format as estimate visits, 15-minute steps). Editable only when
-                        status is Ready for installation. Syncs to Google Calendar when the company calendar is
-                        connected.
-                      </p>
-                      <div className="mt-2">
-                        <span className="mb-1 block text-xs font-medium text-slate-800">Date &amp; time</span>
-                        <VisitStartQuarterPicker
-                          value={
-                            editInstallationStart.trim()
-                              ? snapWallToQuarterMinutes(editInstallationStart)
-                              : snapWallToQuarterMinutes('')
-                          }
-                          onChange={(w) => setEditInstallationStart(w)}
-                          disabled={
-                            !isReadyForInstallationStatus(editDraft.status_orde_id, orderStatuses ?? [])
-                          }
-                          compact
-                        />
-                      </div>
-                    </div>
+                    <details className="sm:col-span-2 rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm" open>
+                      <summary className="cursor-pointer select-none text-sm font-semibold text-slate-900">
+                        Original order
+                      </summary>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <fieldset className="min-w-0 rounded-lg border border-slate-200 bg-slate-50/60 p-3 sm:col-span-2">
                       <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Blinds types &amp; quantities
@@ -3013,6 +3243,113 @@ export function OrdersPage() {
                         />
                       </div>
                     ) : null}
+                      </div>
+                    </details>
+                    <div className="sm:col-span-2 space-y-3">
+                      {editAdditionOrders.length ? (
+                        editAdditionOrders.map((a, idx) => {
+                          const comp = editAdditionComputed.find((x) => x.order_id === a.order_id)
+                          return (
+                            <details
+                              key={a.order_id}
+                              className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm"
+                            >
+                              <summary className="cursor-pointer select-none text-sm font-semibold text-slate-900">
+                                Additional order #{idx + 1}{' '}
+                                <span className="ml-2 font-mono text-xs font-medium text-slate-400">{a.order_id}</span>
+                              </summary>
+                              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                                <fieldset className="min-w-0 rounded-lg border border-slate-200 bg-slate-50/60 p-3 sm:col-span-2">
+                                  <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                    Blinds types &amp; quantities
+                                  </legend>
+                                  <BlindsTypesGrid
+                                    blindsTypes={blindsTypes ?? []}
+                                    blindsOrderOptions={blindsOrderOptions}
+                                    lines={a.blinds_lines}
+                                    toggleType={(id) => editAdditionToggleBlinds(a.order_id, id)}
+                                    setCount={(id, v) => editAdditionSetBlindsCount(a.order_id, id, v)}
+                                    setLineField={(id, key, v) => editAdditionSetBlindsLineField(a.order_id, id, key, v)}
+                                    setLineNote={(id, v) => editAdditionSetBlindsLineNote(a.order_id, id, v)}
+                                    setLineAmount={(id, v) => editAdditionSetBlindsLineAmount(a.order_id, id, v)}
+                                    keyPrefix={`edit-add-${a.order_id}`}
+                                  />
+                                  {a.blinds_lines.length === 0 ? (
+                                    <p className="mt-2 text-xs text-amber-700">Choose at least one blinds type.</p>
+                                  ) : null}
+                                </fieldset>
+                                <label className="block w-full min-w-0 text-sm text-slate-700 sm:col-span-2">
+                                  <span className="mb-1 block font-medium">Order note</span>
+                                  <textarea
+                                    value={a.order_note}
+                                    onChange={(e) => editAdditionUpdate(a.order_id, { order_note: e.target.value })}
+                                    rows={2}
+                                    maxLength={4000}
+                                    placeholder="Optional note for this additional order…"
+                                    className="w-full whitespace-pre-wrap rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                                  />
+                                </label>
+                                <div className="space-y-3 sm:col-span-2">
+                                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                    <div className="block min-w-0 text-sm text-slate-700">
+                                      <span className="mb-1 block font-medium">Total (incl. tax)</span>
+                                      <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+                                        {fmtMoney(comp?.totalIncl ?? 0)}
+                                      </p>
+                                    </div>
+                                    <label className="block min-w-0 text-sm text-slate-700">
+                                      <span className="mb-1 block font-medium">Down payment</span>
+                                      <input
+                                        inputMode="decimal"
+                                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
+                                        value={a.downpayment}
+                                        onChange={(e) => editAdditionUpdate(a.order_id, { downpayment: e.target.value })}
+                                        placeholder="0.00"
+                                      />
+                                    </label>
+                                    <label className="block min-w-0 text-sm text-slate-700">
+                                      <span className="mb-1 block font-medium">Taxable base</span>
+                                      <input
+                                        inputMode="decimal"
+                                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
+                                        value={a.tax_base}
+                                        onChange={(e) => editAdditionUpdate(a.order_id, { tax_base: e.target.value })}
+                                        placeholder="0.00"
+                                      />
+                                    </label>
+                                  </div>
+                                  <OrderFinancialSecondRow
+                                    paidDisplay={fmtMoney(comp?.paid ?? 0)}
+                                    balance={comp?.balance ?? 0}
+                                    tax={comp?.tax ?? 0}
+                                  />
+                                </div>
+                                <label className="block text-sm text-slate-700 sm:col-span-2">
+                                  <span className="mb-1 block font-medium">Agreement date (optional)</span>
+                                  <input
+                                    type="date"
+                                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                                    value={a.agreement_date}
+                                    onChange={(e) => editAdditionUpdate(a.order_id, { agreement_date: e.target.value })}
+                                  />
+                                </label>
+                              </div>
+                            </details>
+                          )
+                        })
+                      ) : null}
+                      <button
+                        type="button"
+                        disabled={!canEdit || editSaving || !editOrderId}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-teal-200 bg-teal-50/70 px-4 py-3 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50 disabled:opacity-50"
+                        onClick={() => {
+                          openLineItemAddition()
+                        }}
+                        title="Add additional order"
+                      >
+                        + Additional order
+                      </button>
+                    </div>
                   </div>
                   <div className="flex flex-wrap justify-end gap-2 pt-2">
                     <button
@@ -3028,6 +3365,7 @@ export function OrdersPage() {
                         setEditExtraPaid(0)
                         setEditInstallationStart('')
                         setEditAttachments([])
+                        setEditAdditionOrders([])
                       }}
                     >
                       Cancel
@@ -3052,7 +3390,7 @@ export function OrdersPage() {
         </div>
       ) : null}
 
-      {paymentModalOpen && viewOrderId ? (
+      {paymentModalOpen && (viewOrderId || editOrderId) ? (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4"
           role="presentation"
@@ -3112,7 +3450,7 @@ export function OrdersPage() {
         </div>
       ) : null}
 
-      {lineItemAdditionOpen && viewOrderId ? (
+      {lineItemAdditionOpen && (viewOrderId || editOrderId) ? (
         <div
           className="fixed inset-0 z-[101] flex items-end justify-center bg-slate-900/50 p-4 sm:items-center"
           role="presentation"
