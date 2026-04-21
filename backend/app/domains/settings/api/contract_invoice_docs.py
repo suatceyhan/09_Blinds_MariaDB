@@ -99,6 +99,9 @@ DEPOSIT_PREVIEW_SAMPLE: dict[str, str] = {
     "deposit_required": "1,917.00",
     "balance_remaining": "1,917.00",
     "deposit_paid": "1,917.00",
+    "extra_payments_total": "250.00",
+    "extra_payments_count": "2 payments",
+    "payments_received_total": "2,167.00",
     "payment_method": "E-transfer",
     "payment_date": "Apr 18, 2026",
 }
@@ -311,6 +314,81 @@ def _html_page(title: str, body: str) -> str:
       }}
       .doc-bottom-split:after {{ content: ""; display: block; clear: both; }}
 
+      /* —— Classic invoice preset (classic_invoice_01 “Classic Invoice Navy”) —— */
+      .inv2-root {{ font-size: 11px; }}
+      .inv2-title-row {{ width: 100%; border-collapse: collapse; margin: 10px 0 16px; }}
+      .inv2-title-cell {{ width: 68%; }}
+      .inv2-no-cell {{ width: 32%; text-align: right; }}
+      .inv2-title {{
+        font-family: Georgia, "Times New Roman", Times, serif;
+        font-size: 44px;
+        letter-spacing: 0.16em;
+        margin: 0;
+        color: #0f172a;
+      }}
+      .inv2-no {{ font-size: 12px; margin-bottom: 8px; }}
+      .inv2-no-k {{ color: #475569; font-weight: 700; margin-right: 6px; }}
+      .inv2-muted {{ color: #475569; font-size: 10px; }}
+      .inv2-pairs {{ width: 100%; border-collapse: collapse; margin-bottom: 12px; }}
+      .inv2-pair {{ width: 50%; vertical-align: top; }}
+      .inv2-pair-hd {{ font-weight: 700; letter-spacing: 0.08em; color: #475569; font-size: 10px; margin-bottom: 6px; }}
+      .inv2-pair-bd {{ padding-right: 10px; }}
+      .inv2-line {{ margin: 0 0 4px; }}
+      .inv2-strong {{ font-weight: 600; }}
+      .inv2-date {{ margin: 6px 0 10px; color: #0f172a; }}
+      .inv2-date-k {{ color: #475569; font-weight: 700; margin-right: 6px; }}
+      .inv2-items {{
+        width: 100%;
+        border-collapse: collapse;
+        border: 2px solid #1e293b;
+        margin: 8px 0 14px;
+      }}
+      .inv2-hd {{
+        background: #1e3a8f;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        padding: 8px 10px;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }}
+      .inv2-col-desc {{ width: 56%; }}
+      .inv2-col-unit {{ width: 16%; }}
+      .inv2-col-qty {{ width: 10%; }}
+      .inv2-col-total {{ width: 18%; }}
+      .inv2-td {{ padding: 10px; border-top: 2px solid #1e293b; vertical-align: top; }}
+      .inv2-amt {{ white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 600; }}
+      .inv2-item-title {{ font-weight: 700; margin-bottom: 4px; }}
+      .inv2-item-note {{ font-size: 10px; color: #475569; line-height: 1.45; }}
+      .inv2-bottom {{ width: 100%; border-collapse: collapse; margin-top: 16px; }}
+      .inv2-pay {{ width: 58%; padding-right: 16px; }}
+      .inv2-pay-hd {{ font-weight: 800; letter-spacing: 0.06em; color: #475569; font-size: 11px; margin-bottom: 8px; }}
+      .inv2-pay-row {{ margin: 0 0 6px; font-size: 10px; color: #0f172a; }}
+      .inv2-pay-k {{ color: #475569; font-weight: 700; margin-right: 6px; }}
+      .inv2-totals {{ width: 42%; }}
+      .inv2-totals-box {{ width: 100%; border-collapse: collapse; }}
+      .inv2-totals-box td {{ padding: 4px 8px; font-size: 10px; }}
+      .inv2-tk {{ color: #475569; font-weight: 800; letter-spacing: 0.06em; }}
+      .inv2-tv {{
+        background: #1e3a8f;
+        color: #fff;
+        font-weight: 800;
+        white-space: nowrap;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }}
+      .inv2-t-grand .inv2-tk {{ color: #0f172a; }}
+      .inv2-thanks {{
+        text-align: center;
+        margin-top: 30px;
+        font-family: "Brush Script MT", "Segoe Script", "Comic Sans MS", cursive;
+        font-size: 56px;
+        color: #1e3a8f;
+        font-weight: 500;
+      }}
+
       @media print {{
         .page {{ max-width: none; margin: 0; }}
       }}
@@ -357,6 +435,35 @@ def _fetch_order_doc_context(db: Session, company_id: str, order_id: str) -> dic
         {"cid": company_id, "oid": order_id},
     ).mappings().first()
     return dict(row) if row else None
+
+
+def _fetch_order_extra_payments_summary(db: Session, company_id: str, order_id: str) -> tuple[Decimal, int]:
+    """Return (sum_of_order_payment_entries, count). Excludes downpayment; excludes soft-deleted rows."""
+    row = db.execute(
+        text(
+            """
+            SELECT
+              COALESCE(SUM(amount), 0) AS total,
+              COUNT(1) AS cnt
+            FROM order_payment_entries
+            WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid
+              AND COALESCE(is_deleted, FALSE) = FALSE
+            """
+        ),
+        {"cid": company_id, "oid": order_id},
+    ).mappings().first()
+    if not row:
+        return Decimal("0.00"), 0
+    q = Decimal("0.01")
+    try:
+        total = Decimal(str(row.get("total") or 0)).quantize(q)
+    except Exception:
+        total = Decimal("0.00")
+    try:
+        cnt = int(row.get("cnt") or 0)
+    except Exception:
+        cnt = 0
+    return total, max(cnt, 0)
 
 
 def _invoice_number_for_order(order_id: str) -> str:
@@ -728,6 +835,8 @@ def deposit_invoice_contract(
     )
     down = Decimal(str(ctx.get("downpayment") or 0)).quantize(Decimal("0.01"))
     bal = Decimal(str(ctx.get("balance") or 0)).quantize(Decimal("0.01"))
+    extra_total, extra_cnt = _fetch_order_extra_payments_summary(db, str(cid), oid)
+    received_total = (down + extra_total).quantize(Decimal("0.01"))
 
     _subject, pdf = render_contract_invoice_pdf(
         db=db,
@@ -752,6 +861,9 @@ def deposit_invoice_contract(
             "deposit_required": _fmt_money(down),
             "balance_remaining": _fmt_money(bal),
             "deposit_paid": _fmt_money(down),
+            "extra_payments_total": _fmt_money(extra_total),
+            "extra_payments_count": f"{extra_cnt} payment" + ("s" if extra_cnt != 1 else ""),
+            "payments_received_total": _fmt_money(received_total),
             "payment_method": "",
             "payment_date": "",
         },

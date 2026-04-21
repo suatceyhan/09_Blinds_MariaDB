@@ -22,6 +22,10 @@ DEPOSIT_PRESET_LABELS: dict[str, tuple[str, str]] = {
         "Corporate (Navy)",
         "Deposit invoice with navy header bars, line-item row, compact totals block, and formal notes — similar to standard pro-forma / deposit templates.",
     ),
+    "classic_invoice_01": (
+        "Classic Invoice (Navy)",
+        "Classic invoice look (big INVOICE title + lined table) while keeping deposit invoice fields. Shows deposit received and additional payments as description rows.",
+    ),
 }
 
 
@@ -175,6 +179,104 @@ DEPOSIT_CONTRACT_PRESETS: dict[str, DepositPreset] = {
 
   <div class="doc-footer-thanks">Thank you for your business</div>
 
+</div>
+""".strip(),
+    ),
+    "classic_invoice_01": DepositPreset(
+        subject="Deposit invoice & service agreement",
+        body_html=r"""
+<div class="inv2-root avoid-break">
+
+  <table class="inv2-title-row" cellspacing="0" cellpadding="0">
+    <tr>
+      <td class="inv2-title-cell" valign="top"><div class="inv2-title">INVOICE</div></td>
+      <td class="inv2-no-cell" valign="bottom" align="right">
+        <div class="inv2-no"><span class="inv2-no-k">No:</span> <span class="mono">""" + _ph("invoice_number") + r"""</span></div>
+      </td>
+    </tr>
+  </table>
+
+  <table class="inv2-pairs" cellspacing="0" cellpadding="0">
+    <tr>
+      <td class="inv2-pair" valign="top">
+        <div class="inv2-pair-hd">BILL TO:</div>
+        <div class="inv2-pair-bd">
+          <div class="inv2-line inv2-strong">""" + _ph("customer_name") + r"""</div>
+          <div class="inv2-line">""" + _ph("customer_address") + r"""</div>
+          <div class="inv2-line">""" + _ph("customer_phone") + r"""</div>
+        </div>
+      </td>
+      <td class="inv2-pair" valign="top">
+        <div class="inv2-pair-hd">FROM:</div>
+        <div class="inv2-pair-bd">
+          <div class="inv2-line inv2-strong">""" + _ph("business_name") + r"""</div>
+          <div class="inv2-line">""" + _ph("business_address") + r"""</div>
+          <div class="inv2-line">""" + _ph("business_email") + r"""</div>
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <div class="inv2-date"><span class="inv2-date-k">Date:</span> """ + _ph("invoice_date") + r"""</div>
+
+  <table class="inv2-items" cellspacing="0" cellpadding="0">
+    <tr>
+      <td class="inv2-hd inv2-col-desc">DESCRIPTION</td>
+      <td class="inv2-hd inv2-col-unit" align="right">UNIT PRICE</td>
+      <td class="inv2-hd inv2-col-qty" align="center">QTY</td>
+      <td class="inv2-hd inv2-col-total" align="right">TOTAL</td>
+    </tr>
+    <tr>
+      <td class="inv2-td inv2-col-desc">
+        <div class="inv2-item-title">""" + _ph("product") + r"""</div>
+        <div class="inv2-item-note">""" + _ph("description") + r"""</div>
+      </td>
+      <td class="inv2-td inv2-col-unit mono" align="right">$""" + _ph("total_project_price") + r"""</td>
+      <td class="inv2-td inv2-col-qty" align="center">1</td>
+      <td class="inv2-td inv2-col-total inv2-amt mono" align="right">$""" + _ph("total_project_price") + r"""</td>
+    </tr>
+    <tr>
+      <td class="inv2-td inv2-col-desc">Deposit received</td>
+      <td class="inv2-td inv2-col-unit mono" align="right">-$""" + _ph("deposit_paid") + r"""</td>
+      <td class="inv2-td inv2-col-qty" align="center">1</td>
+      <td class="inv2-td inv2-col-total inv2-amt mono" align="right">-$""" + _ph("deposit_paid") + r"""</td>
+    </tr>
+    <tr>
+      <td class="inv2-td inv2-col-desc">Additional payments received <span class="inv2-muted">(""" + _ph("extra_payments_count") + r""")</span></td>
+      <td class="inv2-td inv2-col-unit mono" align="right">-$""" + _ph("extra_payments_total") + r"""</td>
+      <td class="inv2-td inv2-col-qty" align="center">1</td>
+      <td class="inv2-td inv2-col-total inv2-amt mono" align="right">-$""" + _ph("extra_payments_total") + r"""</td>
+    </tr>
+  </table>
+
+  <table class="inv2-bottom" cellspacing="0" cellpadding="0">
+    <tr>
+      <td class="inv2-pay" valign="top">
+        <div class="inv2-pay-hd">PAYMENT METHODS</div>
+        <div class="inv2-pay-row"><span class="inv2-pay-k">Method:</span> """ + _ph("payment_method") + r"""</div>
+        <div class="inv2-pay-row"><span class="inv2-pay-k">Payment date:</span> """ + _ph("payment_date") + r"""</div>
+        <div class="inv2-pay-row"><span class="inv2-pay-k">Email:</span> """ + _ph("business_email") + r"""</div>
+      </td>
+      <td class="inv2-totals" valign="top" align="right">
+        <table class="inv2-totals-box" cellspacing="0" cellpadding="0">
+          <tr>
+            <td class="inv2-tk">SUBTOTAL</td>
+            <td class="inv2-tv mono" align="right">$""" + _ph("total_project_price") + r"""</td>
+          </tr>
+          <tr>
+            <td class="inv2-tk">PAYMENTS</td>
+            <td class="inv2-tv mono" align="right">-$""" + _ph("payments_received_total") + r"""</td>
+          </tr>
+          <tr class="inv2-t-grand">
+            <td class="inv2-tk">AMOUNT DUE</td>
+            <td class="inv2-tv mono" align="right">$""" + _ph("balance_remaining") + r"""</td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  <div class="inv2-thanks">Thank You!</div>
 </div>
 """.strip(),
     ),

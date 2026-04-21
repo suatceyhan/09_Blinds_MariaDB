@@ -1317,7 +1317,9 @@ def _estimate_deposit_pdf_money_fields(total_amt: Decimal | None) -> dict[str, s
         "total_project_price": f"{total_amt:,.2f}",
         "deposit_required": f"{half:,.2f}",
         "balance_remaining": f"{remainder:,.2f}",
-        "deposit_paid": dash,
+        # Estimates deposit-contract is usually sent before any payment is recorded; show 0.00 for presets that
+        # render "payments received" as numeric rows.
+        "deposit_paid": "0.00",
     }
 
 
@@ -1409,6 +1411,9 @@ def estimate_deposit_contract_download(
             "measurements": "",
             "installation_address": cust_addr,
             **money,
+            "extra_payments_total": "0.00",
+            "extra_payments_count": "0 payments",
+            "payments_received_total": money.get("deposit_paid", "0.00") or "0.00",
             "payment_method": "—",
             "payment_date": "—",
         },
@@ -1477,6 +1482,9 @@ def estimate_deposit_contract_send_email(
             "measurements": "",
             "installation_address": cust_addr,
             **money,
+            "extra_payments_total": "0.00",
+            "extra_payments_count": "0 payments",
+            "payments_received_total": money.get("deposit_paid", "0.00") or "0.00",
             "payment_method": "—",
             "payment_date": "—",
         },
