@@ -206,23 +206,27 @@ function EstimateStatusBadge({
 
 function TypesAndWindowsCell({ lines }: Readonly<{ lines: BlindsLine[] }>) {
   if (!lines?.length) return <span className="text-slate-500">—</span>
+  const totalAmt = lines.reduce((acc, b) => acc + (Number(b.line_amount ?? 0) || 0), 0)
   return (
-    <ul className="max-w-md list-none space-y-0.5 text-slate-800">
-      {lines.map((b) => (
-        <li key={b.id} className="flex flex-wrap items-start gap-1.5 text-sm">
-          <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-600" strokeWidth={2.5} aria-hidden />
-          <span className="font-medium">{b.name}</span>
-          {b.window_count != null ? (
-            <span className="text-slate-600"> — {b.window_count} windows</span>
-          ) : (
-            <span className="text-slate-400"> — —</span>
-          )}
-          {b.line_amount != null && b.line_amount > 0 ? (
-            <span className="text-slate-600"> — ${Number(b.line_amount).toFixed(2)}</span>
-          ) : null}
-        </li>
-      ))}
-    </ul>
+    <div className="space-y-2">
+      <ul className="max-w-md list-none space-y-0.5 text-slate-800">
+        {lines.map((b) => (
+          <li key={b.id} className="flex flex-wrap items-start gap-1.5 text-sm">
+            <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-600" strokeWidth={2.5} aria-hidden />
+            <span className="font-medium">{b.name}</span>
+            {b.window_count != null ? (
+              <span className="text-slate-600"> — {b.window_count} windows</span>
+            ) : (
+              <span className="text-slate-400"> — —</span>
+            )}
+            {b.line_amount != null && b.line_amount > 0 ? (
+              <span className="text-slate-600"> — ${Number(b.line_amount).toFixed(2)}</span>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      <div className="text-xs font-semibold text-rose-700">Total: ${totalAmt.toFixed(2)}</div>
+    </div>
   )
 }
 
@@ -1035,7 +1039,6 @@ export function EstimatesPage() {
                 <th className="px-2 py-3 sm:px-4">Customer</th>
                 <th className="px-2 py-3 sm:px-4">Address</th>
                 <th className="px-2 py-3 sm:px-4">Types &amp; windows</th>
-                <th className="whitespace-nowrap px-2 py-3 sm:px-4">Status</th>
                 <th className="px-2 py-3 sm:px-4">Visit date</th>
                 {canEdit ? <th className="min-w-[13rem] px-2 py-3 text-right sm:px-4">Actions</th> : null}
               </tr>
@@ -1053,18 +1056,18 @@ export function EstimatesPage() {
                     >
                       {r.customer_display || r.customer_id}
                     </Link>
+                    <div className="mt-1">
+                      <EstimateStatusBadge status={r.status} label={r.status_label} />
+                      {r.is_deleted ? (
+                        <span className="ml-2 text-[11px] font-medium text-slate-500">Deleted</span>
+                      ) : null}
+                    </div>
                   </td>
                   <td className="max-w-[14rem] align-top px-2 py-3 text-slate-600 sm:px-4">
                     <AddressMapLink address={r.customer_address} />
                   </td>
                   <td className="align-top px-2 py-3 sm:px-4">
                     <TypesAndWindowsCell lines={r.blinds_types} />
-                  </td>
-                  <td className="align-top px-2 py-3 sm:px-4">
-                    <EstimateStatusBadge status={r.status} label={r.status_label} />
-                    {r.is_deleted ? (
-                      <span className="mt-1 block text-[11px] font-medium text-slate-500">Deleted</span>
-                    ) : null}
                   </td>
                   <td className="align-top px-2 py-3 text-slate-600 sm:px-4">{displayScheduled(r)}</td>
                   {canEdit ? (

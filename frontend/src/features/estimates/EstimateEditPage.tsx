@@ -227,6 +227,19 @@ export function EstimateEditPage() {
     setWindowCountByBlindsId((wt) => ({ ...wt, [blindsId]: value }))
   }
 
+  const blindsAmountTotal = useMemo(() => {
+    const ids = Object.keys(blindsIncluded).filter((id) => blindsIncluded[id])
+    let amount = 0
+    for (const id of ids) {
+      const amtRaw = (lineAmountByBlindsId[id] ?? '').trim()
+      if (amtRaw) {
+        const a = Number.parseFloat(amtRaw.replace(',', '.'))
+        if (!Number.isNaN(a) && a > 0) amount += a
+      }
+    }
+    return amount
+  }, [blindsIncluded, lineAmountByBlindsId])
+
   const guestSelectOptions = useMemo(() => {
     const fromCtx = createContext?.guest_options ?? []
     const seen = new Set(fromCtx.map((g) => g.email.toLowerCase()))
@@ -688,6 +701,7 @@ export function EstimateEditPage() {
             <p className="mt-1 text-xs text-slate-500">
               Quantity required for each included type; amount is optional per line.
             </p>
+            <div className="mt-2 text-xs font-semibold text-rose-700">Total amount: ${blindsAmountTotal.toFixed(2)}</div>
             <div className="mt-2 grid max-h-56 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
               {(blindsTypes ?? []).map((b) => {
                 const checked = Boolean(blindsIncluded[b.id])
