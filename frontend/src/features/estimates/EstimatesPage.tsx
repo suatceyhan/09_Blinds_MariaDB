@@ -398,7 +398,7 @@ export function EstimatesPage() {
     setWindowCountByBlindsId((w) => ({ ...w, [blindsId]: value }))
   }
 
-  async function openCreate() {
+  function resetNewEstimateForm() {
     const p = defaultVisitScheduleParts()
     const w = joinScheduledWall(p.date, p.hour12, p.minute, p.ampm)
     setVisitWallDraft(w)
@@ -418,6 +418,10 @@ export function EstimatesPage() {
     setBlindsLineSelected({})
     setModalErr(null)
     setCreateContext(null)
+  }
+
+  async function openCreate() {
+    resetNewEstimateForm()
     setShowCreate(true)
     setCreateContextLoading(true)
     try {
@@ -520,12 +524,19 @@ export function EstimatesPage() {
             },
       )
       setShowCreate(false)
+      resetNewEstimateForm()
       await refresh()
     } catch (err) {
       setModalErr(err instanceof Error ? err.message : 'Create failed')
     } finally {
       setSaving(false)
     }
+  }
+
+  function closeNewEstimate() {
+    if (saving) return
+    setShowCreate(false)
+    resetNewEstimateForm()
   }
 
   async function confirmDelete() {
@@ -591,359 +602,6 @@ export function EstimatesPage() {
         onCancel={() => !restorePending && setRestoreTarget(null)}
       />
 
-      {showCreate ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="estimate-create-title"
-        >
-          <form
-            onSubmit={(e) => void onCreate(e)}
-            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-xl"
-          >
-            <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-2">
-              <h2 id="estimate-create-title" className="text-base font-semibold text-slate-900">
-                New estimate
-              </h2>
-              <button
-                type="button"
-                disabled={saving}
-                className="rounded px-2 py-0.5 text-lg leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                onClick={() => !saving && setShowCreate(false)}
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="mt-3 space-y-2.5">
-              <fieldset className="rounded-md border border-slate-100 bg-slate-50/60 p-2">
-                <legend className="px-1 text-[11px] font-semibold text-slate-600">Who is this estimate for?</legend>
-                <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-700">
-                  <label className="inline-flex cursor-pointer items-center gap-1.5">
-                    <input
-                      type="radio"
-                      name="est-entry"
-                      checked={entryMode === 'prospect'}
-                      onChange={() => setEntryMode('prospect')}
-                      className="h-3.5 w-3.5 border-slate-300 text-teal-600"
-                    />
-                    <span>New prospect (no customer record until an order is saved)</span>
-                  </label>
-                  <label className="inline-flex cursor-pointer items-center gap-1.5">
-                    <input
-                      type="radio"
-                      name="est-entry"
-                      checked={entryMode === 'customer'}
-                      onChange={() => setEntryMode('customer')}
-                      className="h-3.5 w-3.5 border-slate-300 text-teal-600"
-                    />
-                    <span>Existing customer</span>
-                  </label>
-                </div>
-              </fieldset>
-
-              <div className="grid gap-2 sm:grid-cols-2">
-                {entryMode === 'customer' ? (
-                  <label className="block text-xs font-medium text-slate-700 sm:col-span-2">
-                    Customer
-                    <select
-                      required
-                      className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                      value={customerId}
-                      onChange={(e) => setCustomerId(e.target.value)}
-                    >
-                      <option value="">Select…</option>
-                      {(customers ?? []).map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {customerLabel(c)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : (
-                  <>
-                    <label className="block text-xs font-medium text-slate-700">
-                      First / given name
-                      <input
-                        required
-                        className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                        value={prospectName}
-                        onChange={(e) => setProspectName(e.target.value)}
-                        placeholder="Required"
-                      />
-                    </label>
-                    <label className="block text-xs font-medium text-slate-700">
-                      Last name
-                      <input
-                        className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                        value={prospectSurname}
-                        onChange={(e) => setProspectSurname(e.target.value)}
-                      />
-                    </label>
-                    <label className="block text-xs font-medium text-slate-700">
-                      Phone
-                      <input
-                        className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                        value={prospectPhone}
-                        onChange={(e) => setProspectPhone(e.target.value)}
-                      />
-                    </label>
-                    <label className="block text-xs font-medium text-slate-700">
-                      Email
-                      <input
-                        type="email"
-                        className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                        value={prospectEmail}
-                        onChange={(e) => setProspectEmail(e.target.value)}
-                      />
-                    </label>
-                    <label className="block text-xs font-medium text-slate-700 sm:col-span-2">
-                      Address (optional — also used as visit location hint)
-                      <div className="mt-0.5">
-                        <AddressAutocompleteInput
-                          value={prospectAddress}
-                          onChange={setProspectAddress}
-                          hintId="estimate-new-prospect-address-hint"
-                          countryCode={me?.active_company_country_code ?? null}
-                          regionCode={me?.active_company_region_code ?? null}
-                        />
-                      </div>
-                      <span id="estimate-new-prospect-address-hint" className="mt-1 block text-[11px] text-slate-500">
-                        {ADDRESS_FORMAT_HINT}
-                      </span>
-                    </label>
-                    <label className="block text-xs font-medium text-slate-700 sm:col-span-2">
-                      Postal code (optional)
-                      <input
-                        className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                        value={prospectPostalCode}
-                        onChange={(e) => setProspectPostalCode(e.target.value)}
-                        onBlur={() => {
-                          if (!isCa) return
-                          if (prospectPostalCode.trim()) setProspectPostalCode(normalizeCaPostalCode(prospectPostalCode))
-                        }}
-                      />
-                      {prospectPostalErr ? (
-                        <span className="mt-1 block text-[11px] font-medium text-red-700">
-                          Enter a valid Canadian postal code (e.g. A1A 1A1) or leave empty.
-                        </span>
-                      ) : null}
-                    </label>
-                  </>
-                )}
-
-                <div className="block text-xs font-medium text-slate-700">
-                  <span className="block">Visit date</span>
-                  <div className="mt-0.5">
-                    <VisitStartQuarterPicker
-                      compact
-                      value={visitWallDraft}
-                      onChange={(v) => {
-                        setVisitWallDraft(v)
-                        setModalErr(null)
-                      }}
-                      disabled={saving}
-                    />
-                  </div>
-                </div>
-
-                <label className="block text-xs font-medium text-slate-600">
-                  <span>Time zone</span>
-                  <select
-                    required
-                    className="mt-0.5 w-full rounded-md border border-slate-100 bg-slate-50/90 px-2 py-1.5 text-sm text-slate-800 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                    value={visitTimeZone}
-                    onChange={(e) => setVisitTimeZone(e.target.value)}
-                  >
-                    {!VISIT_TIME_ZONES.includes(visitTimeZone) ? (
-                      <option value={visitTimeZone}>{visitTimeZone}</option>
-                    ) : null}
-                    {VISIT_TIME_ZONES.map((z) => (
-                      <option key={z} value={z}>
-                        {z}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              <div className="rounded-md border border-slate-100 bg-slate-50/80 px-2 py-2 text-xs text-slate-700">
-                <p className="font-semibold text-slate-800">Organizer & employees</p>
-                <div className="mt-1 max-h-28 space-y-1 overflow-y-auto rounded-md border border-slate-200 bg-white p-1.5">
-                  {createContextLoading || !createContext ? (
-                    <span className="text-[11px] text-slate-400">Loading…</span>
-                  ) : (
-                    <>
-                      <div className="flex items-start gap-2 rounded px-1 py-0.5 text-[11px]">
-                        <input
-                          type="checkbox"
-                          checked
-                          disabled
-                          className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-not-allowed rounded border-slate-300 text-teal-600 opacity-70"
-                          aria-label="Organizer (always included)"
-                        />
-                        <span className="min-w-0 leading-snug">
-                          <span className="font-medium text-slate-800">{createContext.organizer_name}</span>
-                          <span className="ml-1 align-middle rounded bg-teal-100 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-teal-900">
-                            Organizer
-                          </span>
-                          {createContext.organizer_email ? (
-                            <span className="block text-slate-500">{createContext.organizer_email}</span>
-                          ) : (
-                            <span className="block text-slate-400">No organizer email on file</span>
-                          )}
-                        </span>
-                      </div>
-                      {employeeGuestOptions.length === 0 ? (
-                        <span className="text-[11px] text-slate-400">No additional team contacts.</span>
-                      ) : (
-                        employeeGuestOptions.map((g) => {
-                          const checked = guestEmails.some((e) => e.toLowerCase() === g.email.toLowerCase())
-                          return (
-                            <label
-                              key={g.email.toLowerCase()}
-                              className="flex cursor-pointer items-start gap-2 rounded px-1 py-0.5 text-[11px] hover:bg-slate-50"
-                            >
-                              <input
-                                type="checkbox"
-                                className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-teal-600"
-                                checked={checked}
-                                disabled={createContextLoading || !createContext}
-                                onChange={() => {
-                                  setGuestEmails((prev) =>
-                                    checked
-                                      ? prev.filter((e) => e.toLowerCase() !== g.email.toLowerCase())
-                                      : [...prev, g.email.trim()],
-                                  )
-                                }}
-                              />
-                              <span className="min-w-0 leading-snug">
-                                <span className="font-medium text-slate-800">{g.label}</span>
-                                <span className="block text-slate-500">{g.email}</span>
-                              </span>
-                            </label>
-                          )
-                        })
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <fieldset className="rounded-md border border-slate-200 p-2">
-                <legend className="px-1 text-xs font-medium text-slate-800">Blinds types</legend>
-                <p className="mb-1 text-[10px] text-slate-500">
-                  Enter quantity for each type you include. Amount is optional per line.
-                </p>
-                <div className="mt-1 grid max-h-48 grid-cols-1 gap-1 overflow-y-auto sm:grid-cols-2">
-                  {(blindsTypes ?? []).map((b) => {
-                    const checked = Boolean(blindsLineSelected[b.id])
-                    return (
-                      <label
-                        key={b.id}
-                        className="grid grid-cols-[auto_minmax(0,1fr)_3rem_3.5rem] items-center gap-x-1.5 gap-y-0.5 rounded border border-transparent px-1.5 py-1 text-xs hover:bg-slate-50/80"
-                      >
-                        <input
-                          type="checkbox"
-                          className="h-3.5 w-3.5 shrink-0 self-center rounded border-slate-300 text-teal-600"
-                          checked={checked}
-                          onChange={(ev) => {
-                            const on = ev.target.checked
-                            setBlindsLineSelected((prev) => ({ ...prev, [b.id]: on }))
-                            if (!on) {
-                              setWindowCountByBlindsId((w) => ({ ...w, [b.id]: '' }))
-                              setLineAmountByBlindsId((w) => ({ ...w, [b.id]: '' }))
-                            }
-                          }}
-                          aria-label={`Include ${b.name}`}
-                        />
-                        <span className="min-w-0 truncate font-medium text-slate-800">{b.name}</span>
-                        <input
-                          type="number"
-                          min={1}
-                          placeholder="Qty"
-                          title="Windows"
-                          disabled={!checked}
-                          className="w-full min-w-0 rounded border border-slate-200 px-1 py-0.5 text-xs tabular-nums outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
-                          value={windowCountByBlindsId[b.id] ?? ''}
-                          onChange={(ev) => {
-                            const v = ev.target.value
-                            setWindowInputFor(b.id, v)
-                            const n = Number.parseInt(v.trim(), 10)
-                            if (!Number.isNaN(n) && n >= 1)
-                              setBlindsLineSelected((prev) => ({ ...prev, [b.id]: true }))
-                          }}
-                        />
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          placeholder="Amt"
-                          title="Line amount (optional)"
-                          disabled={!checked}
-                          className="w-full min-w-0 rounded border border-slate-200 px-1 py-0.5 text-xs tabular-nums outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
-                          value={lineAmountByBlindsId[b.id] ?? ''}
-                          onChange={(ev) =>
-                            setLineAmountByBlindsId((w) => ({ ...w, [b.id]: ev.target.value }))
-                          }
-                        />
-                      </label>
-                    )
-                  })}
-                </div>
-              </fieldset>
-
-              <label className="block text-xs font-medium text-slate-700">
-                Notes
-                <textarea
-                  rows={2}
-                  className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                  value={visitNotes}
-                  onChange={(e) => setVisitNotes(e.target.value)}
-                  placeholder="Optional — shown in calendar description"
-                />
-              </label>
-            </div>
-
-            {modalErr ? (
-              <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-800">
-                {modalErr}
-              </div>
-            ) : null}
-
-            {entryMode === 'customer' && customers?.length === 0 ? (
-              <p className="mt-2 text-[11px] text-amber-700">Add a customer under Customers, or use New prospect above.</p>
-            ) : null}
-            {blindsTypes?.length === 0 ? (
-              <p className="mt-2 text-[11px] text-amber-700">Add blinds types under Lookups.</p>
-            ) : null}
-
-            <div className="mt-3 flex justify-end gap-2 border-t border-slate-100 pt-2">
-              <button
-                type="button"
-                onClick={() => !saving && setShowCreate(false)}
-                className="rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={
-                  saving ||
-                  blindsTypes?.length === 0 ||
-                  (entryMode === 'customer' && (!customerId || customers?.length === 0)) ||
-                  (entryMode === 'prospect' && !prospectName.trim())
-                }
-                className="rounded-md bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
-              >
-                {saving ? 'Saving…' : 'Create'}
-              </button>
-            </div>
-          </form>
-        </div>
-      ) : null}
-
       <div className="flex flex-wrap items-start gap-4">
         <div className="flex min-w-0 flex-1 items-start gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
@@ -956,19 +614,351 @@ export function EstimatesPage() {
             </p>
           </div>
         </div>
-        {canEdit ? (
-          <button
-            type="button"
-            onClick={() => void openCreate()}
-            className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700"
-          >
-            New estimate
-          </button>
+        {canEdit && !showCreate ? (
+          <div className="ml-auto flex shrink-0 items-center sm:pt-1">
+            <button
+              type="button"
+              onClick={() => void openCreate()}
+              className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700"
+            >
+              New estimate
+            </button>
+          </div>
         ) : null}
       </div>
 
       {loadErr ? (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{loadErr}</div>
+      ) : null}
+
+      {canEdit && showCreate ? (
+        <form
+          onSubmit={(e) => void onCreate(e)}
+          className="max-h-[min(80vh,52rem)] overflow-y-auto rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm"
+        >
+          <h2 className="text-sm font-medium text-slate-800">New estimate</h2>
+          <div className="mt-3 space-y-2.5">
+            <fieldset className="rounded-md border border-slate-100 bg-slate-50/60 p-2">
+              <legend className="px-1 text-[11px] font-semibold text-slate-600">Who is this estimate for?</legend>
+              <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-700">
+                <label className="inline-flex cursor-pointer items-center gap-1.5">
+                  <input
+                    type="radio"
+                    name="est-entry"
+                    checked={entryMode === 'prospect'}
+                    onChange={() => setEntryMode('prospect')}
+                    className="h-3.5 w-3.5 border-slate-300 text-teal-600"
+                  />
+                  <span>New prospect (no customer record until an order is saved)</span>
+                </label>
+                <label className="inline-flex cursor-pointer items-center gap-1.5">
+                  <input
+                    type="radio"
+                    name="est-entry"
+                    checked={entryMode === 'customer'}
+                    onChange={() => setEntryMode('customer')}
+                    className="h-3.5 w-3.5 border-slate-300 text-teal-600"
+                  />
+                  <span>Existing customer</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              {entryMode === 'customer' ? (
+                <label className="block text-xs font-medium text-slate-700 sm:col-span-2">
+                  Customer
+                  <select
+                    required
+                    className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                    value={customerId}
+                    onChange={(e) => setCustomerId(e.target.value)}
+                  >
+                    <option value="">Select…</option>
+                    {(customers ?? []).map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {customerLabel(c)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <>
+                  <label className="block text-xs font-medium text-slate-700">
+                    First / given name
+                    <input
+                      required
+                      className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                      value={prospectName}
+                      onChange={(e) => setProspectName(e.target.value)}
+                      placeholder="Required"
+                    />
+                  </label>
+                  <label className="block text-xs font-medium text-slate-700">
+                    Last name
+                    <input
+                      className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                      value={prospectSurname}
+                      onChange={(e) => setProspectSurname(e.target.value)}
+                    />
+                  </label>
+                  <label className="block text-xs font-medium text-slate-700">
+                    Phone
+                    <input
+                      className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                      value={prospectPhone}
+                      onChange={(e) => setProspectPhone(e.target.value)}
+                    />
+                  </label>
+                  <label className="block text-xs font-medium text-slate-700">
+                    Email
+                    <input
+                      type="email"
+                      className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                      value={prospectEmail}
+                      onChange={(e) => setProspectEmail(e.target.value)}
+                    />
+                  </label>
+                  <label className="block text-xs font-medium text-slate-700 sm:col-span-2">
+                    Address (optional — also used as visit location hint)
+                    <div className="mt-0.5">
+                      <AddressAutocompleteInput
+                        value={prospectAddress}
+                        onChange={setProspectAddress}
+                        hintId="estimate-new-prospect-address-hint"
+                        countryCode={me?.active_company_country_code ?? null}
+                        regionCode={me?.active_company_region_code ?? null}
+                      />
+                    </div>
+                    <span id="estimate-new-prospect-address-hint" className="mt-1 block text-[11px] text-slate-500">
+                      {ADDRESS_FORMAT_HINT}
+                    </span>
+                  </label>
+                  <label className="block text-xs font-medium text-slate-700 sm:col-span-2">
+                    Postal code (optional)
+                    <input
+                      className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                      value={prospectPostalCode}
+                      onChange={(e) => setProspectPostalCode(e.target.value)}
+                      onBlur={() => {
+                        if (!isCa) return
+                        if (prospectPostalCode.trim()) setProspectPostalCode(normalizeCaPostalCode(prospectPostalCode))
+                      }}
+                    />
+                    {prospectPostalErr ? (
+                      <span className="mt-1 block text-[11px] font-medium text-red-700">
+                        Enter a valid Canadian postal code (e.g. A1A 1A1) or leave empty.
+                      </span>
+                    ) : null}
+                  </label>
+                </>
+              )}
+
+              <div className="block text-xs font-medium text-slate-700">
+                <span className="block">Visit date</span>
+                <div className="mt-0.5">
+                  <VisitStartQuarterPicker
+                    compact
+                    value={visitWallDraft}
+                    onChange={(v) => {
+                      setVisitWallDraft(v)
+                      setModalErr(null)
+                    }}
+                    disabled={saving}
+                  />
+                </div>
+              </div>
+
+              <label className="block text-xs font-medium text-slate-600">
+                <span>Time zone</span>
+                <select
+                  required
+                  className="mt-0.5 w-full rounded-md border border-slate-100 bg-slate-50/90 px-2 py-1.5 text-sm text-slate-800 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                  value={visitTimeZone}
+                  onChange={(e) => setVisitTimeZone(e.target.value)}
+                >
+                  {!VISIT_TIME_ZONES.includes(visitTimeZone) ? (
+                    <option value={visitTimeZone}>{visitTimeZone}</option>
+                  ) : null}
+                  {VISIT_TIME_ZONES.map((z) => (
+                    <option key={z} value={z}>
+                      {z}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="rounded-md border border-slate-100 bg-slate-50/80 px-2 py-2 text-xs text-slate-700">
+              <p className="font-semibold text-slate-800">Organizer & employees</p>
+              <div className="mt-1 max-h-28 space-y-1 overflow-y-auto rounded-md border border-slate-200 bg-white p-1.5">
+                {createContextLoading || !createContext ? (
+                  <span className="text-[11px] text-slate-400">Loading…</span>
+                ) : (
+                  <>
+                    <div className="flex items-start gap-2 rounded px-1 py-0.5 text-[11px]">
+                      <input
+                        type="checkbox"
+                        checked
+                        disabled
+                        className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-not-allowed rounded border-slate-300 text-teal-600 opacity-70"
+                        aria-label="Organizer (always included)"
+                      />
+                      <span className="min-w-0 leading-snug">
+                        <span className="font-medium text-slate-800">{createContext.organizer_name}</span>
+                        <span className="ml-1 align-middle rounded bg-teal-100 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-teal-900">
+                          Organizer
+                        </span>
+                        {createContext.organizer_email ? (
+                          <span className="block text-slate-500">{createContext.organizer_email}</span>
+                        ) : (
+                          <span className="block text-slate-400">No organizer email on file</span>
+                        )}
+                      </span>
+                    </div>
+                    {employeeGuestOptions.length === 0 ? (
+                      <span className="text-[11px] text-slate-400">No additional team contacts.</span>
+                    ) : (
+                      employeeGuestOptions.map((g) => {
+                        const checked = guestEmails.some((e) => e.toLowerCase() === g.email.toLowerCase())
+                        return (
+                          <label
+                            key={g.email.toLowerCase()}
+                            className="flex cursor-pointer items-start gap-2 rounded px-1 py-0.5 text-[11px] hover:bg-slate-50"
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-teal-600"
+                              checked={checked}
+                              disabled={createContextLoading || !createContext}
+                              onChange={() => {
+                                setGuestEmails((prev) =>
+                                  checked
+                                    ? prev.filter((e) => e.toLowerCase() !== g.email.toLowerCase())
+                                    : [...prev, g.email.trim()],
+                                )
+                              }}
+                            />
+                            <span className="min-w-0 leading-snug">
+                              <span className="font-medium text-slate-800">{g.label}</span>
+                              <span className="block text-slate-500">{g.email}</span>
+                            </span>
+                          </label>
+                        )
+                      })
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            <fieldset className="rounded-md border border-slate-200 p-2">
+              <legend className="px-1 text-xs font-medium text-slate-800">Blinds types</legend>
+              <p className="mb-1 text-[10px] text-slate-500">
+                Enter quantity for each type you include. Amount is optional per line.
+              </p>
+              <div className="mt-1 grid max-h-48 grid-cols-1 gap-1 overflow-y-auto sm:grid-cols-2">
+                {(blindsTypes ?? []).map((b) => {
+                  const checked = Boolean(blindsLineSelected[b.id])
+                  return (
+                    <label
+                      key={b.id}
+                      className="grid grid-cols-[auto_minmax(0,1fr)_3rem_3.5rem] items-center gap-x-1.5 gap-y-0.5 rounded border border-transparent px-1.5 py-1 text-xs hover:bg-slate-50/80"
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 shrink-0 self-center rounded border-slate-300 text-teal-600"
+                        checked={checked}
+                        onChange={(ev) => {
+                          const on = ev.target.checked
+                          setBlindsLineSelected((prev) => ({ ...prev, [b.id]: on }))
+                          if (!on) {
+                            setWindowCountByBlindsId((w) => ({ ...w, [b.id]: '' }))
+                            setLineAmountByBlindsId((w) => ({ ...w, [b.id]: '' }))
+                          }
+                        }}
+                        aria-label={`Include ${b.name}`}
+                      />
+                      <span className="min-w-0 truncate font-medium text-slate-800">{b.name}</span>
+                      <input
+                        type="number"
+                        min={1}
+                        placeholder="Qty"
+                        title="Windows"
+                        disabled={!checked}
+                        className="w-full min-w-0 rounded border border-slate-200 px-1 py-0.5 text-xs tabular-nums outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
+                        value={windowCountByBlindsId[b.id] ?? ''}
+                        onChange={(ev) => {
+                          const v = ev.target.value
+                          setWindowInputFor(b.id, v)
+                          const n = Number.parseInt(v.trim(), 10)
+                          if (!Number.isNaN(n) && n >= 1)
+                            setBlindsLineSelected((prev) => ({ ...prev, [b.id]: true }))
+                        }}
+                      />
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="Amt"
+                        title="Line amount (optional)"
+                        disabled={!checked}
+                        className="w-full min-w-0 rounded border border-slate-200 px-1 py-0.5 text-xs tabular-nums outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
+                        value={lineAmountByBlindsId[b.id] ?? ''}
+                        onChange={(ev) => setLineAmountByBlindsId((w) => ({ ...w, [b.id]: ev.target.value }))}
+                      />
+                    </label>
+                  )
+                })}
+              </div>
+            </fieldset>
+
+            <label className="block text-xs font-medium text-slate-700">
+              Notes
+              <textarea
+                rows={2}
+                className="mt-0.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                value={visitNotes}
+                onChange={(e) => setVisitNotes(e.target.value)}
+                placeholder="Optional — shown in calendar description"
+              />
+            </label>
+          </div>
+
+          {modalErr ? (
+            <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-800">
+              {modalErr}
+            </div>
+          ) : null}
+
+          {entryMode === 'customer' && customers?.length === 0 ? (
+            <p className="mt-2 text-[11px] text-amber-700">Add a customer under Customers, or use New prospect above.</p>
+          ) : null}
+          {blindsTypes?.length === 0 ? (
+            <p className="mt-2 text-[11px] text-amber-700">Add blinds types under Lookups.</p>
+          ) : null}
+
+          <div className="mt-3 flex justify-end gap-2 border-t border-slate-100 pt-2">
+            <button
+              type="button"
+              onClick={closeNewEstimate}
+              className="rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={
+                saving ||
+                blindsTypes?.length === 0 ||
+                (entryMode === 'customer' && (!customerId || customers?.length === 0)) ||
+                (entryMode === 'prospect' && !prospectName.trim())
+              }
+              className="rounded-md bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Create'}
+            </button>
+          </div>
+        </form>
       ) : null}
 
       <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm">
