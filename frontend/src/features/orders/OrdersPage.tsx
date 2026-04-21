@@ -2323,20 +2323,10 @@ export function OrdersPage() {
             <thead className="border-b border-slate-100 bg-slate-50/80 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Customer</th>
-                <th className="whitespace-nowrap px-2 py-3 sm:px-4">Status</th>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Agreement date</th>
-                <th
-                  className="whitespace-nowrap px-2 py-3 sm:px-4"
-                  title="Calendar days from agreement date through today"
-                >
-                  Day Past
-                </th>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Installation date</th>
-                <th className="whitespace-nowrap px-2 py-3 sm:px-4" title="Order subtotal plus tax">
-                  Total
-                </th>
-                <th className="whitespace-nowrap px-2 py-3 sm:px-4" title="Down payment plus recorded payments">
-                  Paid
+                <th className="whitespace-nowrap px-2 py-3 sm:px-4" title="Total (incl. tax) + Paid">
+                  Total / Paid
                 </th>
                 <th className="whitespace-nowrap px-2 py-3 sm:px-4">Balance</th>
                 <th className="min-w-[13rem] whitespace-nowrap px-2 py-3 text-right sm:px-4">Actions</th>
@@ -2345,13 +2335,13 @@ export function OrdersPage() {
             <tbody className="divide-y divide-slate-100 text-slate-800">
               {loading || rows === null ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
                     Loading…
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
                     No orders yet. Use New order or Make order from an estimate.
                   </td>
                 </tr>
@@ -2371,32 +2361,41 @@ export function OrdersPage() {
                     }
                   >
                     <td className="px-2 py-3 sm:px-4">
-                      <Link
-                        to={`/customers/${r.customer_id}`}
-                        className="font-medium text-teal-700 hover:underline"
-                      >
-                        {r.customer_display || r.customer_id}
-                      </Link>
-                    </td>
-                    <td className="px-2 py-3 text-slate-800 sm:px-4">
-                      <div className="flex flex-col items-start gap-1">
-                        <OrderStatusBadge label={r.status_order_label} />
-                        {r.active === false ? (
-                          <span className="block text-[11px] font-medium text-slate-500">Deleted</span>
-                        ) : null}
+                      <div className="flex flex-col gap-1">
+                        <Link
+                          to={`/customers/${r.customer_id}`}
+                          className="font-medium text-teal-700 hover:underline"
+                        >
+                          {r.customer_display || r.customer_id}
+                        </Link>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <OrderStatusBadge label={r.status_order_label} />
+                          {r.active === false ? (
+                            <span className="text-[11px] font-medium text-slate-500">Deleted</span>
+                          ) : null}
+                        </div>
                       </div>
                     </td>
-                    <td className="px-2 py-3 text-slate-600 sm:px-4">{fmtDisplayDate(r.agreement_date)}</td>
-                    <td className="px-2 py-3 text-right tabular-nums text-slate-600 sm:px-4">
-                      {fmtWholeCalendarDaysElapsedSince(r.agreement_date)}
+                    <td className="px-2 py-3 text-slate-600 sm:px-4">
+                      <div className="flex flex-col gap-0.5">
+                        <span>{fmtDisplayDate(r.agreement_date)}</span>
+                        <span className="text-[11px] text-slate-500">
+                          {(() => {
+                            const d = fmtWholeCalendarDaysElapsedSince(r.agreement_date)
+                            return d === '—' ? '—' : `${d} days past`
+                          })()}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-2 py-3 text-slate-600 sm:px-4">
                       {fmtDisplayDateTime(r.installation_scheduled_start_at)}
                     </td>
-                    <td className="px-2 py-3 font-medium sm:px-4">
-                      {fmtTotalIncludingTax(r.total_amount, r.tax_amount)}
+                    <td className="px-2 py-3 sm:px-4">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium">{fmtTotalIncludingTax(r.total_amount, r.tax_amount)}</span>
+                        <span className="text-[11px] text-slate-600">Paid: {orderListPaidDisplay(r)}</span>
+                      </div>
                     </td>
-                    <td className="px-2 py-3 sm:px-4">{orderListPaidDisplay(r)}</td>
                     <td className="px-2 py-3 sm:px-4">{fmtMoney(r.balance)}</td>
                     <td className="align-top px-2 py-3 text-right sm:px-4">
                       <div className="flex flex-col items-end gap-1 sm:flex-row sm:flex-wrap sm:justify-end sm:gap-x-2">
