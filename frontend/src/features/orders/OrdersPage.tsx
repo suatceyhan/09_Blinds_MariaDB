@@ -2488,7 +2488,7 @@ export function OrdersPage() {
                   {canEdit && viewOrder?.active !== false ? (
                     <button
                       type="button"
-                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+                      className="inline-flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50"
                       onClick={() => setEditOrderId(viewOrderId)}
                       title="Edit order"
                     >
@@ -2498,7 +2498,7 @@ export function OrdersPage() {
                   ) : null}
                   <button
                     type="button"
-                    className="rounded-xl border border-slate-200/80 bg-white p-2 text-slate-600 shadow-sm hover:bg-slate-50"
+                    className="rounded-xl border border-red-200 bg-red-50/70 p-2 text-red-700 shadow-sm hover:bg-red-100"
                     title="Close"
                     onClick={closeOrderView}
                   >
@@ -2547,7 +2547,7 @@ export function OrdersPage() {
                           <button
                             type="button"
                             onClick={() => setViewInstallEditOpen((v) => !v)}
-                            className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50"
+                            className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-teal-200 bg-teal-50/70 text-teal-900 shadow-sm hover:bg-teal-50"
                             title="Edit installation date & time"
                             aria-label="Edit installation date and time"
                           >
@@ -2577,7 +2577,7 @@ export function OrdersPage() {
                             type="button"
                             disabled={viewInstallationSaving}
                             onClick={() => void saveViewInstallation()}
-                            className="ml-auto rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+                            className="ml-auto rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
                             title="Save installation date and time"
                           >
                             {viewInstallationSaving ? 'Saving…' : 'Save'}
@@ -2610,7 +2610,7 @@ export function OrdersPage() {
                           type="button"
                           disabled={!canEdit || viewOrder.active === false}
                           onClick={() => openLineItemAddition()}
-                          className="rounded-lg border border-teal-200 bg-white px-3 py-1.5 text-sm font-medium text-teal-800 shadow-sm hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="rounded-lg border border-teal-200 bg-teal-50/70 px-3 py-1.5 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
                           title="Add another blinds package to this job (same tax rate)"
                         >
                           Add line-item addition
@@ -2619,7 +2619,7 @@ export function OrdersPage() {
                           type="button"
                           disabled={!viewOrder.has_line_item_additions}
                           onClick={() => setLineItemDetailsOpen(true)}
-                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-1.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
                           title={
                             viewOrder.has_line_item_additions
                               ? 'View each addition'
@@ -2663,7 +2663,7 @@ export function OrdersPage() {
                         canEdit && viewOrder.active !== false ? (
                           <button
                             type="button"
-                            className="w-full rounded-lg border border-teal-300 bg-white px-3 py-2 text-sm font-medium text-teal-800 shadow-sm hover:bg-teal-50 disabled:opacity-50"
+                            className="w-full rounded-lg border border-teal-200 bg-teal-50/60 px-3 py-2 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50 disabled:opacity-50"
                             onClick={() => {
                               setPaymentAmountInput('')
                               setPaymentModalOpen(true)
