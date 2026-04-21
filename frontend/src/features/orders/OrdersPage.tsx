@@ -2398,7 +2398,7 @@ export function OrdersPage() {
               />
             </div>
           </div>
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3">
             <button
               type="button"
               disabled={saving}

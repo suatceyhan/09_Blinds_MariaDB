@@ -634,7 +634,7 @@ export function EstimatesPage() {
       {canEdit && showCreate ? (
         <form
           onSubmit={(e) => void onCreate(e)}
-          className="max-h-[min(80vh,52rem)] overflow-y-auto rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm"
+          className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm"
         >
           <h2 className="text-sm font-medium text-slate-800">New estimate</h2>
           <div className="mt-3 space-y-2.5">
