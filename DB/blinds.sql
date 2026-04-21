@@ -439,6 +439,7 @@ CREATE TABLE IF NOT EXISTS orders (
   blinds_lines            JSONB       NOT NULL DEFAULT '[]'::jsonb,
   order_note              TEXT,
   blinds_type_add_id      VARCHAR(16),
+  parent_order_id         VARCHAR(16),
   status_orde_id          VARCHAR(16),
   active                  BOOLEAN     NOT NULL DEFAULT TRUE,
   created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -453,8 +454,15 @@ CREATE TABLE IF NOT EXISTS orders (
     FOREIGN KEY (company_id, status_orde_id)
     REFERENCES status_order (company_id, id)
     ON UPDATE CASCADE
-    ON DELETE SET NULL
+    ON DELETE SET NULL,
+  CONSTRAINT fk_orders_parent_order
+    FOREIGN KEY (company_id, parent_order_id)
+    REFERENCES orders (company_id, id)
+    ON UPDATE CASCADE ON DELETE RESTRICT
 );
+
+CREATE INDEX IF NOT EXISTS idx_orders_company_parent ON orders (company_id, parent_order_id)
+  WHERE parent_order_id IS NOT NULL AND active IS TRUE;
 
 CREATE INDEX IF NOT EXISTS idx_orders_company_active ON orders (company_id) WHERE active = TRUE;
 CREATE INDEX IF NOT EXISTS idx_orders_company_customer ON orders (company_id, customer_id);

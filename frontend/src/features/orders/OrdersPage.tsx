@@ -64,6 +64,28 @@ type OrderAttachmentRow = {
 
 type PendingOrderAttachment = { key: string; file: File; kind: 'photo' | 'excel' }
 
+/** Roll-up totals for anchor order + line-item additions (detail summary card). */
+type OrderFinancialTotals = {
+  subtotal_ex_tax?: string | number | null
+  tax_amount?: string | number | null
+  taxable_base?: string | number | null
+  downpayment?: string | number | null
+  paid_total?: string | number | null
+  balance?: string | number | null
+}
+
+type OrderLineItemAdditionRow = {
+  order_id: string
+  created_at?: string | null
+  subtotal_ex_tax?: string | number | null
+  tax_amount?: string | number | null
+  taxable_base?: string | number | null
+  downpayment?: string | number | null
+  paid_total?: string | number | null
+  balance?: string | number | null
+  status_order_label?: string | null
+}
+
 type OrderDetail = {
   id: string
   customer_id: string
@@ -77,6 +99,11 @@ type OrderDetail = {
   balance: string | number | null
   tax_uygulanacak_miktar?: string | number | null
   tax_amount?: string | number | null
+  /** When set, this row is a child order; open the anchor job for additions. */
+  parent_order_id?: string | null
+  financial_totals?: OrderFinancialTotals | null
+  has_line_item_additions?: boolean
+  line_item_additions?: OrderLineItemAdditionRow[]
   blinds_lines?: Array<{ id: string; name: string; window_count?: number | null; category?: string | null }>
   agree_data: string | null
   agreement_date?: string | null
@@ -702,17 +729,13 @@ function BlindsTypesGrid(props: {
 
   return (
     <div className="mt-2 min-w-0 space-y-1">
-      <p className="text-[11px] leading-snug text-slate-500">
-        If the table is wider than the form, scroll horizontally inside this shaded area — line notes and long
-        labels stay reachable.
-      </p>
-      <div className="min-w-0 overflow-x-auto rounded-md border border-slate-200/80 bg-white/80">
-        <table className="w-full min-w-[26rem] border-collapse text-xs">
+      <div className="min-w-0 overflow-x-hidden rounded-md border border-slate-200/80 bg-white/80">
+        <table className="w-full border-collapse text-xs">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50">
               <th
                 scope="col"
-                className="sticky left-0 z-20 min-w-[6rem] max-w-[8.5rem] bg-slate-50 px-1.5 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-600"
+                className="min-w-[6rem] max-w-[10rem] bg-slate-50 px-1.5 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-600"
               >
                 Blinds type
               </th>
@@ -762,7 +785,7 @@ function BlindsTypesGrid(props: {
               const cur = lines.find((x) => x.id === b.id)
               return (
                 <tr key={`${keyPrefix}-row-${b.id}`} className="group hover:bg-slate-50/80">
-                  <td className="sticky left-0 z-10 min-w-[6rem] max-w-[8.5rem] bg-white px-1.5 py-1.5 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)] group-hover:bg-slate-50/80">
+                  <td className="min-w-[6rem] max-w-[10rem] bg-white px-1.5 py-1.5 group-hover:bg-slate-50/80">
                     <label className="flex cursor-pointer items-center gap-1.5">
                       <input
                         type="checkbox"
@@ -770,7 +793,7 @@ function BlindsTypesGrid(props: {
                         checked={checked}
                         onChange={() => toggleType(b.id)}
                       />
-                      <span className="min-w-0 truncate font-semibold text-slate-800" title={b.name}>
+                      <span className="min-w-0 break-words font-semibold text-slate-800" title={b.name}>
                         {b.name}
                       </span>
                     </label>
@@ -1124,6 +1147,15 @@ export function OrdersPage() {
   } | null>(null)
   const [deleteAttachmentPending, setDeleteAttachmentPending] = useState(false)
 
+  const [lineItemAdditionOpen, setLineItemAdditionOpen] = useState(false)
+  const [lineItemAdditionSaving, setLineItemAdditionSaving] = useState(false)
+  const [lineItemDetailsOpen, setLineItemDetailsOpen] = useState(false)
+  const [additionBlindsLines, setAdditionBlindsLines] = useState<BlindsLineState[]>([])
+  const [additionTaxBaseAmount, setAdditionTaxBaseAmount] = useState('')
+  const [additionDownpayment, setAdditionDownpayment] = useState('')
+  const [additionAgreementDate, setAdditionAgreementDate] = useState(() => todayDateInput())
+  const [additionOrderNote, setAdditionOrderNote] = useState('')
+
   const [createPendingAttachments, setCreatePendingAttachments] = useState<PendingOrderAttachment[]>([])
   const [editAttachments, setEditAttachments] = useState<OrderAttachmentRow[]>([])
   const [attachmentUploadBusy, setAttachmentUploadBusy] = useState(false)
@@ -1207,10 +1239,35 @@ export function OrdersPage() {
 
   const viewPaidFormatted = useMemo(() => {
     if (!viewOrder) return '—'
+    const ft = viewOrder.financial_totals
+    if (ft?.paid_total != null && ft.paid_total !== '') {
+      return fmtMoney(ft.paid_total)
+    }
     const down = parseMoneyAmount(viewOrder.downpayment) ?? 0
     const extra = parseMoneyAmount(viewOrder.final_payment) ?? 0
     return fmtMoney(safeRound2(down + extra))
   }, [viewOrder])
+
+  const additionLineSubtotalParsed = useMemo(() => sumBlindsLineAmounts(additionBlindsLines), [additionBlindsLines])
+  const additionTaxBaseParsed = useMemo(
+    () => parseOptionalDecimal(additionTaxBaseAmount),
+    [additionTaxBaseAmount],
+  )
+  const additionDpParsed = useMemo(() => parseOptionalDecimal(additionDownpayment), [additionDownpayment])
+  const additionComputedTaxAmount = useMemo(() => {
+    if (companyTaxRatePercent == null || additionTaxBaseParsed == null) return null
+    if (companyTaxRatePercent <= 0 || additionTaxBaseParsed <= 0) return safeRound2(0)
+    return safeRound2((additionTaxBaseParsed * companyTaxRatePercent) / 100)
+  }, [companyTaxRatePercent, additionTaxBaseParsed])
+  const additionComputedTotalInclTax = useMemo(
+    () => safeRound2(additionLineSubtotalParsed + (additionComputedTaxAmount ?? 0)),
+    [additionLineSubtotalParsed, additionComputedTaxAmount],
+  )
+  const additionComputedPaid = useMemo(() => safeRound2(additionDpParsed ?? 0), [additionDpParsed])
+  const additionComputedBalance = useMemo(
+    () => safeRound2(additionComputedTotalInclTax - additionComputedPaid),
+    [additionComputedTotalInclTax, additionComputedPaid],
+  )
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300)
@@ -1334,6 +1391,41 @@ export function OrdersPage() {
       setErr(e instanceof Error ? e.message : 'Could not restore order')
     } finally {
       setRestorePending(false)
+    }
+  }
+
+  async function submitLineItemAddition(e: React.FormEvent) {
+    e.preventDefault()
+    if (!viewOrderId || !canEdit) return
+    if (additionBlindsLines.length === 0) {
+      setErr('Choose at least one blinds type for the addition.')
+      return
+    }
+    const oid = viewOrderId
+    setLineItemAdditionSaving(true)
+    setErr(null)
+    try {
+      const body: Record<string, unknown> = {
+        blinds_lines: additionBlindsLines.map((b) => blindsLineToPayload(b, blindsOrderOptions)),
+      }
+      const tb = additionTaxBaseParsed
+      const dp = additionDpParsed
+      if (tb !== null) body.tax_uygulanacak_miktar = tb
+      if (dp !== null) body.downpayment = dp
+      const ad = additionAgreementDate.trim()
+      if (ad) body.agreement_date = ad
+      const note = additionOrderNote.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
+      if (note) body.order_note = note.slice(0, 4000)
+      await postJson(`/orders/${oid}/line-item-additions`, body)
+      const d = await getJson<OrderDetail>(`/orders/${oid}`)
+      setViewOrder(d)
+      setLineItemAdditionOpen(false)
+      resetLineItemAdditionForm()
+      await reloadList()
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : 'Could not add line items')
+    } finally {
+      setLineItemAdditionSaving(false)
     }
   }
 
@@ -1777,6 +1869,11 @@ export function OrdersPage() {
     setBlindsLines((prev) => hydrateBlindsLinesDefaults(prev, blindsOrderOptions))
   }, [linkedEstimateId, blindsOrderOptions])
 
+  useEffect(() => {
+    if (!lineItemAdditionOpen || !blindsOrderOptions) return
+    setAdditionBlindsLines((prev) => hydrateBlindsLinesDefaults(prev, blindsOrderOptions))
+  }, [lineItemAdditionOpen, blindsOrderOptions])
+
   function resetCreateForm() {
     setCustomerId('')
     setLinkedEstimateId(null)
@@ -1786,6 +1883,60 @@ export function OrdersPage() {
     setAgreementDate(todayDateInput())
     setOrderNote('')
     setCreatePendingAttachments([])
+  }
+
+  function resetLineItemAdditionForm() {
+    setAdditionTaxBaseAmount('')
+    setAdditionDownpayment('')
+    setAdditionAgreementDate(todayDateInput())
+    setAdditionOrderNote('')
+    const first = (blindsTypes ?? [])[0]
+    setAdditionBlindsLines(
+      first && blindsOrderOptions
+        ? [newBlindsLineForType(first.id, first.name, blindsOrderOptions)]
+        : [],
+    )
+  }
+
+  function openLineItemAddition() {
+    resetLineItemAdditionForm()
+    setLineItemAdditionOpen(true)
+  }
+
+  function additionToggleBlinds(id: string) {
+    setAdditionBlindsLines((prev) => {
+      const exists = prev.some((x) => x.id === id)
+      if (exists) return prev.filter((x) => x.id !== id)
+      const bt = (blindsTypes ?? []).find((x) => x.id === id)
+      const name = bt?.name ?? id
+      return [...prev, newBlindsLineForType(id, name, blindsOrderOptions)]
+    })
+  }
+
+  function additionSetBlindsCount(id: string, v: string) {
+    const t = v.trim()
+    if (t === '') {
+      setAdditionBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, window_count: null } : x)))
+      return
+    }
+    const n = Number.parseInt(t, 10)
+    if (Number.isNaN(n)) return
+    const clamped = Math.min(99, Math.max(1, n))
+    setAdditionBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, window_count: clamped } : x)))
+  }
+
+  function additionSetBlindsLineField(id: string, jsonKey: string, value: string) {
+    const v = value.trim() ? value.trim().toLowerCase() : null
+    setAdditionBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, [jsonKey]: v } : x)))
+  }
+
+  function additionSetBlindsLineNote(id: string, value: string) {
+    setAdditionBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, line_note: value } : x)))
+  }
+
+  function additionSetBlindsLineAmount(id: string, value: string) {
+    const next = sanitizeLineAmountInput(value)
+    setAdditionBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, line_amount: next } : x)))
   }
 
   function toggleBlinds(id: string) {
@@ -2436,30 +2587,61 @@ export function OrdersPage() {
                   </section>
 
                   <div className="space-y-3">
+                    {!viewOrder.parent_order_id?.trim() ? (
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={!canEdit || viewOrder.active === false}
+                          onClick={() => openLineItemAddition()}
+                          className="rounded-lg border border-teal-200 bg-white px-3 py-1.5 text-sm font-medium text-teal-800 shadow-sm hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Add another blinds package to this job (same tax rate)"
+                        >
+                          Add line-item addition
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!viewOrder.has_line_item_additions}
+                          onClick={() => setLineItemDetailsOpen(true)}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          title={
+                            viewOrder.has_line_item_additions
+                              ? 'View each addition'
+                              : 'No additions yet'
+                          }
+                        >
+                          Details
+                        </button>
+                      </div>
+                    ) : null}
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <div className="block min-w-0 text-sm text-slate-700">
                         <span className="mb-1 block font-medium">Total (incl. tax)</span>
                         <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
-                          {fmtTotalIncludingTax(viewOrder.total_amount, viewOrder.tax_amount)}
+                          {fmtTotalIncludingTax(
+                            viewOrder.financial_totals?.subtotal_ex_tax ?? viewOrder.total_amount,
+                            viewOrder.financial_totals?.tax_amount ?? viewOrder.tax_amount,
+                          )}
                         </p>
                       </div>
                       <div className="block min-w-0 text-sm text-slate-700">
                         <span className="mb-1 block font-medium">Down payment</span>
                         <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
-                          {fmtMoney(viewOrder.downpayment)}
+                          {fmtMoney(viewOrder.financial_totals?.downpayment ?? viewOrder.downpayment)}
                         </p>
                       </div>
                       <div className="block min-w-0 text-sm text-slate-700">
                         <span className="mb-1 block font-medium">Taxable base</span>
                         <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
-                          {fmtMoney(viewOrder.tax_uygulanacak_miktar)}
+                          {fmtMoney(
+                            viewOrder.financial_totals?.taxable_base ?? viewOrder.tax_uygulanacak_miktar,
+                          )}
                         </p>
                       </div>
                     </div>
                     <OrderFinancialSecondRow
                       paidDisplay={viewPaidFormatted}
-                      balance={viewOrder.balance}
-                      tax={viewOrder.tax_amount}
+                      balance={viewOrder.financial_totals?.balance ?? viewOrder.balance}
+                      tax={viewOrder.financial_totals?.tax_amount ?? viewOrder.tax_amount}
                       belowBalance={
                         canEdit && viewOrder.active !== false ? (
                           <button
@@ -2977,6 +3159,275 @@ export function OrdersPage() {
               >
                 {paymentPending ? 'Saving…' : 'Pay'}
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {lineItemAdditionOpen && viewOrderId ? (
+        <div
+          className="fixed inset-0 z-[101] flex items-end justify-center overflow-y-auto bg-slate-900/50 p-4 sm:items-center"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (!lineItemAdditionSaving && e.target === e.currentTarget) {
+              setLineItemAdditionOpen(false)
+            }
+          }}
+        >
+          <form
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="line-item-addition-title"
+            className="my-auto w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
+            onMouseDown={(e) => e.stopPropagation()}
+            onSubmit={(e) => void submitLineItemAddition(e)}
+          >
+            <h2 id="line-item-addition-title" className="text-lg font-semibold text-slate-900">
+              Line-item addition
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Adds a linked order for more blinds on the same job. Tax uses your company&apos;s current rate.
+            </p>
+            <fieldset className="mt-4 min-w-0 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+              <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Blinds types &amp; quantities
+              </legend>
+              <BlindsTypesGrid
+                blindsTypes={blindsTypes ?? []}
+                blindsOrderOptions={blindsOrderOptions}
+                lines={additionBlindsLines}
+                toggleType={additionToggleBlinds}
+                setCount={additionSetBlindsCount}
+                setLineField={additionSetBlindsLineField}
+                setLineNote={additionSetBlindsLineNote}
+                setLineAmount={additionSetBlindsLineAmount}
+              />
+              {additionBlindsLines.length === 0 ? (
+                <p className="mt-2 text-xs text-amber-700">Choose at least one blinds type.</p>
+              ) : null}
+            </fieldset>
+            <label className="mt-4 block w-full text-sm text-slate-700">
+              <span className="mb-1 block font-medium">Order note</span>
+              <textarea
+                value={additionOrderNote}
+                onChange={(e) => setAdditionOrderNote(e.target.value)}
+                rows={2}
+                maxLength={4000}
+                placeholder="Optional note for this addition…"
+                className="w-full whitespace-pre-wrap rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+              />
+            </label>
+            <div className="mt-4 space-y-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="block min-w-0 text-sm text-slate-700">
+                  <span className="mb-1 block font-medium">Total (incl. tax)</span>
+                  <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+                    {fmtTotalIncludingTax(additionLineSubtotalParsed, additionComputedTaxAmount)}
+                  </p>
+                </div>
+                <label className="block min-w-0 text-sm text-slate-700">
+                  <span className="mb-1 block font-medium">Down payment</span>
+                  <input
+                    inputMode="decimal"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                    value={additionDownpayment}
+                    onChange={(e) => setAdditionDownpayment(e.target.value)}
+                    placeholder="0.00"
+                    disabled={lineItemAdditionSaving}
+                  />
+                </label>
+                <label className="block min-w-0 text-sm text-slate-700">
+                  <span className="mb-1 block font-medium">Taxable base</span>
+                  <input
+                    inputMode="decimal"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                    value={additionTaxBaseAmount}
+                    onChange={(e) => setAdditionTaxBaseAmount(e.target.value)}
+                    placeholder="0.00"
+                    disabled={lineItemAdditionSaving}
+                  />
+                </label>
+              </div>
+              <OrderFinancialSecondRow
+                paidDisplay={fmtMoney(additionComputedPaid)}
+                balance={additionComputedBalance}
+                tax={additionComputedTaxAmount}
+              />
+            </div>
+            <label className="mt-4 block text-sm text-slate-700">
+              <span className="mb-1 block font-medium">Agreement date (optional)</span>
+              <input
+                type="date"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                value={additionAgreementDate}
+                onChange={(e) => setAdditionAgreementDate(e.target.value)}
+                disabled={lineItemAdditionSaving}
+              />
+            </label>
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={lineItemAdditionSaving}
+                onClick={() => setLineItemAdditionOpen(false)}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={lineItemAdditionSaving || additionBlindsLines.length === 0}
+                className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+              >
+                {lineItemAdditionSaving ? 'Saving…' : 'Save addition'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {lineItemDetailsOpen ? (
+        <div
+          className="fixed inset-0 z-[101] flex items-center justify-center bg-slate-900/50 p-4"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setLineItemDetailsOpen(false)
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="line-item-details-title"
+            className="w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h2 id="line-item-details-title" className="text-lg font-semibold text-slate-900">
+                Order timeline
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Original order first, then each line-item addition. Totals are shown at the bottom.
+              </p>
+            </div>
+            <div className="px-5 py-4">
+              <ul className="space-y-3">
+                <li className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="font-mono text-sm font-semibold text-slate-900">{viewOrder?.id}</span>
+                    <span className="text-xs text-slate-500">{fmtDisplayDateTime(viewOrder?.created_at)}</span>
+                  </div>
+                  <p className="mt-1 text-xs font-medium text-slate-700">Original order</p>
+                  <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-700 sm:grid-cols-3">
+                    <span>
+                      Total (incl. tax):{' '}
+                      <strong className="tabular-nums">
+                        {fmtTotalIncludingTax(viewOrder?.total_amount, viewOrder?.tax_amount)}
+                      </strong>
+                    </span>
+                    <span>
+                      Taxable base:{' '}
+                      <strong className="tabular-nums">{fmtMoney(viewOrder?.tax_uygulanacak_miktar)}</strong>
+                    </span>
+                    <span>
+                      Down: <strong className="tabular-nums">{fmtMoney(viewOrder?.downpayment)}</strong>
+                    </span>
+                    <span>
+                      Paid:{' '}
+                      <strong className="tabular-nums">
+                        {(() => {
+                          const down = parseMoneyAmount(viewOrder?.downpayment) ?? 0
+                          const extra = parseMoneyAmount(viewOrder?.final_payment) ?? 0
+                          return fmtMoney(safeRound2(down + extra))
+                        })()}
+                      </strong>
+                    </span>
+                    <span className="sm:col-span-2">
+                      Balance:{' '}
+                      <strong className="tabular-nums text-teal-900">{fmtMoney(viewOrder?.balance)}</strong>
+                    </span>
+                  </div>
+                </li>
+
+                {(viewOrder?.line_item_additions ?? []).map((row) => (
+                <li
+                  key={row.order_id}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3"
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="font-mono text-sm font-semibold text-slate-900">{row.order_id}</span>
+                    <span className="text-xs text-slate-500">{fmtDisplayDateTime(row.created_at)}</span>
+                  </div>
+                  {row.status_order_label ? (
+                    <p className="mt-1 text-xs text-slate-600">{row.status_order_label}</p>
+                  ) : null}
+                  <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-700 sm:grid-cols-3">
+                    <span>
+                      Total (incl. tax):{' '}
+                      <strong className="tabular-nums">
+                        {fmtTotalIncludingTax(row.subtotal_ex_tax, row.tax_amount)}
+                      </strong>
+                    </span>
+                    <span>
+                      Taxable base:{' '}
+                      <strong className="tabular-nums">{fmtMoney(row.taxable_base)}</strong>
+                    </span>
+                    <span>
+                      Down: <strong className="tabular-nums">{fmtMoney(row.downpayment)}</strong>
+                    </span>
+                    <span>
+                      Paid: <strong className="tabular-nums">{fmtMoney(row.paid_total)}</strong>
+                    </span>
+                    <span className="sm:col-span-2">
+                      Balance:{' '}
+                      <strong className="tabular-nums text-teal-900">{fmtMoney(row.balance)}</strong>
+                    </span>
+                  </div>
+                </li>
+              ))}
+              </ul>
+
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Totals</span>
+                  <span className="text-xs text-slate-500">Anchor + additions</span>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-700 sm:grid-cols-3">
+                  <span>
+                    Total (incl. tax):{' '}
+                    <strong className="tabular-nums">
+                      {fmtTotalIncludingTax(
+                        viewOrder?.financial_totals?.subtotal_ex_tax,
+                        viewOrder?.financial_totals?.tax_amount,
+                      )}
+                    </strong>
+                  </span>
+                  <span>
+                    Taxable base:{' '}
+                    <strong className="tabular-nums">{fmtMoney(viewOrder?.financial_totals?.taxable_base)}</strong>
+                  </span>
+                  <span>
+                    Down: <strong className="tabular-nums">{fmtMoney(viewOrder?.financial_totals?.downpayment)}</strong>
+                  </span>
+                  <span>
+                    Paid: <strong className="tabular-nums">{fmtMoney(viewOrder?.financial_totals?.paid_total)}</strong>
+                  </span>
+                  <span className="sm:col-span-2">
+                    Balance:{' '}
+                    <strong className="tabular-nums text-teal-900">
+                      {fmtMoney(viewOrder?.financial_totals?.balance)}
+                    </strong>
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={() => setLineItemDetailsOpen(false)}
+                  className="w-full rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </div>

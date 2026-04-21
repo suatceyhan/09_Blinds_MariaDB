@@ -807,6 +807,61 @@ def _down_payment_paid_at(agreement_date: Any, created_at: Any) -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _money_q(v: Any) -> Decimal:
+    q = Decimal("0.01")
+    return Decimal(str(v or 0)).quantize(q, rounding=ROUND_HALF_UP)
+
+
+class OrderFinancialTotalsOut(BaseModel):
+    """Roll-up for the order summary card (anchor order + line-item additions)."""
+
+    subtotal_ex_tax: Decimal | None = None
+    tax_amount: Decimal | None = None
+    taxable_base: Decimal | None = None
+    downpayment: Decimal | None = None
+    paid_total: Decimal | None = None
+    balance: Decimal | None = None
+
+
+class OrderLineItemAdditionOut(BaseModel):
+    """One appended blinds job linked to an anchor order (`parent_order_id`)."""
+
+    order_id: str
+    created_at: Any | None = None
+    subtotal_ex_tax: Decimal | None = None
+    tax_amount: Decimal | None = None
+    taxable_base: Decimal | None = None
+    downpayment: Decimal | None = None
+    paid_total: Decimal | None = None
+    balance: Decimal | None = None
+    status_order_label: str | None = None
+
+
+def _rollup_financial_totals(rows: list[dict[str, Any]]) -> OrderFinancialTotalsOut:
+    q = Decimal("0.01")
+    sub = Decimal("0")
+    tax = Decimal("0")
+    tb = Decimal("0")
+    dow = Decimal("0")
+    paid = Decimal("0")
+    bal = Decimal("0")
+    for r in rows:
+        sub += _money_q(r.get("total_amount"))
+        tax += _money_q(r.get("tax_amount"))
+        tb += _money_q(r.get("tax_uygulanacak_miktar"))
+        dow += _money_q(r.get("downpayment"))
+        paid += _money_q(r.get("downpayment")) + _money_q(r.get("final_payment"))
+        bal += _money_q(r.get("balance"))
+    return OrderFinancialTotalsOut(
+        subtotal_ex_tax=sub.quantize(q),
+        tax_amount=tax.quantize(q),
+        taxable_base=tb.quantize(q),
+        downpayment=dow.quantize(q),
+        paid_total=paid.quantize(q),
+        balance=bal.quantize(q),
+    )
+
+
 def _build_payment_entries_for_detail(
     downpayment: Any,
     agreement_date: Any,
@@ -886,6 +941,20 @@ class OrderDetailOut(BaseModel):
     created_at: Any | None = None
     updated_at: Any | None = None
     active: bool = True
+    parent_order_id: str | None = None
+    financial_totals: OrderFinancialTotalsOut
+    has_line_item_additions: bool = False
+    line_item_additions: list[OrderLineItemAdditionOut] = Field(default_factory=list)
+
+
+class OrderLineItemAdditionCreateIn(BaseModel):
+    """Create a child order linked to an anchor (same customer; tax rate from company)."""
+
+    tax_uygulanacak_miktar: Decimal | None = None
+    downpayment: Decimal | None = None
+    agreement_date: date | None = None
+    blinds_lines: list[dict[str, Any]] = Field(default_factory=list)
+    order_note: str | None = Field(None, max_length=4000)
 
 
 class OrderRecordPaymentIn(BaseModel):
@@ -1158,6 +1227,7 @@ def list_orders(
             JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
             LEFT JOIN status_order so ON so.id = o.status_orde_id
             WHERE {w}
+              AND (o.parent_order_id IS NULL)
             ORDER BY o.created_at DESC NULLS LAST
             LIMIT :limit
             """
@@ -1165,6 +1235,17 @@ def list_orders(
         params,
     ).mappings().all()
     return [OrderListItemOut(**dict(r)) for r in rows]
+
+
+def _financial_row_for_rollup(m: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "total_amount": m.get("total_amount"),
+        "tax_amount": m.get("tax_amount"),
+        "tax_uygulanacak_miktar": m.get("tax_uygulanacak_miktar"),
+        "downpayment": m.get("downpayment"),
+        "final_payment": m.get("final_payment"),
+        "balance": m.get("balance"),
+    }
 
 
 @router.post("/{order_id}/record-payment", response_model=OrderDetailOut)
@@ -1429,6 +1510,7 @@ def get_order(
               o.order_note,
               o.agree_data,
               o.agreement_date,
+              o.parent_order_id,
               o.status_code,
               o.status_orde_id,
               so.name AS status_order_label,
@@ -1449,7 +1531,54 @@ def get_order(
     if not row:
         raise HTTPException(status_code=404, detail="Order not found.")
     d = dict(row)
+    parent_ref = (str(d.pop("parent_order_id", None) or "")).strip() or None
     lines = _normalize_blinds_lines(d.pop("blinds_lines_json", None))
+
+    rollup_source: list[dict[str, Any]] = [_financial_row_for_rollup(d)]
+    line_item_additions: list[OrderLineItemAdditionOut] = []
+    if not parent_ref:
+        child_rows = db.execute(
+            text(
+                """
+                SELECT
+                  o.id::text AS id,
+                  o.created_at,
+                  o.total_amount,
+                  o.tax_amount,
+                  o.tax_uygulanacak_miktar,
+                  o.downpayment,
+                  o.final_payment,
+                  o.balance,
+                  trim(so.name) AS status_order_label
+                FROM orders o
+                LEFT JOIN status_order so ON so.id = o.status_orde_id
+                WHERE o.company_id = CAST(:cid AS uuid)
+                  AND o.parent_order_id = :pid
+                  AND o.active IS TRUE
+                ORDER BY o.created_at ASC NULLS LAST
+                """
+            ),
+            {"cid": str(cid), "pid": oid},
+        ).mappings().all()
+        for cr in child_rows:
+            crd = dict(cr)
+            rollup_source.append(_financial_row_for_rollup(crd))
+            paid_row = _money_q(crd.get("downpayment")) + _money_q(crd.get("final_payment"))
+            line_item_additions.append(
+                OrderLineItemAdditionOut(
+                    order_id=str(crd["id"]),
+                    created_at=crd.get("created_at"),
+                    subtotal_ex_tax=_money_q(crd.get("total_amount")),
+                    tax_amount=_money_q(crd.get("tax_amount")),
+                    taxable_base=_money_q(crd.get("tax_uygulanacak_miktar")),
+                    downpayment=_money_q(crd.get("downpayment")),
+                    paid_total=paid_row,
+                    balance=_money_q(crd.get("balance")),
+                    status_order_label=str(crd.get("status_order_label") or "").strip() or None,
+                )
+            )
+    financial_totals = _rollup_financial_totals(rollup_source)
+
     pay_rows = db.execute(
         text(
             """
@@ -1474,6 +1603,10 @@ def get_order(
         blinds_lines=lines,
         payment_entries=payment_entries,
         attachments=attachments,
+        parent_order_id=parent_ref,
+        financial_totals=financial_totals,
+        has_line_item_additions=len(line_item_additions) > 0,
+        line_item_additions=line_item_additions,
     )
 
 
@@ -1702,6 +1835,16 @@ def delete_order(
         raise HTTPException(status_code=400, detail="Order is already deleted.")
     if est_id:
         _sync_linked_estimate_to_cancelled(db, cid, est_id)
+    db.execute(
+        text(
+            """
+            UPDATE orders
+            SET active = FALSE, updated_at = NOW()
+            WHERE company_id = CAST(:cid AS uuid) AND parent_order_id = :oid AND active IS TRUE
+            """
+        ),
+        {"cid": str(cid), "oid": oid},
+    )
     db.commit()
     return None
 
@@ -1867,6 +2010,7 @@ def create_order(
                       total_amount, downpayment, final_payment, balance,
                       agree_data, agreement_date,
                       estimate_id, status_orde_id,
+                      parent_order_id,
                       active, status_code,
                       created_at, updated_at
                     )
@@ -1875,6 +2019,7 @@ def create_order(
                       :total_amount, :downpayment, NULL, :balance,
                       NULL, :agreement_date,
                       :estimate_id, :status_orde_id,
+                      :parent_order_id,
                       TRUE, 'order_created',
                       NOW(), NOW()
                     )
@@ -1890,6 +2035,7 @@ def create_order(
                     "agreement_date": body.agreement_date,
                     "estimate_id": est_id,
                     "status_orde_id": status_ord,
+                    "parent_order_id": None,
                 },
             )
             db.execute(
@@ -1919,6 +2065,131 @@ def create_order(
             db.rollback()
             raise HTTPException(status_code=400, detail="Could not create order (invalid data).")
         return get_order(order_id=new_id, db=db, current_user=current_user)
+
+    raise HTTPException(status_code=500, detail="Could not allocate order id, try again.")
+
+
+@router.post("/{order_id}/line-item-additions", response_model=OrderDetailOut, status_code=status.HTTP_201_CREATED)
+def create_line_item_addition(
+    order_id: str,
+    body: OrderLineItemAdditionCreateIn,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("orders.edit"))],
+):
+    """Append a child order linked to an anchor (`parent_order_id`). Tax uses the company's current rate."""
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    pid = order_id.strip()
+    prow = db.execute(
+        text(
+            """
+            SELECT
+              o.customer_id::text AS customer_id,
+              NULLIF(trim(o.parent_order_id::text), '') AS parent_order_id,
+              COALESCE(o.active, FALSE) AS active
+            FROM orders o
+            WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid
+            LIMIT 1
+            """
+        ),
+        {"cid": str(cid), "oid": pid},
+    ).mappings().first()
+    if not prow:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    if not prow.get("active"):
+        raise HTTPException(status_code=400, detail="Cannot add to a deleted order.")
+    if prow.get("parent_order_id"):
+        raise HTTPException(
+            status_code=400,
+            detail="Additions can only be created on an anchor order (open the main job, not an addition).",
+        )
+
+    cust_id = str(prow["customer_id"]).strip()
+    lines = _normalize_blinds_lines(body.blinds_lines or [])
+    if not lines:
+        raise HTTPException(status_code=400, detail="Choose at least one blinds type.")
+    validate_blinds_lines_categories(db, cid, lines)
+
+    rate_pct = _company_tax_rate_percent(db, cid)
+    tax_amt = _tax_amount_from_base(body.tax_uygulanacak_miktar, rate_pct)
+    total_amount = _sum_blinds_line_amounts(lines)
+    down = body.downpayment
+    balance = _order_balance(total_amount, down, tax_amt, None)
+
+    status_ord = _ensure_default_order_status_id(db, company_id=cid)
+
+    for _ in range(5):
+        new_id = _new_order_id()
+        exists = db.execute(
+            text("SELECT 1 FROM orders WHERE company_id = CAST(:cid AS uuid) AND id = :id LIMIT 1"),
+            {"cid": str(cid), "id": new_id},
+        ).first()
+        if exists:
+            continue
+        try:
+            db.execute(
+                text(
+                    """
+                    INSERT INTO orders (
+                      company_id, id, customer_id,
+                      total_amount, downpayment, final_payment, balance,
+                      agree_data, agreement_date,
+                      estimate_id, status_orde_id,
+                      parent_order_id,
+                      active, status_code,
+                      created_at, updated_at
+                    )
+                    VALUES (
+                      CAST(:cid AS uuid), :id, :customer_id,
+                      :total_amount, :downpayment, NULL, :balance,
+                      NULL, :agreement_date,
+                      NULL, :status_orde_id,
+                      :parent_order_id,
+                      TRUE, 'order_created',
+                      NOW(), NOW()
+                    )
+                    """
+                ),
+                {
+                    "cid": str(cid),
+                    "id": new_id,
+                    "customer_id": cust_id,
+                    "total_amount": total_amount,
+                    "downpayment": down,
+                    "balance": balance,
+                    "agreement_date": body.agreement_date,
+                    "status_orde_id": status_ord,
+                    "parent_order_id": pid,
+                },
+            )
+            db.execute(
+                text(
+                    """
+                    UPDATE orders
+                    SET
+                      tax_uygulanacak_miktar = COALESCE(:tax_base, tax_uygulanacak_miktar),
+                      tax_amount = :tax_amt,
+                      blinds_lines = CAST(:blinds_lines AS jsonb),
+                      order_note = :order_note
+                    WHERE company_id = CAST(:cid AS uuid) AND id = :oid
+                    """
+                ),
+                {
+                    "cid": str(cid),
+                    "oid": new_id,
+                    "tax_base": body.tax_uygulanacak_miktar,
+                    "tax_amt": tax_amt,
+                    "blinds_lines": json.dumps(lines),
+                    "order_note": _normalize_order_note(body.order_note),
+                },
+            )
+            _sync_order_done_status_with_balance(db, cid, new_id)
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=400, detail="Could not create line-item addition.")
+        return get_order(order_id=pid, db=db, current_user=current_user)
 
     raise HTTPException(status_code=500, detail="Could not allocate order id, try again.")
 
