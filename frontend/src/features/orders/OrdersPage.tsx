@@ -2349,7 +2349,7 @@ export function OrdersPage() {
                           disabled={finalInvoiceBusy !== null}
                           onClick={() => void downloadFinalInvoice()}
                           className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                          title="Download final invoice (HTML)"
+                          title="Download final invoice (PDF)"
                         >
                           {finalInvoiceBusy === 'download' ? 'Preparing…' : 'Download'}
                         </button>

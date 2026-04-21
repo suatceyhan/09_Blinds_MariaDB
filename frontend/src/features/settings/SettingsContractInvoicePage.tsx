@@ -22,52 +22,9 @@ type PresetCatalogItem = {
   body_html: string
 }
 
-/** Final invoice iframe only — deposit preview uses GET /preview/deposit-contract (same HTML as PDF). */
-const PREVIEW_SAMPLE: Record<string, string> = {
-  '{{business_name}}': 'Acme Blinds Inc.',
-  '{{business_address}}': '123 Main St, Toronto, ON M5J 2N1',
-  '{{business_phone}}': '(416) 555-0100',
-  '{{business_email}}': 'jobs@acmeblinds.example',
-  '{{customer_name}}': 'John Doe',
-  '{{customer_address}}': '88 King St, Toronto, ON',
-  '{{customer_phone}}': '(647) 555-7788',
-  '{{invoice_number}}': 'INV-EST-abc12345',
-  '{{invoice_date}}': 'Apr 18, 2026',
-  '{{product}}': 'Custom Zebra Blinds',
-  '{{description}}': 'Living room — 3× windows, blackout fabric',
-  '{{measurements}}': 'Per field measure sheet',
-  '{{installation_address}}': '88 King St, Toronto, ON',
-  '{{total_project_price}}': '3,834.00',
-  '{{deposit_required}}': '1,917.00',
-  '{{balance_remaining}}': '1,917.00',
-  '{{deposit_paid}}': '1,917.00',
-  '{{balance_due}}': '1,917.00',
-  '{{balance_paid}}': '1,917.00',
-  '{{payment_method}}': 'E-transfer',
-  '{{payment_date}}': 'Apr 18, 2026',
-  '{{status}}': 'PAID',
-}
-
-function previewFinalInvoiceHtml(raw: string): string {
-  let body = raw
-  for (const [k, v] of Object.entries(PREVIEW_SAMPLE)) {
-    body = body.split(k).join(v)
-  }
-  return `<!doctype html><html><head><meta charset="utf-8"/><style>
-    body{font:12px/1.25 ui-sans-serif,system-ui,Segoe UI,Roboto,Arial;margin:0;padding:16px;color:#0f172a}
-    :root{--ink:#0f172a;--muted:#475569;--line:#cbd5e1}
-    h1{margin:0 0 6px;font-size:18px}
-    h2{margin:18px 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
-    .rule{border-top:1px solid var(--line);margin:12px 0}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 18px}
-    .row{display:grid;grid-template-columns:140px 1fr;gap:10px;padding:2px 0}
-    .k{color:var(--muted)}
-    .v{min-height:18px;border-bottom:1px solid var(--line);padding-bottom:2px}
-    .v.inline{border-bottom:none;padding-bottom:0}
-    .mono{font-variant-numeric:tabular-nums}
-    .small{font-size:12px;color:var(--muted)}
-  </style></head><body>${body}</body></html>`
-}
+/** Placeholder hints for the final invoice editor (subset — server PDF supports full deposit-style keys too). */
+const FINAL_PLACEHOLDER_HINTS =
+  '{{customer_name}}, {{balance_due}}, {{payments_received_total}}, {{deposit_paid}}, {{extra_payments_total}}, {{status}}, …'
 
 export function SettingsContractInvoicePage() {
   const me = useAuthSession()
@@ -85,6 +42,10 @@ export function SettingsContractInvoicePage() {
   const [depositPreviewHtml, setDepositPreviewHtml] = useState<string>('')
   const [depositPreviewLoading, setDepositPreviewLoading] = useState(false)
   const [depositPreviewErr, setDepositPreviewErr] = useState<string | null>(null)
+
+  const [finalPreviewHtml, setFinalPreviewHtml] = useState<string>('')
+  const [finalPreviewLoading, setFinalPreviewLoading] = useState(false)
+  const [finalPreviewErr, setFinalPreviewErr] = useState<string | null>(null)
 
   const loadAll = useCallback(async () => {
     setErr(null)
@@ -172,6 +133,56 @@ export function SettingsContractInvoicePage() {
     }
   }, [canView, loading, selectedDepositKey])
 
+  useEffect(() => {
+    if (!canView || loading || !templates) {
+      setFinalPreviewHtml('')
+      setFinalPreviewLoading(false)
+      setFinalPreviewErr(null)
+      return
+    }
+    let cancelled = false
+    const bodyHtml = templates.final_invoice.body_html ?? ''
+    const t = globalThis.setTimeout(() => {
+      ;(async () => {
+        setFinalPreviewLoading(true)
+        setFinalPreviewErr(null)
+        try {
+          const tok = getAccessToken()
+          if (!tok) {
+            setFinalPreviewErr('Sign in required for preview.')
+            setFinalPreviewHtml('')
+            return
+          }
+          const res = await fetch(`${apiBase()}/settings/contract-invoice/preview/final-invoice`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${tok}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ body_html: bodyHtml }),
+          })
+          if (!res.ok) {
+            const tx = await res.text()
+            throw new Error(tx || `${res.status} preview failed`)
+          }
+          const html = await res.text()
+          if (!cancelled) setFinalPreviewHtml(html)
+        } catch (e) {
+          if (!cancelled) {
+            setFinalPreviewHtml('')
+            setFinalPreviewErr(e instanceof Error ? e.message : 'Could not load preview')
+          }
+        } finally {
+          if (!cancelled) setFinalPreviewLoading(false)
+        }
+      })()
+    }, 400)
+    return () => {
+      cancelled = true
+      globalThis.clearTimeout(t)
+    }
+  }, [canView, loading, templates?.final_invoice.body_html])
+
   async function saveDepositPreset() {
     if (!selectedDepositKey || !canEdit) return
     setErr(null)
@@ -219,8 +230,8 @@ export function SettingsContractInvoicePage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Contract / Invoice</h1>
           <p className="mt-1 text-slate-600">
-            Choose a ready-made deposit invoice layout. Final invoice still uses an editable HTML template until preset
-            designs are added for that document type.
+            Choose a deposit invoice layout; final invoice uses the same Corporate (Navy) document styling by default and
+            can still be customized with HTML placeholders.
           </p>
         </div>
       </div>
@@ -337,10 +348,8 @@ export function SettingsContractInvoicePage() {
                   <div>
                     <h2 className="text-base font-semibold text-slate-900">Final invoice</h2>
                     <p className="mt-1 text-xs text-slate-500">
-                      Editable HTML until preset designs are added. Placeholders include{' '}
-                      <code className="text-slate-700">{'{{customer_name}}'}</code>,{' '}
-                      <code className="text-slate-700">{'{{balance_due}}'}</code>,{' '}
-                      <code className="text-slate-700">{'{{status}}'}</code>.
+                      Same PDF CSS as deposit invoices. Edit the HTML to adjust copy; placeholders include{' '}
+                      <code className="text-slate-700">{FINAL_PLACEHOLDER_HINTS}</code>
                     </p>
                   </div>
                   <button
@@ -395,13 +404,38 @@ export function SettingsContractInvoicePage() {
                   </div>
                   <div>
                     <p className="mb-2 text-sm font-medium text-slate-700">Preview</p>
-                    <div className="h-[28rem] overflow-hidden rounded-xl border border-slate-200 bg-white">
-                      <iframe
-                        title="Final invoice preview"
-                        className="h-full w-full"
-                        srcDoc={previewFinalInvoiceHtml(templates?.final_invoice.body_html ?? '')}
-                      />
+                    {finalPreviewErr ? (
+                      <p className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                        {finalPreviewErr}
+                      </p>
+                    ) : null}
+                    <div
+                      className="overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-inner"
+                      style={{ height: 'min(calc(100dvh - 14rem), 900px)' }}
+                    >
+                      {finalPreviewLoading ? (
+                        <div
+                          className="flex w-full items-center justify-center text-sm text-slate-500"
+                          style={{ height: 'min(calc(100dvh - 14rem), 900px)' }}
+                        >
+                          Loading preview…
+                        </div>
+                      ) : (
+                        <iframe
+                          title="Final invoice preview"
+                          className="h-full w-full border-0 bg-white"
+                          style={{ height: 'min(calc(100dvh - 14rem), 900px)' }}
+                          srcDoc={
+                            finalPreviewHtml ||
+                            '<!doctype html><html><body style="font:14px sans-serif;padding:16px;color:#64748b">Loading…</body></html>'
+                          }
+                        />
+                      )}
                     </div>
+                    <p className="mt-2 text-[11px] text-slate-500">
+                      Matches the PDF generator (sample values). Clear the HTML and save to reset to the built-in layout
+                      if you had an older template stored.
+                    </p>
                   </div>
                 </div>
               </section>

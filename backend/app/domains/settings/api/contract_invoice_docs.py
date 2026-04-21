@@ -24,6 +24,7 @@ from app.dependencies.auth import effective_company_id, require_permissions
 from app.domains.settings.deposit_contract_presets import (
     DEPOSIT_CONTRACT_PRESETS,
     DEPOSIT_PRESET_LABELS,
+    FINAL_INVOICE_DEFAULT_HTML,
     default_deposit_preset,
     deposit_preset_keys_in_order,
 )
@@ -105,6 +106,19 @@ DEPOSIT_PREVIEW_SAMPLE: dict[str, str] = {
     "payment_method": "E-transfer",
     "payment_date": "Apr 18, 2026",
 }
+
+# Final invoice preview: same keys as live PDF data; extends deposit samples with balance fields.
+FINAL_INVOICE_PREVIEW_SAMPLE: dict[str, str] = {
+    **DEPOSIT_PREVIEW_SAMPLE,
+    "invoice_number": "INV-ORD-abc12345",
+    "balance_due": "0.00",
+    "balance_paid": "3,834.00",
+    "status": "PAID",
+}
+
+
+class FinalInvoicePreviewIn(BaseModel):
+    body_html: str = Field(default="", max_length=200_000)
 
 
 def _fmt_money(v: Any) -> str:
@@ -487,50 +501,7 @@ def _default_template(kind: str) -> TemplateOut:
     return TemplateOut(
         kind=kind,
         subject="Final invoice",
-        body_html="""
-<h1>FINAL INVOICE</h1>
-<div class="small">Final payment summary</div>
-<div class="rule"></div>
-<div class="grid">
-  <div>
-    <h2>Business</h2>
-    <div class="row"><div class="k">Business Name</div><div class="v">{{business_name}}</div></div>
-    <div class="row"><div class="k">Address</div><div class="v">{{business_address}}</div></div>
-    <div class="row"><div class="k">Phone</div><div class="v">{{business_phone}}</div></div>
-    <div class="row"><div class="k">Email</div><div class="v">{{business_email}}</div></div>
-  </div>
-  <div>
-    <h2>Invoice</h2>
-    <div class="row"><div class="k">Invoice Number</div><div class="v mono">{{invoice_number}}</div></div>
-    <div class="row"><div class="k">Date</div><div class="v">{{invoice_date}}</div></div>
-  </div>
-</div>
-<div class="rule"></div>
-<h2>Customer</h2>
-<div class="row"><div class="k">Customer Name</div><div class="v">{{customer_name}}</div></div>
-<div class="row"><div class="k">Address</div><div class="v">{{customer_address}}</div></div>
-<div class="rule"></div>
-<h2>Project details</h2>
-<div class="row"><div class="k">Product</div><div class="v inline">{{product}}</div></div>
-<div class="row"><div class="k">Description</div><div class="v">{{description}}</div></div>
-<div class="rule"></div>
-<h2>Pricing summary</h2>
-<div class="row"><div class="k">Total Project Price</div><div class="v mono">${{total_project_price}}</div></div>
-<div class="row"><div class="k">Deposit Paid</div><div class="v mono">${{deposit_paid}}</div></div>
-<div class="row"><div class="k">Balance Due</div><div class="v mono">${{balance_due}}</div></div>
-<div class="rule"></div>
-<h2>Payment terms</h2>
-<div class="small">
-  <div>- Final payment is due upon completion.</div>
-  <div>- Thank you for your business!</div>
-</div>
-<div class="rule"></div>
-<h2>Payment status</h2>
-<div class="row"><div class="k">Balance Paid</div><div class="v mono">${{balance_paid}}</div></div>
-<div class="row"><div class="k">Payment Method</div><div class="v">{{payment_method}}</div></div>
-<div class="row"><div class="k">Date</div><div class="v">{{payment_date}}</div></div>
-<div class="row"><div class="k">Status</div><div class="v inline mono">{{status}}</div></div>
-""".strip(),
+        body_html=FINAL_INVOICE_DEFAULT_HTML,
         preset_key=None,
         legacy_custom=False,
     )
@@ -784,6 +755,33 @@ def preview_deposit_contract_html(
     return HTMLResponse(content=html)
 
 
+@router.post("/preview/final-invoice", response_class=HTMLResponse)
+def preview_final_invoice_html(
+    payload: FinalInvoicePreviewIn,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("settings.contract_invoice.view"))],
+):
+    """Same HTML/CSS stack as PDF; body comes from draft `body_html` or company template / default preset."""
+    cid = effective_company_id(current_user)
+    if not cid and not is_effective_superadmin(current_user):
+        raise HTTPException(status_code=403, detail="No active company.")
+    if not cid:
+        raise HTTPException(status_code=400, detail="Select a company first.")
+
+    draft = payload.body_html.strip()
+    if draft:
+        tpl = TemplateOut(kind="final_invoice", subject="", body_html=draft, preset_key=None, legacy_custom=False)
+    else:
+        tpl = _load_template(db, str(cid), "final_invoice")
+    _, html = _render_html_from_template(
+        tpl,
+        "final_invoice",
+        FINAL_INVOICE_PREVIEW_SAMPLE,
+        "Final invoice",
+    )
+    return HTMLResponse(content=html)
+
+
 @router.put("/templates/{kind}", status_code=204)
 def save_template(
     kind: str,
@@ -900,6 +898,9 @@ def final_invoice(
     down = Decimal(str(ctx.get("downpayment") or 0)).quantize(Decimal("0.01"))
     bal = Decimal(str(ctx.get("balance") or 0)).quantize(Decimal("0.01"))
     paid = abs(bal) <= Decimal("0.01")
+    extra_total, extra_cnt = _fetch_order_extra_payments_summary(db, str(cid), oid)
+    received_total = (down + extra_total).quantize(Decimal("0.01"))
+    paid_to_date = (total - bal).quantize(Decimal("0.01"))
 
     _subject, pdf = render_contract_invoice_pdf(
         db=db,
@@ -918,10 +919,15 @@ def final_invoice(
             "invoice_date": now.strftime("%b %d, %Y"),
             "product": "Custom Zebra Blinds",
             "description": "",
+            "measurements": "",
+            "installation_address": _safe_str(ctx.get("customer_address")),
             "total_project_price": _fmt_money(total),
             "deposit_paid": _fmt_money(down),
             "balance_due": _fmt_money(bal),
-            "balance_paid": _fmt_money(total - down),
+            "balance_paid": _fmt_money(paid_to_date),
+            "extra_payments_total": _fmt_money(extra_total),
+            "extra_payments_count": f"{extra_cnt} payment" + ("s" if extra_cnt != 1 else ""),
+            "payments_received_total": _fmt_money(received_total),
             "payment_method": "",
             "payment_date": "",
             "status": "PAID" if paid else "DUE",

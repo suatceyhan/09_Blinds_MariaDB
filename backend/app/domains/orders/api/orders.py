@@ -27,7 +27,10 @@ from app.domains.business_lookups.services.blinds_catalog import (
     validate_blinds_lines_categories,
 )
 from app.integrations.google_calendar_service import try_push_order_installation_to_google_calendar
-from app.domains.settings.api.contract_invoice_docs import render_contract_invoice_pdf
+from app.domains.settings.api.contract_invoice_docs import (
+    _fetch_order_extra_payments_summary,
+    render_contract_invoice_pdf,
+)
 from app.utils.email import send_html_email
 
 
@@ -1538,6 +1541,9 @@ def order_final_invoice_download(
     down = Decimal(str(ctx.get("downpayment") or 0)).quantize(Decimal("0.01"))
     bal = Decimal(str(ctx.get("balance") or 0)).quantize(Decimal("0.01"))
     paid = abs(bal) <= Decimal("0.01")
+    extra_total, extra_cnt = _fetch_order_extra_payments_summary(db, str(cid), oid)
+    received_total = (down + extra_total).quantize(Decimal("0.01"))
+    paid_to_date = (total - bal).quantize(Decimal("0.01"))
 
     _subj, pdf = render_contract_invoice_pdf(
         db=db,
@@ -1556,10 +1562,15 @@ def order_final_invoice_download(
             "invoice_date": now.strftime("%b %d, %Y"),
             "product": "Custom Zebra Blinds",
             "description": "",
+            "measurements": "",
+            "installation_address": str(ctx.get("customer_address") or "").strip(),
             "total_project_price": f"{total:,.2f}",
             "deposit_paid": f"{down:,.2f}",
             "balance_due": f"{bal:,.2f}",
-            "balance_paid": f"{(total - down):,.2f}",
+            "balance_paid": f"{paid_to_date:,.2f}",
+            "extra_payments_total": f"{extra_total:,.2f}",
+            "extra_payments_count": f"{extra_cnt} payment" + ("s" if extra_cnt != 1 else ""),
+            "payments_received_total": f"{received_total:,.2f}",
             "payment_method": "",
             "payment_date": "",
             "status": "PAID" if paid else "DUE",
@@ -1600,6 +1611,9 @@ def order_final_invoice_send_email(
     down = Decimal(str(ctx.get("downpayment") or 0)).quantize(Decimal("0.01"))
     bal = Decimal(str(ctx.get("balance") or 0)).quantize(Decimal("0.01"))
     paid = abs(bal) <= Decimal("0.01")
+    extra_total, extra_cnt = _fetch_order_extra_payments_summary(db, str(cid), oid)
+    received_total = (down + extra_total).quantize(Decimal("0.01"))
+    paid_to_date = (total - bal).quantize(Decimal("0.01"))
 
     subject, pdf = render_contract_invoice_pdf(
         db=db,
@@ -1618,10 +1632,15 @@ def order_final_invoice_send_email(
             "invoice_date": now.strftime("%b %d, %Y"),
             "product": "Custom Zebra Blinds",
             "description": "",
+            "measurements": "",
+            "installation_address": str(ctx.get("customer_address") or "").strip(),
             "total_project_price": f"{total:,.2f}",
             "deposit_paid": f"{down:,.2f}",
             "balance_due": f"{bal:,.2f}",
-            "balance_paid": f"{(total - down):,.2f}",
+            "balance_paid": f"{paid_to_date:,.2f}",
+            "extra_payments_total": f"{extra_total:,.2f}",
+            "extra_payments_count": f"{extra_cnt} payment" + ("s" if extra_cnt != 1 else ""),
+            "payments_received_total": f"{received_total:,.2f}",
             "payment_method": "",
             "payment_date": "",
             "status": "PAID" if paid else "DUE",
