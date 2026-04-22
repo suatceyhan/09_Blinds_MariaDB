@@ -475,6 +475,7 @@ CREATE TABLE IF NOT EXISTS order_payment_entries (
   order_id     VARCHAR(16)  NOT NULL,
   amount       NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
   created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  payment_group_id UUID,
   is_deleted   BOOLEAN      NOT NULL DEFAULT FALSE,
   PRIMARY KEY (id),
   CONSTRAINT fk_order_payment_entries_order
@@ -490,6 +491,10 @@ CREATE INDEX IF NOT EXISTS idx_order_payment_entries_company_order_created
 CREATE INDEX IF NOT EXISTS idx_order_payment_entries_active
   ON order_payment_entries (company_id, order_id, created_at DESC)
   WHERE COALESCE(is_deleted, FALSE) = FALSE;
+
+CREATE INDEX IF NOT EXISTS idx_order_payment_entries_group
+  ON order_payment_entries (company_id, payment_group_id, created_at DESC)
+  WHERE payment_group_id IS NOT NULL AND COALESCE(is_deleted, FALSE) = FALSE;
 
 CREATE TABLE IF NOT EXISTS order_attachments (
   id                 UUID         NOT NULL DEFAULT gen_random_uuid(),

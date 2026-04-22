@@ -950,6 +950,7 @@ class OrderPaymentEntryOut(BaseModel):
     order_id: str | None = None
     amount: Decimal
     paid_at: datetime
+    payment_group_id: str | None = None
 
 
 def _down_payment_paid_at(agreement_date: Any, created_at: Any) -> datetime:
@@ -1040,13 +1041,20 @@ def _build_payment_entries_for_detail(
                 order_id=order_id,
                 amount=down_d,
                 paid_at=_down_payment_paid_at(agreement_date, created_at),
+                payment_group_id=None,
             )
         )
     for pr in pay_rows:
         d = dict(pr)
         # When callers SELECT order_id (job aggregation), avoid passing it twice.
         d.pop("order_id", None)
+        # We send group id separately for optional UI grouping.
+        pgid = d.pop("payment_group_id", None)
+        if pgid is not None:
+            pgid = str(pgid)
         out.append(OrderPaymentEntryOut(order_id=order_id, **d))
+        if pgid:
+            out[-1].payment_group_id = pgid
     out.sort(key=lambda e: (e.paid_at, 0 if e.id == "downpayment" else 1))
     return out
 
@@ -1486,6 +1494,8 @@ def record_order_payment(
         )
 
     # Waterfall allocation: original order first, then additions by created_at.
+    group_id = str(uuid4())
+    paid_at = datetime.now(timezone.utc)
     job_rows = db.execute(
         text(
             """
@@ -1515,11 +1525,11 @@ def record_order_payment(
         db.execute(
             text(
                 """
-                INSERT INTO order_payment_entries (company_id, order_id, amount)
-                VALUES (CAST(:cid AS uuid), :oid, :amt)
+                INSERT INTO order_payment_entries (company_id, order_id, amount, payment_group_id, created_at)
+                VALUES (CAST(:cid AS uuid), :oid, :amt, CAST(:gid AS uuid), :paid_at)
                 """
             ),
-            {"cid": str(cid), "oid": rid, "amt": take},
+            {"cid": str(cid), "oid": rid, "amt": take, "gid": group_id, "paid_at": paid_at},
         )
         touched.add(rid)
         remaining = (remaining - take).quantize(q, rounding=ROUND_HALF_UP)
@@ -1548,21 +1558,40 @@ def soft_delete_order_payment_entry(
     if not cid:
         raise HTTPException(status_code=403, detail="No active company.")
     oid = order_id.strip()
-    try:
-        eid = UUID(entry_id.strip())
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail="Payment entry not found.") from exc
-    res = db.execute(
-        text(
-            """
-            UPDATE order_payment_entries
-            SET is_deleted = TRUE
-            WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid AND id = CAST(:eid AS uuid)
-              AND COALESCE(is_deleted, FALSE) = FALSE
-            """
-        ),
-        {"cid": str(cid), "oid": oid, "eid": str(eid)},
-    )
+    eid_raw = (entry_id or "").strip()
+    if eid_raw.startswith("grp:"):
+        try:
+            gid = UUID(eid_raw[4:])
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="Payment entry not found.") from exc
+        res = db.execute(
+            text(
+                """
+                UPDATE order_payment_entries
+                SET is_deleted = TRUE
+                WHERE company_id = CAST(:cid AS uuid)
+                  AND payment_group_id = CAST(:gid AS uuid)
+                  AND COALESCE(is_deleted, FALSE) = FALSE
+                """
+            ),
+            {"cid": str(cid), "gid": str(gid)},
+        )
+    else:
+        try:
+            eid = UUID(eid_raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="Payment entry not found.") from exc
+        res = db.execute(
+            text(
+                """
+                UPDATE order_payment_entries
+                SET is_deleted = TRUE
+                WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid AND id = CAST(:eid AS uuid)
+                  AND COALESCE(is_deleted, FALSE) = FALSE
+                """
+            ),
+            {"cid": str(cid), "oid": oid, "eid": str(eid)},
+        )
     if res.rowcount == 0:
         raise HTTPException(status_code=404, detail="Payment entry not found.")
     _sync_order_final_payment_from_entries(db, cid, oid)
@@ -1865,7 +1894,12 @@ def get_order(
             db.execute(
                 text(
                     """
-                    SELECT id::text AS id, order_id::text AS order_id, amount, created_at AS paid_at
+                    SELECT
+                      id::text AS id,
+                      order_id::text AS order_id,
+                      amount,
+                      created_at AS paid_at,
+                      payment_group_id::text AS payment_group_id
                     FROM order_payment_entries
                     WHERE company_id = CAST(:cid AS uuid)
                       AND order_id = ANY(:oids)
@@ -1892,7 +1926,28 @@ def get_order(
                     grouped.get(joid, []),
                 )
             )
-        payment_entries.sort(key=lambda e: (e.paid_at, 0 if e.id == "downpayment" else 1, e.order_id or ""))
+        # Collapse waterfall-split entries back into one row per user "record payment" action.
+        collapsed: list[OrderPaymentEntryOut] = []
+        grp_map: dict[str, list[OrderPaymentEntryOut]] = {}
+        for e in payment_entries:
+            if e.id == "downpayment" or not e.payment_group_id:
+                collapsed.append(e)
+                continue
+            grp_map.setdefault(e.payment_group_id, []).append(e)
+        for gid, entries in grp_map.items():
+            amt = sum((x.amount for x in entries), Decimal("0.00"))
+            paid_at = min((x.paid_at for x in entries))
+            collapsed.append(
+                OrderPaymentEntryOut(
+                    id=f"grp:{gid}",
+                    order_id=None,
+                    amount=amt.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                    paid_at=paid_at,
+                    payment_group_id=gid,
+                )
+            )
+        payment_entries = collapsed
+        payment_entries.sort(key=lambda e: (e.paid_at, 0 if e.id == "downpayment" else 1))
     else:
         pay_rows = db.execute(
             text(

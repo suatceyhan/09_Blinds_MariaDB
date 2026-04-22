@@ -1028,8 +1028,11 @@ export function OrderEditPage() {
                       canEdit ? (
                         <button
                           type="button"
-                          className="w-full rounded-lg border border-teal-200 bg-teal-50/60 px-3 py-2 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50"
+                          disabled={!(editRollupTotals.bal > 0.005) || paymentPending}
+                          title={editRollupTotals.bal > 0.005 ? 'Record a payment' : 'Job balance is already fully paid.'}
+                          className="w-full rounded-lg border border-teal-200 bg-teal-50/60 px-3 py-2 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-teal-50/60"
                           onClick={() => {
+                            if (!(editRollupTotals.bal > 0.005) || paymentPending) return
                             setPaymentAmountInput('')
                             setPaymentModalOpen(true)
                           }}
