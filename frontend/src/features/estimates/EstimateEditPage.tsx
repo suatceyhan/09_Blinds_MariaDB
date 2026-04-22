@@ -149,7 +149,6 @@ export function EstimateEditPage() {
   const [prospectPostalCode, setProspectPostalCode] = useState('')
   const [estimateFormBaseline, setEstimateFormBaseline] = useState<EstimateEditBaseline | null>(null)
 
-  const visitPostalErr = isCa && visitPostalCode.trim() !== '' && !isValidCaPostalCode(visitPostalCode)
   const prospectPostalErr = isCa && prospectPostalCode.trim() !== '' && !isValidCaPostalCode(prospectPostalCode)
 
   function hydrateEstimateFormFields(d: EstimateDetail, bt: BlindsOpt[]) {
@@ -162,8 +161,9 @@ export function EstimateEditPage() {
     setVisitWallDraft(initialWall)
     const tz = coerceTimeZoneForApi(d.visit_time_zone?.trim() || 'UTC')
     setVisitTimeZone(tz)
-    setVisitAddress((d.visit_address ?? d.customer_address ?? '').trim())
-    setVisitPostalCode((d.visit_postal_code ?? d.customer_postal_code ?? '').trim())
+    // View/edit UX does not expose a separate visit address for estimates.
+    setVisitAddress('')
+    setVisitPostalCode('')
     setVisitNotes((d.visit_notes ?? '').trim())
     setGuestEmails((d.visit_guest_emails ?? []).map((e) => e.trim()).filter(Boolean))
     const wc: Record<string, string> = {}
@@ -425,7 +425,7 @@ export function EstimateEditPage() {
       setSaveErr('Could not resolve estimate status. Reload the page or check Lookups → Estimate statuses.')
       return
     }
-    if (visitPostalErr || prospectPostalErr) return
+    if (prospectPostalErr) return
 
     setSaving(true)
     setSaveErr(null)
@@ -433,8 +433,10 @@ export function EstimateEditPage() {
       const patchBody: Record<string, unknown> = {
         scheduled_wall: wall,
         visit_time_zone: tz,
-        visit_address: visitAddress.trim() || null,
-        visit_postal_code: visitPostalCode.trim() || null,
+        // Estimates use a single scheduled date-time; address is always the customer/prospect address.
+        // Keep visit_address fields null to match the view UX (no separate visit address block).
+        visit_address: null,
+        visit_postal_code: null,
         visit_notes: visitNotes.trim() || null,
         visit_guest_emails: guestEmails.map((e) => e.trim()).filter(Boolean),
         blinds_lines,
@@ -560,8 +562,12 @@ export function EstimateEditPage() {
           ) : null}
 
           {!(detail.customer_id ?? '').trim() ? (
-            <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2">
-              <p className="text-sm font-medium text-slate-800 sm:col-span-2">Prospect</p>
+            <section className="rounded-xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Customer</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Prospect only — saved to Customers when an order is created.
+              </p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="block text-sm text-slate-700">
                 First name
                 <input
@@ -635,61 +641,65 @@ export function EstimateEditPage() {
                 ) : null}
               </label>
             </div>
+            </section>
           ) : null}
 
-          <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2">
-            <label className="block text-sm font-medium text-slate-700 sm:col-span-2">
-              Status
-              <select
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:opacity-60"
-                value={selectedStatusEstiId}
-                disabled={formDisabled || estimateStatusSelectOptions.length < 1}
-                onChange={(e) => setSelectedStatusEstiId(e.target.value)}
-              >
-                {estimateStatusSelectOptions.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="block text-sm font-medium text-slate-700">
-              <span className="block">Visit date</span>
-              <div className="mt-1">
-                <VisitStartQuarterPicker
-                  value={visitWallDraft}
-                  onChange={(v) => {
-                    setVisitWallDraft(v)
-                    setSaveErr(null)
-                  }}
-                  disabled={formDisabled}
-                />
+          <section className="rounded-xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm">
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Schedule</h3>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm font-medium text-slate-700 sm:col-span-2">
+                Status
+                <select
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:opacity-60"
+                  value={selectedStatusEstiId}
+                  disabled={formDisabled || estimateStatusSelectOptions.length < 1}
+                  onChange={(e) => setSelectedStatusEstiId(e.target.value)}
+                >
+                  {estimateStatusSelectOptions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="block text-sm font-medium text-slate-700">
+                <span className="block">Scheduled</span>
+                <div className="mt-1">
+                  <VisitStartQuarterPicker
+                    value={visitWallDraft}
+                    onChange={(v) => {
+                      setVisitWallDraft(v)
+                      setSaveErr(null)
+                    }}
+                    disabled={formDisabled}
+                  />
+                </div>
               </div>
+              <label className="block text-sm font-medium text-slate-600">
+                <span>Time zone</span>
+                <select
+                  required
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                  value={visitTimeZone}
+                  disabled={formDisabled}
+                  onChange={(e) => setVisitTimeZone(e.target.value)}
+                >
+                  {!VISIT_TIME_ZONES.includes(visitTimeZone) ? (
+                    <option value={visitTimeZone}>{visitTimeZone}</option>
+                  ) : null}
+                  {VISIT_TIME_ZONES.map((z) => (
+                    <option key={z} value={z}>
+                      {z}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
-            <label className="block text-sm font-medium text-slate-600">
-              <span>Time zone</span>
-              <select
-                required
-                className="mt-1 w-full rounded-lg border border-slate-100 bg-slate-50/90 px-3 py-2 text-sm text-slate-800 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                value={visitTimeZone}
-                disabled={formDisabled}
-                onChange={(e) => setVisitTimeZone(e.target.value)}
-              >
-                {!VISIT_TIME_ZONES.includes(visitTimeZone) ? (
-                  <option value={visitTimeZone}>{visitTimeZone}</option>
-                ) : null}
-                {VISIT_TIME_ZONES.map((z) => (
-                  <option key={z} value={z}>
-                    {z}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+          </section>
 
-          <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2 text-sm text-slate-700">
-            <p className="font-semibold text-slate-800">Organizer & employees</p>
-            <div className="max-h-36 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2">
+          <section className="rounded-xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm">
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Google Calendar Connections</h3>
+            <div className="mt-3 max-h-36 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-700">
               <div className="flex items-start gap-2 rounded px-1 py-1 text-sm">
                 <input
                   type="checkbox"
@@ -746,49 +756,21 @@ export function EstimateEditPage() {
                 })
               )}
             </div>
-          </div>
+          </section>
 
-          <label className="block text-sm font-medium text-slate-700">
-            Visit address (optional)
-            <div className="mt-1">
-              <AddressAutocompleteInput
-                value={visitAddress}
-                onChange={setVisitAddress}
-                disabled={formDisabled}
-                hintId="estimate-edit-visit-address-hint"
-                countryCode={me?.active_company_country_code ?? null}
-                regionCode={me?.active_company_region_code ?? null}
-              />
-            </div>
-            <span id="estimate-edit-visit-address-hint" className="mt-1 block text-xs font-normal text-slate-500">
-              Overrides the customer default for this visit. {ADDRESS_FORMAT_HINT}
-            </span>
-          </label>
-          <label className="block text-sm font-medium text-slate-700">
-            Postal code (optional)
-            <input
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
-              value={visitPostalCode}
-              disabled={formDisabled}
-              onChange={(e) => setVisitPostalCode(e.target.value)}
-              onBlur={() => {
-                if (!isCa) return
-                if (visitPostalCode.trim()) setVisitPostalCode(normalizeCaPostalCode(visitPostalCode))
-              }}
-            />
-            {visitPostalErr ? (
-              <span className="mt-1 block text-xs text-red-700">
-                Enter a valid Canadian postal code (e.g. A1A 1A1) or leave empty.
-              </span>
-            ) : null}
-          </label>
-
-          <fieldset className="rounded-xl border border-slate-200 p-3" disabled={formDisabled}>
-            <legend className="px-1 text-sm font-medium text-slate-800">Blinds types</legend>
+          <fieldset className="rounded-xl border border-slate-200 bg-white p-4" disabled={formDisabled}>
+            <legend className="px-1 text-sm font-semibold uppercase tracking-wide text-slate-500">Blinds</legend>
             <p className="mt-1 text-xs text-slate-500">
               Quantity required for each included type; amount is optional per line.
             </p>
-            <div className="mt-2 text-xs font-semibold text-rose-700">Total amount: ${blindsAmountTotal.toFixed(2)}</div>
+            <div className="mt-3">
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50/80 px-3 py-2">
+                <div className="text-sm font-semibold text-rose-900">Total amount</div>
+                <div className="shrink-0 text-sm font-semibold tabular-nums text-rose-900">
+                  ${blindsAmountTotal.toFixed(2)}
+                </div>
+              </div>
+            </div>
             <div className="mt-2 grid max-h-56 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
               {(blindsTypes ?? []).map((b) => {
                 const checked = Boolean(blindsIncluded[b.id])
@@ -846,16 +828,17 @@ export function EstimateEditPage() {
             </div>
           </fieldset>
 
-          <label className="block text-sm font-medium text-slate-700">
-            Notes
+          <section className="rounded-xl border border-amber-100 bg-amber-50/40 px-4 py-4">
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-amber-900/80">Notes</h3>
             <textarea
               rows={3}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+              className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
               value={visitNotes}
               disabled={formDisabled}
               onChange={(e) => setVisitNotes(e.target.value)}
+              placeholder="Optional notes for this estimate..."
             />
-          </label>
+          </section>
 
           {saveErr ? (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
