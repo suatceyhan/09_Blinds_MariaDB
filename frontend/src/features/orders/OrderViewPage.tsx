@@ -395,8 +395,15 @@ export function OrderViewPage() {
                   {viewOrder.line_item_additions.map((a, idx) => (
                     <details key={a.order_id} className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
                       <summary className="cursor-pointer select-none text-sm font-semibold text-slate-900">
-                        Additional order #{idx + 1}{' '}
-                        <span className="ml-2 font-mono text-xs font-medium text-slate-400">{a.order_id}</span>
+                        <span className="inline-flex items-center gap-2">
+                          Additional order #{idx + 1}{' '}
+                          <span className="ml-2 font-mono text-xs font-medium text-slate-400">{a.order_id}</span>
+                          {Math.abs(parseMoneyAmount(a.balance) ?? 0) <= 0.005 ? (
+                            <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-800 ring-1 ring-indigo-100">
+                              Paid
+                            </span>
+                          ) : null}
+                        </span>
                       </summary>
                       <div className="mt-4 space-y-3">
                         {viewAdditionDetails[a.order_id]?.blinds_lines &&

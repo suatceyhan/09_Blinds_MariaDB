@@ -542,7 +542,7 @@ export function OrderFinancialSecondRow(props: {
       <div className="block min-w-0 text-sm text-slate-700">
         <span
           className={`mb-1 block font-medium ${
-            fullyPaid ? 'text-emerald-800/90' : 'text-teal-800/80'
+            fullyPaid ? 'text-rose-800/90' : 'text-teal-800/80'
           }`}
         >
           Balance due
@@ -550,7 +550,7 @@ export function OrderFinancialSecondRow(props: {
         <p
           className={`rounded-lg px-3 py-2 text-sm font-semibold ${
             fullyPaid
-              ? 'border border-emerald-200 bg-emerald-50/70 text-emerald-900'
+              ? 'border border-rose-200 bg-rose-50/80 text-rose-900'
               : 'border border-teal-100 bg-teal-50/50 text-teal-900'
           }`}
         >

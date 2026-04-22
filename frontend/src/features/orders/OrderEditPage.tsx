@@ -1080,6 +1080,21 @@ export function OrderEditPage() {
                             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
                             value={editDraft.downpayment}
                             onChange={(e) => setEditDraft((d) => (d ? { ...d, downpayment: e.target.value } : d))}
+                            onBlur={() => {
+                              const n = parseOptionalDecimal(editDraft.downpayment)
+                              if (n == null) return
+                              setEditDraft((d) =>
+                                d
+                                  ? {
+                                      ...d,
+                                      downpayment: n.toLocaleString(undefined, {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      }),
+                                    }
+                                  : d,
+                              )
+                            }}
                             placeholder="0.00"
                           />
                         </label>
@@ -1090,6 +1105,21 @@ export function OrderEditPage() {
                             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
                             value={editDraft.tax_base}
                             onChange={(e) => setEditDraft((d) => (d ? { ...d, tax_base: e.target.value } : d))}
+                            onBlur={() => {
+                              const n = parseOptionalDecimal(editDraft.tax_base)
+                              if (n == null) return
+                              setEditDraft((d) =>
+                                d
+                                  ? {
+                                      ...d,
+                                      tax_base: n.toLocaleString(undefined, {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      }),
+                                    }
+                                  : d,
+                              )
+                            }}
                             placeholder="0.00"
                           />
                         </label>
@@ -1148,6 +1178,11 @@ export function OrderEditPage() {
                                 <span className="ml-2 font-mono text-xs font-medium text-slate-400">
                                   {isPendingAdditionOrderId(a.order_id) ? '(draft)' : a.order_id}
                                 </span>
+                                {!isPendingAdditionOrderId(a.order_id) && Math.abs(comp?.balance ?? 0) <= 0.005 ? (
+                                  <span className="ml-2 rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-800 ring-1 ring-indigo-100">
+                                    Paid
+                                  </span>
+                                ) : null}
                               </span>
                               {isPendingAdditionOrderId(a.order_id) ? (
                                 <button
@@ -1217,6 +1252,16 @@ export function OrderEditPage() {
                                       className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
                                       value={a.downpayment}
                                       onChange={(e) => editAdditionUpdate(a.order_id, { downpayment: e.target.value })}
+                                      onBlur={() => {
+                                        const n = parseOptionalDecimal(a.downpayment)
+                                        if (n == null) return
+                                        editAdditionUpdate(a.order_id, {
+                                          downpayment: n.toLocaleString(undefined, {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          }),
+                                        })
+                                      }}
                                       placeholder="0.00"
                                     />
                                   </label>
@@ -1227,6 +1272,16 @@ export function OrderEditPage() {
                                       className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
                                       value={a.tax_base}
                                       onChange={(e) => editAdditionUpdate(a.order_id, { tax_base: e.target.value })}
+                                      onBlur={() => {
+                                        const n = parseOptionalDecimal(a.tax_base)
+                                        if (n == null) return
+                                        editAdditionUpdate(a.order_id, {
+                                          tax_base: n.toLocaleString(undefined, {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          }),
+                                        })
+                                      }}
                                       placeholder="0.00"
                                     />
                                   </label>
