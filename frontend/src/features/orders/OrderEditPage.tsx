@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, FolderKanban, Trash2 } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
@@ -54,6 +54,87 @@ type EditAdditionOrder = {
   total_amount: string | number | null | undefined
 }
 
+const PENDING_ADDITION_PREFIX = 'pending:'
+
+function isPendingAdditionOrderId(orderId: string): boolean {
+  return orderId.startsWith(PENDING_ADDITION_PREFIX)
+}
+
+function newPendingAdditionOrderId(): string {
+  return `${PENDING_ADDITION_PREFIX}${crypto.randomUUID()}`
+}
+
+function buildLineItemAdditionPostBody(
+  a: EditAdditionOrder,
+  blindsOrderOptions: BlindsOrderOptions | null,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    blinds_lines: a.blinds_lines.map((b) => blindsLineToPayload(b, blindsOrderOptions)),
+  }
+  const tb = parseOptionalDecimal(a.tax_base)
+  const dp = parseOptionalDecimal(a.downpayment)
+  if (tb !== null) body.tax_uygulanacak_miktar = tb
+  if (dp !== null) body.downpayment = dp
+  if (a.agreement_date.trim()) body.agreement_date = a.agreement_date.trim()
+  const note = a.order_note.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
+  if (note) body.order_note = note.slice(0, 4000)
+  return body
+}
+
+function createPendingEditAdditionOrder(): EditAdditionOrder {
+  const blinds_lines: BlindsLineState[] = []
+  return {
+    order_id: newPendingAdditionOrderId(),
+    created_at: new Date().toISOString(),
+    status_order_label: null,
+    blinds_lines,
+    downpayment: '',
+    tax_base: '',
+    agreement_date: todayDateInput(),
+    order_note: '',
+    final_payment: null,
+    balance: null,
+    tax_amount: null,
+    total_amount: null,
+  }
+}
+
+/** Expand draft additional orders once on mount without controlling `open` (avoids React/detail quirks). */
+function AdditionalOrderDetails(props: {
+  orderId: string
+  className: string
+  children: React.ReactNode
+}) {
+  const ref = useRef<HTMLDetailsElement>(null)
+  const didExpandDraft = useRef(false)
+  useLayoutEffect(() => {
+    if (!isPendingAdditionOrderId(props.orderId)) return
+    if (didExpandDraft.current) return
+    didExpandDraft.current = true
+    const el = ref.current
+    if (el) el.open = true
+  }, [props.orderId])
+
+  return (
+    <details ref={ref} className={props.className}>
+      {props.children}
+    </details>
+  )
+}
+
+/** Snapshot for dirty check + revert on Cancel (structuredClone-safe). */
+type OrderEditBaseline = {
+  editCustomerId: string
+  editEstimateId: string | null
+  editBlindsLines: BlindsLineState[]
+  editDraft: EditDraft
+  editExtraPaid: number
+  editPaymentEntries: PaymentEntry[]
+  editInstallationStart: string
+  editAttachments: OrderAttachmentRow[]
+  editAdditionOrders: EditAdditionOrder[]
+}
+
 function toEditAdditionOrder(ad: OrderDetail): EditAdditionOrder {
   return {
     order_id: ad.id,
@@ -75,7 +156,6 @@ function toEditAdditionOrder(ad: OrderDetail): EditAdditionOrder {
 
 export function OrderEditPage() {
   const { orderId } = useParams()
-  const navigate = useNavigate()
   const me = useAuthSession()
   const canEdit = Boolean(me?.permissions.includes('orders.edit'))
   const canViewCompanies = Boolean(me?.permissions.includes('companies.view'))
@@ -108,13 +188,7 @@ export function OrderEditPage() {
     id: string
   } | null>(null)
   const [deleteAttachmentPending, setDeleteAttachmentPending] = useState(false)
-  const [lineItemAdditionOpen, setLineItemAdditionOpen] = useState(false)
-  const [lineItemAdditionSaving, setLineItemAdditionSaving] = useState(false)
-  const [additionBlindsLines, setAdditionBlindsLines] = useState<BlindsLineState[]>([])
-  const [additionTaxBaseAmount, setAdditionTaxBaseAmount] = useState('')
-  const [additionDownpayment, setAdditionDownpayment] = useState('')
-  const [additionAgreementDate, setAdditionAgreementDate] = useState(() => todayDateInput())
-  const [additionOrderNote, setAdditionOrderNote] = useState('')
+  const [orderFormBaseline, setOrderFormBaseline] = useState<OrderEditBaseline | null>(null)
 
   const blindsTypes = blindsOrderOptions?.blinds_types ?? null
 
@@ -196,26 +270,61 @@ export function OrderEditPage() {
     return c ? customerLabel(c) : cid
   }, [editCustomerId, customers])
 
-  const additionLineSubtotalParsed = useMemo(() => sumBlindsLineAmounts(additionBlindsLines), [additionBlindsLines])
-  const additionTaxBaseParsed = useMemo(
-    () => parseOptionalDecimal(additionTaxBaseAmount),
-    [additionTaxBaseAmount],
-  )
-  const additionDpParsed = useMemo(() => parseOptionalDecimal(additionDownpayment), [additionDownpayment])
-  const additionComputedTaxAmount = useMemo(() => {
-    if (companyTaxRatePercent == null || additionTaxBaseParsed == null) return null
-    if (companyTaxRatePercent <= 0 || additionTaxBaseParsed <= 0) return safeRound2(0)
-    return safeRound2((additionTaxBaseParsed * companyTaxRatePercent) / 100)
-  }, [companyTaxRatePercent, additionTaxBaseParsed])
-  const additionComputedTotalInclTax = useMemo(
-    () => safeRound2(additionLineSubtotalParsed + (additionComputedTaxAmount ?? 0)),
-    [additionLineSubtotalParsed, additionComputedTaxAmount],
-  )
-  const additionComputedPaid = useMemo(() => safeRound2(additionDpParsed ?? 0), [additionDpParsed])
-  const additionComputedBalance = useMemo(
-    () => safeRound2(additionComputedTotalInclTax - additionComputedPaid),
-    [additionComputedTotalInclTax, additionComputedPaid],
-  )
+  const buildOrderEditBaseline = useCallback((): OrderEditBaseline | null => {
+    if (!editDraft) return null
+    return {
+      editCustomerId,
+      editEstimateId,
+      editBlindsLines: structuredClone(editBlindsLines),
+      editDraft: structuredClone(editDraft),
+      editExtraPaid,
+      editPaymentEntries: structuredClone(editPaymentEntries),
+      editInstallationStart,
+      editAttachments: structuredClone(editAttachments),
+      editAdditionOrders: structuredClone(editAdditionOrders),
+    }
+  }, [
+    editCustomerId,
+    editEstimateId,
+    editBlindsLines,
+    editDraft,
+    editExtraPaid,
+    editPaymentEntries,
+    editInstallationStart,
+    editAttachments,
+    editAdditionOrders,
+  ])
+
+  const isOrderDirty = useMemo(() => {
+    const cur = buildOrderEditBaseline()
+    if (!cur || !orderFormBaseline) return false
+    return JSON.stringify(cur) !== JSON.stringify(orderFormBaseline)
+  }, [buildOrderEditBaseline, orderFormBaseline])
+
+  const latestOrderBaselineRef = useRef<OrderEditBaseline | null>(null)
+  latestOrderBaselineRef.current = buildOrderEditBaseline()
+
+  const scheduleOrderFormBaselineCapture = useCallback(() => {
+    window.setTimeout(() => {
+      const snap = latestOrderBaselineRef.current
+      if (snap) setOrderFormBaseline(snap)
+    }, 150)
+  }, [])
+
+  function revertOrderForm() {
+    if (!orderFormBaseline) return
+    const b = orderFormBaseline
+    setEditCustomerId(b.editCustomerId)
+    setEditEstimateId(b.editEstimateId)
+    setEditBlindsLines(structuredClone(b.editBlindsLines))
+    setEditDraft(structuredClone(b.editDraft))
+    setEditExtraPaid(b.editExtraPaid)
+    setEditPaymentEntries(structuredClone(b.editPaymentEntries))
+    setEditInstallationStart(b.editInstallationStart)
+    setEditAttachments(structuredClone(b.editAttachments))
+    setEditAdditionOrders(structuredClone(b.editAdditionOrders))
+    setErr(null)
+  }
 
   function applyOrderData(detail: OrderDetail, additions: OrderDetail[]) {
     setEditCustomerId(detail.customer_id)
@@ -320,7 +429,6 @@ export function OrderEditPage() {
   useEffect(() => {
     if (!blindsOrderOptions) return
     setEditBlindsLines((prev) => hydrateBlindsLinesDefaults(prev, blindsOrderOptions))
-    setAdditionBlindsLines((prev) => hydrateBlindsLinesDefaults(prev, blindsOrderOptions))
     setEditAdditionOrders((prev) =>
       prev.map((a) => ({ ...a, blinds_lines: hydrateBlindsLinesDefaults(a.blinds_lines, blindsOrderOptions) })),
     )
@@ -330,56 +438,15 @@ export function OrderEditPage() {
     void loadOrderPageData()
   }, [orderId, canEdit])
 
-  function resetLineItemAdditionForm() {
-    setAdditionTaxBaseAmount('')
-    setAdditionDownpayment('')
-    setAdditionAgreementDate(todayDateInput())
-    setAdditionOrderNote('')
-    const first = (blindsTypes ?? [])[0]
-    setAdditionBlindsLines(
-      first && blindsOrderOptions ? [newBlindsLineForType(first.id, first.name, blindsOrderOptions)] : [],
-    )
-  }
+  useEffect(() => {
+    setOrderFormBaseline(null)
+  }, [orderId])
 
-  function openLineItemAddition() {
-    resetLineItemAdditionForm()
-    setLineItemAdditionOpen(true)
-  }
-
-  function additionToggleBlinds(id: string) {
-    setAdditionBlindsLines((prev) => {
-      const exists = prev.some((x) => x.id === id)
-      if (exists) return prev.filter((x) => x.id !== id)
-      const bt = (blindsTypes ?? []).find((x) => x.id === id)
-      return [...prev, newBlindsLineForType(id, bt?.name ?? id, blindsOrderOptions)]
-    })
-  }
-
-  function additionSetBlindsCount(id: string, value: string) {
-    const t = value.trim()
-    if (t === '') {
-      setAdditionBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, window_count: null } : x)))
-      return
-    }
-    const n = Number.parseInt(t, 10)
-    if (Number.isNaN(n)) return
-    const clamped = Math.min(99, Math.max(1, n))
-    setAdditionBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, window_count: clamped } : x)))
-  }
-
-  function additionSetBlindsLineField(id: string, jsonKey: string, value: string) {
-    const next = value.trim() ? value.trim().toLowerCase() : null
-    setAdditionBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, [jsonKey]: next } : x)))
-  }
-
-  function additionSetBlindsLineNote(id: string, value: string) {
-    setAdditionBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, line_note: value } : x)))
-  }
-
-  function additionSetBlindsLineAmount(id: string, value: string) {
-    const next = sanitizeLineAmountInput(value)
-    setAdditionBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, line_amount: next } : x)))
-  }
+  useEffect(() => {
+    if (editLoading || !editDraft || !blindsOrderOptions || !orderId) return
+    const t = window.setTimeout(() => scheduleOrderFormBaselineCapture(), 150)
+    return () => window.clearTimeout(t)
+  }, [editLoading, orderId, blindsOrderOptions, scheduleOrderFormBaselineCapture])
 
   function editToggleBlinds(id: string) {
     setEditBlindsLines((prev) => {
@@ -491,6 +558,16 @@ export function OrderEditPage() {
     )
   }
 
+  function appendPendingAddition() {
+    const row = createPendingEditAdditionOrder()
+    setEditAdditionOrders((prev) => [...prev, row])
+  }
+
+  function removePendingAddition(targetOrderId: string) {
+    if (!isPendingAdditionOrderId(targetOrderId)) return
+    setEditAdditionOrders((prev) => prev.filter((x) => x.order_id !== targetOrderId))
+  }
+
   async function saveOrderEdit() {
     if (!orderId || !editDraft || !canEdit) return
     if (!editDraft.status_orde_id.trim()) {
@@ -509,7 +586,32 @@ export function OrderEditPage() {
     setEditSaving(true)
     setErr(null)
     try {
-      for (const a of editAdditionOrders) {
+      const knownChildIds = new Set(
+        editAdditionOrders.filter((a) => !isPendingAdditionOrderId(a.order_id)).map((a) => a.order_id),
+      )
+      let additionsToPatch = [...editAdditionOrders]
+
+      for (let i = 0; i < additionsToPatch.length; i++) {
+        const row = additionsToPatch[i]
+        if (!isPendingAdditionOrderId(row.order_id)) continue
+        if (row.blinds_lines.length === 0) {
+          setErr('Choose at least one blinds type for each additional order.')
+          return
+        }
+        const anchor = await postJson<OrderDetail>(
+          `/orders/${orderId}/line-item-additions`,
+          buildLineItemAdditionPostBody(row, blindsOrderOptions),
+        )
+        const additionIds = (anchor.line_item_additions ?? []).map((x) => x.order_id)
+        const newId = additionIds.find((id) => !knownChildIds.has(id))
+        if (!newId) {
+          throw new Error('Could not resolve new additional order.')
+        }
+        knownChildIds.add(newId)
+        additionsToPatch[i] = { ...row, order_id: newId }
+      }
+
+      for (const a of additionsToPatch) {
         await patchJson(`/orders/${a.order_id}`, {
           downpayment: parseOptionalDecimal(a.downpayment),
           tax_uygulanacak_miktar: parseOptionalDecimal(a.tax_base),
@@ -540,40 +642,12 @@ export function OrderEditPage() {
         body.installation_scheduled_end_at = null
       }
       await patchJson(`/orders/${orderId}`, body)
-      navigate(`/orders/${orderId}`)
+      await loadOrderPageData(false)
+      scheduleOrderFormBaselineCapture()
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not save order')
     } finally {
       setEditSaving(false)
-    }
-  }
-
-  async function submitLineItemAddition(e: FormEvent) {
-    e.preventDefault()
-    if (!orderId || !canEdit) return
-    if (additionBlindsLines.length === 0) {
-      setErr('Choose at least one blinds type for the addition.')
-      return
-    }
-    setLineItemAdditionSaving(true)
-    setErr(null)
-    try {
-      const body: Record<string, unknown> = {
-        blinds_lines: additionBlindsLines.map((b) => blindsLineToPayload(b, blindsOrderOptions)),
-      }
-      if (additionTaxBaseParsed !== null) body.tax_uygulanacak_miktar = additionTaxBaseParsed
-      if (additionDpParsed !== null) body.downpayment = additionDpParsed
-      if (additionAgreementDate.trim()) body.agreement_date = additionAgreementDate.trim()
-      const note = additionOrderNote.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
-      if (note) body.order_note = note.slice(0, 4000)
-      await postJson(`/orders/${orderId}/line-item-additions`, body)
-      setLineItemAdditionOpen(false)
-      resetLineItemAdditionForm()
-      await loadOrderPageData(false)
-    } catch (ex) {
-      setErr(ex instanceof Error ? ex.message : 'Could not add line items')
-    } finally {
-      setLineItemAdditionSaving(false)
     }
   }
 
@@ -591,6 +665,7 @@ export function OrderEditPage() {
       setPaymentModalOpen(false)
       setPaymentAmountInput('')
       await loadOrderPageData(false)
+      scheduleOrderFormBaselineCapture()
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not record payment')
     } finally {
@@ -606,6 +681,7 @@ export function OrderEditPage() {
       await deleteJson(`/orders/${orderId}/payment-entries/${deletePaymentEntryId}`)
       setDeletePaymentEntryId(null)
       await loadOrderPageData(false)
+      scheduleOrderFormBaselineCapture()
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not remove payment')
     } finally {
@@ -621,6 +697,7 @@ export function OrderEditPage() {
       await deleteJson(`/orders/${deleteAttachmentTarget.orderId}/attachments/${deleteAttachmentTarget.id}`)
       setDeleteAttachmentTarget(null)
       await loadOrderPageData(false)
+      scheduleOrderFormBaselineCapture()
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not remove attachment')
     } finally {
@@ -724,130 +801,9 @@ export function OrderEditPage() {
         </div>
       ) : null}
 
-      {lineItemAdditionOpen && orderId ? (
-        <div
-          className="fixed inset-0 z-[101] flex items-end justify-center bg-slate-900/50 p-4 sm:items-center"
-          role="presentation"
-          onMouseDown={(e) => {
-            if (!lineItemAdditionSaving && e.target === e.currentTarget) {
-              setLineItemAdditionOpen(false)
-            }
-          }}
-        >
-          <form
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="line-item-addition-title"
-            className="my-auto w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
-            onMouseDown={(e) => e.stopPropagation()}
-            onSubmit={(e) => void submitLineItemAddition(e)}
-          >
-            <h2 id="line-item-addition-title" className="text-lg font-semibold text-slate-900">
-              Line-item addition
-            </h2>
-            <p className="mt-2 text-sm text-slate-600">
-              Adds a linked order for more blinds on the same job. Tax uses your company&apos;s current rate.
-            </p>
-            <fieldset className="mt-4 min-w-0 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
-              <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Blinds types &amp; quantities
-              </legend>
-              <BlindsTypesGrid
-                blindsTypes={blindsTypes ?? []}
-                blindsOrderOptions={blindsOrderOptions}
-                lines={additionBlindsLines}
-                toggleType={additionToggleBlinds}
-                setCount={additionSetBlindsCount}
-                setLineField={additionSetBlindsLineField}
-                setLineNote={additionSetBlindsLineNote}
-                setLineAmount={additionSetBlindsLineAmount}
-              />
-              {additionBlindsLines.length === 0 ? (
-                <p className="mt-2 text-xs text-amber-700">Choose at least one blinds type.</p>
-              ) : null}
-            </fieldset>
-            <label className="mt-4 block w-full text-sm text-slate-700">
-              <span className="mb-1 block font-medium">Order note</span>
-              <textarea
-                value={additionOrderNote}
-                onChange={(e) => setAdditionOrderNote(e.target.value)}
-                rows={2}
-                maxLength={4000}
-                placeholder="Optional note for this addition..."
-                className="w-full whitespace-pre-wrap rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-              />
-            </label>
-            <div className="mt-4 space-y-3">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div className="block min-w-0 text-sm text-slate-700">
-                  <span className="mb-1 block font-medium">Total (incl. tax)</span>
-                  <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
-                    {fmtTotalIncludingTax(additionLineSubtotalParsed, additionComputedTaxAmount)}
-                  </p>
-                </div>
-                <label className="block min-w-0 text-sm text-slate-700">
-                  <span className="mb-1 block font-medium">Down payment</span>
-                  <input
-                    inputMode="decimal"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                    value={additionDownpayment}
-                    onChange={(e) => setAdditionDownpayment(e.target.value)}
-                    placeholder="0.00"
-                    disabled={lineItemAdditionSaving}
-                  />
-                </label>
-                <label className="block min-w-0 text-sm text-slate-700">
-                  <span className="mb-1 block font-medium">Taxable base</span>
-                  <input
-                    inputMode="decimal"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                    value={additionTaxBaseAmount}
-                    onChange={(e) => setAdditionTaxBaseAmount(e.target.value)}
-                    placeholder="0.00"
-                    disabled={lineItemAdditionSaving}
-                  />
-                </label>
-              </div>
-              <OrderFinancialSecondRow
-                paidDisplay={fmtMoney(additionComputedPaid)}
-                balance={additionComputedBalance}
-                tax={additionComputedTaxAmount}
-              />
-            </div>
-            <label className="mt-4 block text-sm text-slate-700">
-              <span className="mb-1 block font-medium">Agreement date (optional)</span>
-              <input
-                type="date"
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                value={additionAgreementDate}
-                onChange={(e) => setAdditionAgreementDate(e.target.value)}
-                disabled={lineItemAdditionSaving}
-              />
-            </label>
-            <div className="mt-6 flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                disabled={lineItemAdditionSaving}
-                onClick={() => setLineItemAdditionOpen(false)}
-                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={lineItemAdditionSaving || additionBlindsLines.length === 0}
-                className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
-              >
-                {lineItemAdditionSaving ? 'Saving...' : 'Save addition'}
-              </button>
-            </div>
-          </form>
-        </div>
-      ) : null}
-
-      <Link to={orderId ? `/orders/${orderId}` : '/orders'} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900 hover:text-slate-950 hover:underline">
+      <Link to="/orders" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900 hover:text-slate-950 hover:underline">
         <ArrowLeft className="h-4 w-4" />
-        Back to order
+        Back to orders
       </Link>
 
       {err ? (
@@ -1129,6 +1085,7 @@ export function OrderEditPage() {
                         setUploadBusy={setAttachmentUploadBusy}
                         onAfterServerMutation={async () => {
                           await loadOrderPageData(false)
+                          scheduleOrderFormBaselineCapture()
                         }}
                         setErr={setErr}
                         onRequestDeleteAttachment={(id) => orderId && setDeleteAttachmentTarget({ orderId, id })}
@@ -1142,10 +1099,37 @@ export function OrderEditPage() {
                     ? editAdditionOrders.map((a, idx) => {
                         const comp = editAdditionComputed.find((x) => x.order_id === a.order_id)
                         return (
-                          <details key={a.order_id} className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
-                            <summary className="cursor-pointer select-none text-sm font-semibold text-slate-900">
-                              Additional order #{idx + 1}{' '}
-                              <span className="ml-2 font-mono text-xs font-medium text-slate-400">{a.order_id}</span>
+                          <AdditionalOrderDetails
+                            key={a.order_id}
+                            orderId={a.order_id}
+                            className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm"
+                          >
+                            <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 select-none text-sm font-semibold text-slate-900">
+                              <span>
+                                Additional order #{idx + 1}{' '}
+                                <span className="ml-2 font-mono text-xs font-medium text-slate-400">
+                                  {isPendingAdditionOrderId(a.order_id) ? '(draft)' : a.order_id}
+                                </span>
+                              </span>
+                              {isPendingAdditionOrderId(a.order_id) ? (
+                                <button
+                                  type="button"
+                                  className="inline-flex shrink-0 rounded-lg p-1.5 text-red-600 hover:bg-red-50"
+                                  title="Remove draft additional order"
+                                  aria-label="Remove draft additional order"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                  }}
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    removePendingAddition(a.order_id)
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4" strokeWidth={2} />
+                                </button>
+                              ) : null}
                             </summary>
                             <div className="mt-4 grid gap-3 sm:grid-cols-2">
                               <fieldset className="min-w-0 rounded-lg border border-slate-200 bg-slate-50/60 p-3 sm:col-span-2">
@@ -1226,7 +1210,7 @@ export function OrderEditPage() {
                                 />
                               </label>
                             </div>
-                          </details>
+                          </AdditionalOrderDetails>
                         )
                       })
                     : null}
@@ -1235,7 +1219,7 @@ export function OrderEditPage() {
                     type="button"
                     disabled={!canEdit || editSaving || !orderId}
                     className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-teal-200 bg-teal-50/70 px-4 py-3 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50 disabled:opacity-50"
-                    onClick={() => openLineItemAddition()}
+                    onClick={() => appendPendingAddition()}
                     title="Add additional order"
                   >
                     + Additional order
@@ -1248,9 +1232,9 @@ export function OrderEditPage() {
           <div className="flex flex-wrap justify-end gap-2">
             <button
               type="button"
-              disabled={editSaving}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              onClick={() => navigate(orderId ? `/orders/${orderId}` : '/orders')}
+              disabled={!isOrderDirty || editSaving}
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => revertOrderForm()}
             >
               Cancel
             </button>
@@ -1258,6 +1242,7 @@ export function OrderEditPage() {
               type="submit"
               disabled={
                 editSaving ||
+                !isOrderDirty ||
                 !editDraft.status_orde_id.trim() ||
                 editBlindsLines.length === 0 ||
                 (!editEstimateId && !editCustomerId.trim())

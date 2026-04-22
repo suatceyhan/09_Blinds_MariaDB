@@ -476,7 +476,9 @@ def _ready_for_install_order_status_id(db: Session, company_id: UUID) -> str | N
             FROM status_order so
             INNER JOIN company_status_order_matrix m
               ON m.status_order_id = so.id AND m.company_id = CAST(:cid AS uuid)
-            WHERE so.active IS TRUE AND lower(trim(so.name)) = 'ready for installation'
+            WHERE so.active IS TRUE
+              AND lower(trim(so.name)) LIKE '%ready%'
+              AND lower(trim(so.name)) LIKE '%install%'
             LIMIT 1
             """
         ),

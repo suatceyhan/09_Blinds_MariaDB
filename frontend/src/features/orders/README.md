@@ -1,3 +1,11 @@
 # Feature: Orders
 
 Sipariş oluşturma, düzenleme, durum takibi.
+
+## Edit order — navigation and additional orders
+
+**Order detail (read-only):** recording payments is not shown on the view page; use **Edit order** to open the edit screen where payments can be recorded.
+
+**Back to orders** (`/orders`) leaves the editor. **Cancel** (footer) only appears when the form is dirty; it resets local changes to the last loaded/saved snapshot (same tab). **Save** only appears when dirty; after a successful save the page reloads order data and stays on the edit URL.
+
+**+ Additional order** appends another **Additional order #N** accordion section inline (no separate full-screen form). The new draft opens expanded; no blinds type is pre-selected until the user picks one. (`BlindsTypesGrid` avoids rendering attribute `<select>`s with an empty value when no line is checked—React requires each `value` to match an `<option>`.) Draft rows show `(draft)` until **Save**; saving creates each new addition via `POST /orders/{anchorId}/line-item-additions`, then patches all additional orders and the anchor. Draft rows can be removed with the trash control on the summary line.

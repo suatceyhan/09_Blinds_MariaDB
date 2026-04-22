@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, FolderKanban, Pencil } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
-import { deleteJson, getJson, postJson } from '@/lib/api'
+import { deleteJson, getJson } from '@/lib/api'
 import {
   blindsLineSummarySuffix,
   BlindsOrderOptions,
@@ -17,7 +17,6 @@ import {
   OrderFinancialSecondRow,
   OrderStatusBadge,
   parseMoneyAmount,
-  parseOptionalDecimal,
   safeRound2,
   statusCodeLabel,
 } from './ordersShared'
@@ -39,9 +38,6 @@ export function OrderViewPage() {
     id: string
   } | null>(null)
   const [deleteAttachmentPending, setDeleteAttachmentPending] = useState(false)
-  const [paymentModalOpen, setPaymentModalOpen] = useState(false)
-  const [paymentAmountInput, setPaymentAmountInput] = useState('')
-  const [paymentPending, setPaymentPending] = useState(false)
 
   const viewPaidFormatted = useMemo(() => {
     if (!viewOrder) return '-'
@@ -141,27 +137,6 @@ export function OrderViewPage() {
     }
   }
 
-  async function submitRecordPayment() {
-    if (!orderId || !canEdit) return
-    const amt = parseOptionalDecimal(paymentAmountInput.trim())
-    if (amt == null || amt <= 0) {
-      setErr('Enter a valid payment amount.')
-      return
-    }
-    setPaymentPending(true)
-    setErr(null)
-    try {
-      await postJson<OrderDetail>(`/orders/${orderId}/record-payment`, { amount: amt })
-      await refreshOrder()
-      setPaymentModalOpen(false)
-      setPaymentAmountInput('')
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not record payment')
-    } finally {
-      setPaymentPending(false)
-    }
-  }
-
   async function runDeleteAttachment() {
     if (!deleteAttachmentTarget || !canEdit) return
     const { orderId: targetOrderId, id } = deleteAttachmentTarget
@@ -201,66 +176,6 @@ export function OrderViewPage() {
         onConfirm={() => void runDeleteAttachment()}
         onCancel={() => !deleteAttachmentPending && setDeleteAttachmentTarget(null)}
       />
-
-      {paymentModalOpen && orderId ? (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4"
-          role="presentation"
-          onMouseDown={(e) => {
-            if (!paymentPending && e.target === e.currentTarget) {
-              setPaymentModalOpen(false)
-              setPaymentAmountInput('')
-            }
-          }}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="order-view-payment-modal-title"
-            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <h2 id="order-view-payment-modal-title" className="text-lg font-semibold text-slate-900">
-              Record payment
-            </h2>
-            <p className="mt-2 text-sm text-slate-600">
-              Enter the amount to record. It cannot exceed the current balance due.
-            </p>
-            <label className="mt-4 block text-sm text-slate-700">
-              <span className="mb-1 block font-medium">Amount</span>
-              <input
-                inputMode="decimal"
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                value={paymentAmountInput}
-                onChange={(e) => setPaymentAmountInput(e.target.value)}
-                placeholder="0.00"
-                disabled={paymentPending}
-              />
-            </label>
-            <div className="mt-6 flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                disabled={paymentPending}
-                onClick={() => {
-                  setPaymentModalOpen(false)
-                  setPaymentAmountInput('')
-                }}
-                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={paymentPending}
-                onClick={() => void submitRecordPayment()}
-                className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {paymentPending ? 'Saving...' : 'Pay'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       <Link to="/orders" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900 hover:text-slate-950 hover:underline">
         <ArrowLeft className="h-4 w-4" />
@@ -378,20 +293,6 @@ export function OrderViewPage() {
                   paidDisplay={viewPaidFormatted}
                   balance={viewOrder.financial_totals?.balance ?? viewOrder.balance}
                   tax={viewOrder.financial_totals?.tax_amount ?? viewOrder.tax_amount}
-                  belowBalance={
-                    canEdit && viewOrder.active !== false ? (
-                      <button
-                        type="button"
-                        className="w-full rounded-lg border border-teal-200 bg-teal-50/60 px-3 py-2 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50"
-                        onClick={() => {
-                          setPaymentAmountInput('')
-                          setPaymentModalOpen(true)
-                        }}
-                      >
-                        Payment
-                      </button>
-                    ) : undefined
-                  }
                 />
               </div>
 

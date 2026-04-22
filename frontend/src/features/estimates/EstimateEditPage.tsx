@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, CalendarDays } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
@@ -94,6 +94,25 @@ const VISIT_TIME_ZONES: string[] = [
   'Pacific/Auckland',
 ]
 
+type EstimateEditBaseline = {
+  selectedStatusEstiId: string
+  visitWallDraft: string
+  visitTimeZone: string
+  visitAddress: string
+  visitPostalCode: string
+  visitNotes: string
+  guestEmails: string[]
+  windowCountByBlindsId: Record<string, string>
+  lineAmountByBlindsId: Record<string, string>
+  blindsIncluded: Record<string, boolean>
+  prospectName: string
+  prospectSurname: string
+  prospectPhone: string
+  prospectEmail: string
+  prospectAddress: string
+  prospectPostalCode: string
+}
+
 export function EstimateEditPage() {
   const { estimateId } = useParams()
   const navigate = useNavigate()
@@ -128,9 +147,46 @@ export function EstimateEditPage() {
   const [prospectEmail, setProspectEmail] = useState('')
   const [prospectAddress, setProspectAddress] = useState('')
   const [prospectPostalCode, setProspectPostalCode] = useState('')
+  const [estimateFormBaseline, setEstimateFormBaseline] = useState<EstimateEditBaseline | null>(null)
 
   const visitPostalErr = isCa && visitPostalCode.trim() !== '' && !isValidCaPostalCode(visitPostalCode)
   const prospectPostalErr = isCa && prospectPostalCode.trim() !== '' && !isValidCaPostalCode(prospectPostalCode)
+
+  function hydrateEstimateFormFields(d: EstimateDetail, bt: BlindsOpt[]) {
+    setSelectedStatusEstiId((d.status_esti_id ?? '').trim())
+    const p0 = defaultVisitScheduleParts()
+    const wallRaw = d.scheduled_wall?.trim() ?? ''
+    const initialWall = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(wallRaw)
+      ? snapWallToQuarterMinutes(wallRaw)
+      : joinScheduledWall(p0.date, p0.hour12, p0.minute, p0.ampm)
+    setVisitWallDraft(initialWall)
+    const tz = coerceTimeZoneForApi(d.visit_time_zone?.trim() || 'UTC')
+    setVisitTimeZone(tz)
+    setVisitAddress((d.visit_address ?? d.customer_address ?? '').trim())
+    setVisitPostalCode((d.visit_postal_code ?? d.customer_postal_code ?? '').trim())
+    setVisitNotes((d.visit_notes ?? '').trim())
+    setGuestEmails((d.visit_guest_emails ?? []).map((e) => e.trim()).filter(Boolean))
+    const wc: Record<string, string> = {}
+    const la: Record<string, string> = {}
+    const inc: Record<string, boolean> = {}
+    for (const b of bt) {
+      const line = (d.blinds_types ?? []).find((x) => x.id === b.id)
+      const raw = line?.window_count != null ? String(line.window_count) : ''
+      wc[b.id] = raw
+      inc[b.id] = raw.trim() !== '' && Number.parseInt(raw.trim(), 10) >= 1
+      const lam = line?.line_amount
+      la[b.id] = lam != null && lam > 0 ? String(lam) : ''
+    }
+    setWindowCountByBlindsId(wc)
+    setLineAmountByBlindsId(la)
+    setBlindsIncluded(inc)
+    setProspectName((d.prospect_name ?? '').trim())
+    setProspectSurname((d.prospect_surname ?? '').trim())
+    setProspectPhone((d.prospect_phone ?? '').trim())
+    setProspectEmail((d.prospect_email ?? '').trim())
+    setProspectAddress((d.prospect_address ?? '').trim())
+    setProspectPostalCode((d.prospect_postal_code ?? '').trim())
+  }
 
   useEffect(() => {
     if (!me || !estimateId || !canEdit) return
@@ -150,39 +206,7 @@ export function EstimateEditPage() {
         setBlindsTypes(bt)
         setCreateContext(ctx)
         setEstimateStatuses(estSt)
-        setSelectedStatusEstiId((d.status_esti_id ?? '').trim())
-        const p0 = defaultVisitScheduleParts()
-        const wallRaw = d.scheduled_wall?.trim() ?? ''
-        const initialWall = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(wallRaw)
-          ? snapWallToQuarterMinutes(wallRaw)
-          : joinScheduledWall(p0.date, p0.hour12, p0.minute, p0.ampm)
-        setVisitWallDraft(initialWall)
-        const tz = coerceTimeZoneForApi(d.visit_time_zone?.trim() || 'UTC')
-        setVisitTimeZone(tz)
-        setVisitAddress((d.visit_address ?? d.customer_address ?? '').trim())
-        setVisitPostalCode((d.visit_postal_code ?? d.customer_postal_code ?? '').trim())
-        setVisitNotes((d.visit_notes ?? '').trim())
-        setGuestEmails((d.visit_guest_emails ?? []).map((e) => e.trim()).filter(Boolean))
-        const wc: Record<string, string> = {}
-        const la: Record<string, string> = {}
-        const inc: Record<string, boolean> = {}
-        for (const b of bt ?? []) {
-          const line = (d.blinds_types ?? []).find((x) => x.id === b.id)
-          const raw = line?.window_count != null ? String(line.window_count) : ''
-          wc[b.id] = raw
-          inc[b.id] = raw.trim() !== '' && Number.parseInt(raw.trim(), 10) >= 1
-          const lam = line?.line_amount
-          la[b.id] = lam != null && lam > 0 ? String(lam) : ''
-        }
-        setWindowCountByBlindsId(wc)
-        setLineAmountByBlindsId(la)
-        setBlindsIncluded(inc)
-        setProspectName((d.prospect_name ?? '').trim())
-        setProspectSurname((d.prospect_surname ?? '').trim())
-        setProspectPhone((d.prospect_phone ?? '').trim())
-        setProspectEmail((d.prospect_email ?? '').trim())
-        setProspectAddress((d.prospect_address ?? '').trim())
-        setProspectPostalCode((d.prospect_postal_code ?? '').trim())
+        hydrateEstimateFormFields(d, bt ?? [])
       } catch (e) {
         if (!cancelled) {
           setDetail(null)
@@ -264,6 +288,92 @@ export function EstimateEditPage() {
     return guestSelectOptions.filter((g) => g.email.trim().toLowerCase() !== organizerEmailLc)
   }, [guestSelectOptions, organizerEmailLc])
 
+  const buildEstimateEditBaseline = useCallback((): EstimateEditBaseline => {
+    return {
+      selectedStatusEstiId,
+      visitWallDraft,
+      visitTimeZone,
+      visitAddress,
+      visitPostalCode,
+      visitNotes,
+      guestEmails: [...guestEmails],
+      windowCountByBlindsId: structuredClone(windowCountByBlindsId),
+      lineAmountByBlindsId: structuredClone(lineAmountByBlindsId),
+      blindsIncluded: structuredClone(blindsIncluded),
+      prospectName,
+      prospectSurname,
+      prospectPhone,
+      prospectEmail,
+      prospectAddress,
+      prospectPostalCode,
+    }
+  }, [
+    selectedStatusEstiId,
+    visitWallDraft,
+    visitTimeZone,
+    visitAddress,
+    visitPostalCode,
+    visitNotes,
+    guestEmails,
+    windowCountByBlindsId,
+    lineAmountByBlindsId,
+    blindsIncluded,
+    prospectName,
+    prospectSurname,
+    prospectPhone,
+    prospectEmail,
+    prospectAddress,
+    prospectPostalCode,
+  ])
+
+  const latestEstimateBaselineRef = useRef<EstimateEditBaseline | null>(null)
+  latestEstimateBaselineRef.current = buildEstimateEditBaseline()
+
+  const scheduleEstimateFormBaselineCapture = useCallback(() => {
+    window.setTimeout(() => {
+      const snap = latestEstimateBaselineRef.current
+      if (snap) setEstimateFormBaseline(structuredClone(snap))
+    }, 150)
+  }, [])
+
+  const isEstimateDirty = useMemo(() => {
+    const cur = buildEstimateEditBaseline()
+    if (!estimateFormBaseline) return false
+    return JSON.stringify(cur) !== JSON.stringify(estimateFormBaseline)
+  }, [buildEstimateEditBaseline, estimateFormBaseline])
+
+  function revertEstimateForm() {
+    if (!estimateFormBaseline) return
+    const b = estimateFormBaseline
+    setSelectedStatusEstiId(b.selectedStatusEstiId)
+    setVisitWallDraft(b.visitWallDraft)
+    setVisitTimeZone(b.visitTimeZone)
+    setVisitAddress(b.visitAddress)
+    setVisitPostalCode(b.visitPostalCode)
+    setVisitNotes(b.visitNotes)
+    setGuestEmails([...b.guestEmails])
+    setWindowCountByBlindsId(structuredClone(b.windowCountByBlindsId))
+    setLineAmountByBlindsId(structuredClone(b.lineAmountByBlindsId))
+    setBlindsIncluded(structuredClone(b.blindsIncluded))
+    setProspectName(b.prospectName)
+    setProspectSurname(b.prospectSurname)
+    setProspectPhone(b.prospectPhone)
+    setProspectEmail(b.prospectEmail)
+    setProspectAddress(b.prospectAddress)
+    setProspectPostalCode(b.prospectPostalCode)
+    setSaveErr(null)
+  }
+
+  useEffect(() => {
+    setEstimateFormBaseline(null)
+  }, [estimateId])
+
+  useEffect(() => {
+    if (loading || !detail || !blindsTypes?.length) return
+    const t = window.setTimeout(() => scheduleEstimateFormBaselineCapture(), 300)
+    return () => window.clearTimeout(t)
+  }, [loading, estimateId, blindsTypes?.length, scheduleEstimateFormBaselineCapture])
+
   async function onSave(e: React.FormEvent) {
     e.preventDefault()
     if (!estimateId || !canEdit || detail?.is_deleted) return
@@ -338,8 +448,13 @@ export function EstimateEditPage() {
         patchBody.prospect_address = prospectAddress.trim() || null
         patchBody.prospect_postal_code = prospectPostalCode.trim() || null
       }
-      await patchJson<EstimateDetail>(`/estimates/${estimateId}`, patchBody)
-      navigate(`/estimates/${estimateId}`)
+      let nextDetail = await patchJson<EstimateDetail>(`/estimates/${estimateId}`, patchBody)
+      if (!nextDetail?.id) {
+        nextDetail = await getJson<EstimateDetail>(`/estimates/${estimateId}`)
+      }
+      setDetail(nextDetail)
+      hydrateEstimateFormFields(nextDetail, blindsTypes ?? [])
+      scheduleEstimateFormBaselineCapture()
     } catch (err) {
       setSaveErr(err instanceof Error ? err.message : 'Save failed')
     } finally {
@@ -367,36 +482,8 @@ export function EstimateEditPage() {
       const d = await postJson<EstimateDetail>(`/estimates/${estimateId}/restore`, {})
       setDetail(d)
       setRestoreOpen(false)
-      setSelectedStatusEstiId((d.status_esti_id ?? '').trim())
-      const p0 = defaultVisitScheduleParts()
-      const wallRaw = d.scheduled_wall?.trim() ?? ''
-      const initialWall = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(wallRaw)
-        ? snapWallToQuarterMinutes(wallRaw)
-        : joinScheduledWall(p0.date, p0.hour12, p0.minute, p0.ampm)
-      setVisitWallDraft(initialWall)
-      setVisitTimeZone(coerceTimeZoneForApi(d.visit_time_zone?.trim() || 'UTC'))
-      setGuestEmails((d.visit_guest_emails ?? []).map((e) => e.trim()).filter(Boolean))
-      {
-        const wc: Record<string, string> = {}
-        const la: Record<string, string> = {}
-        const inc: Record<string, boolean> = {}
-        for (const b of blindsTypes ?? []) {
-          const line = (d.blinds_types ?? []).find((x) => x.id === b.id)
-          const raw = line?.window_count != null ? String(line.window_count) : ''
-          wc[b.id] = raw
-          inc[b.id] = raw.trim() !== '' && Number.parseInt(raw.trim(), 10) >= 1
-          const lam = line?.line_amount
-          la[b.id] = lam != null && lam > 0 ? String(lam) : ''
-        }
-        setWindowCountByBlindsId(wc)
-        setLineAmountByBlindsId(la)
-        setBlindsIncluded(inc)
-        setProspectName((d.prospect_name ?? '').trim())
-        setProspectSurname((d.prospect_surname ?? '').trim())
-        setProspectPhone((d.prospect_phone ?? '').trim())
-        setProspectEmail((d.prospect_email ?? '').trim())
-        setProspectAddress((d.prospect_address ?? '').trim())
-      }
+      hydrateEstimateFormFields(d, blindsTypes ?? [])
+      scheduleEstimateFormBaselineCapture()
     } catch (err) {
       setSaveErr(err instanceof Error ? err.message : 'Restore failed')
     } finally {
@@ -777,15 +864,17 @@ export function EstimateEditPage() {
           ) : null}
 
           <div className="flex justify-end gap-2">
-            <Link
-              to="/estimates"
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            <button
+              type="button"
+              disabled={formDisabled || !isEstimateDirty || saving}
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => revertEstimateForm()}
             >
               Cancel
-            </Link>
+            </button>
             <button
               type="submit"
-              disabled={formDisabled || saving}
+              disabled={formDisabled || saving || !isEstimateDirty}
               className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
             >
               {saving ? 'Saving…' : 'Save changes'}

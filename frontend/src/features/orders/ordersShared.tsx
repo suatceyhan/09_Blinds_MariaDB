@@ -199,7 +199,10 @@ export function isCategoryAttributeRow(row: BlindsLineAttributeRow): boolean {
 export function categoryColumnWidthCh(row: BlindsLineAttributeRow): number {
   const h = attributeColumnHeaderLabel(row)
   let m = h.length
-  for (const o of row.options) m = Math.max(m, o.name.length)
+  for (const o of row.options) {
+    const len = typeof o?.name === 'string' ? o.name.length : 0
+    m = Math.max(m, len)
+  }
   return Math.min(Math.max(m + 1, 8), 20)
 }
 
@@ -800,7 +803,9 @@ export function BlindsTypesGrid(props: {
                     />
                   </td>
                   {attrRows.map((attrRow) => {
-                    const opts = allowedIdsForAttributeRow(attrRow, b.id)
+                    const opts = allowedIdsForAttributeRow(attrRow, b.id).filter(
+                      (oid): oid is string => typeof oid === 'string' && oid.trim() !== '',
+                    )
                     const cat = isCategoryAttributeRow(attrRow)
                     const wch = cat ? categoryColumnWidthCh(attrRow) : null
                     const style =
@@ -808,7 +813,6 @@ export function BlindsTypesGrid(props: {
                         ? ({ width: `${wch}ch`, minWidth: `${wch}ch`, maxWidth: `${wch}ch` } as const)
                         : undefined
                     const sel = cur ? String(cur[attrRow.json_key] ?? '') : ''
-                    const selLabel = sel ? attributeOptionLabel(attrRow, sel) : ''
                     if (!opts.length) {
                       return (
                         <td
@@ -823,6 +827,26 @@ export function BlindsTypesGrid(props: {
                         </td>
                       )
                     }
+                    // No line row yet: avoid <select value=""> with no matching <option> (React runtime error).
+                    if (!checked) {
+                      return (
+                        <td
+                          key={`${keyPrefix}-${b.id}-${attrRow.kind_id}`}
+                          style={style}
+                          className={`px-0.5 py-1 text-center align-middle text-slate-300 ${
+                            cat ? '' : 'min-w-[4rem] max-w-[6.5rem]'
+                          }`}
+                          title="Select type first"
+                        >
+                          —
+                        </td>
+                      )
+                    }
+                    const selTrim = sel.trim().toLowerCase()
+                    const matchedOpt = opts.find((o) => String(o).toLowerCase() === selTrim)
+                    const selectValue = matchedOpt ?? opts[0]
+                    const selectLabel = attributeOptionLabel(attrRow, selectValue)
+
                     return (
                       <td
                         key={`${keyPrefix}-${b.id}-${attrRow.kind_id}`}
@@ -830,16 +854,11 @@ export function BlindsTypesGrid(props: {
                         className={`px-0.5 py-1 align-middle ${cat ? '' : 'min-w-[4rem] max-w-[6.5rem]'}`}
                       >
                         <select
-                          disabled={!checked}
-                          value={sel}
+                          value={selectValue}
                           onChange={(e) => setLineField(b.id, attrRow.json_key, e.target.value)}
-                          title={
-                            checked
-                              ? `${attributeColumnHeaderLabel(attrRow)}: ${selLabel || '—'}`
-                              : 'Select type first'
-                          }
+                          title={`${attributeColumnHeaderLabel(attrRow)}: ${selectLabel || '—'}`}
                           aria-label={`${attributeColumnHeaderLabel(attrRow)} for ${b.name}`}
-                          className="h-8 w-full min-w-0 max-w-full truncate rounded-md border border-slate-200 bg-white px-0.5 text-center text-xs outline-none focus:border-teal-500 disabled:bg-slate-100 disabled:text-slate-400"
+                          className="h-8 w-full min-w-0 max-w-full truncate rounded-md border border-slate-200 bg-white px-0.5 text-center text-xs outline-none focus:border-teal-500"
                         >
                           {opts.map((oid) => (
                             <option key={oid} value={oid}>

@@ -536,7 +536,7 @@ def try_push_estimate_to_google_calendar(
 def try_push_order_installation_to_google_calendar(
     db: Session, *, company_id: UUID, order_id: str, acting_user_id: UUID
 ) -> None:
-    """Create/update a Google Calendar event when an order has installation time and status Ready for installation."""
+    """Create/update Google Calendar when installation time is set; delete event when time is cleared or status is cancelled-like."""
     if not google_calendar_oauth_configured():
         return
     try:
@@ -584,25 +584,66 @@ def try_push_order_installation_to_google_calendar(
         if sid is None or str(sid).strip() == "":
             reset_connection_rls_gucs(db)
             return
-        st_ok = db.execute(
+
+        status_nm = ""
+        sn_row = db.execute(
             text(
                 """
-                SELECT 1
+                SELECT lower(trim(so.name)) AS nm
                 FROM status_order so
-                WHERE so.id = :sid AND lower(trim(so.name)) = 'ready for installation'
+                INNER JOIN company_status_order_matrix m
+                  ON m.status_order_id = so.id AND m.company_id = CAST(:cid AS uuid)
+                WHERE so.id = :sid AND so.active IS TRUE
                 LIMIT 1
                 """
             ),
-            {"sid": str(sid).strip()},
-        ).first()
-        if not st_ok:
+            {"cid": str(company_id), "sid": str(sid).strip()},
+        ).mappings().first()
+        if sn_row:
+            status_nm = str(sn_row.get("nm") or "")
+        cancel_like = "cancel" in status_nm
+
+        start_dt_raw = ord_row.get("installation_scheduled_start_at")
+        existing_geid_raw = ord_row.get("installation_google_event_id")
+        existing_geid_s = str(existing_geid_raw).strip() if existing_geid_raw else ""
+
+        # Remove Google event when installation time is cleared or order is in a cancelled-like status.
+        if start_dt_raw is None or cancel_like:
+            if existing_geid_s:
+                try:
+                    creds = _calendar_credentials(cal_row["refresh_token"])
+                    creds.refresh(GoogleAuthRequest())
+                    cal_id_del = (cal_row.get("calendar_id") or "primary").strip() or "primary"
+                    service_del = build("calendar", "v3", credentials=creds, cache_discovery=False)
+                    service_del.events().delete(calendarId=cal_id_del, eventId=existing_geid_s).execute()
+                    db.execute(
+                        text(
+                            """
+                            UPDATE orders
+                            SET installation_google_event_id = NULL,
+                                installation_calendar_provider = NULL,
+                                installation_calendar_last_synced_at = NOW(),
+                                updated_at = NOW()
+                            WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+                            """
+                        ),
+                        {"cid": str(company_id), "oid": order_id},
+                    )
+                    db.commit()
+                except HttpError as exc:
+                    logger.warning(
+                        "Google Calendar delete installation event failed order=%s: %s",
+                        order_id,
+                        exc,
+                    )
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
             reset_connection_rls_gucs(db)
             return
 
-        start_dt = ord_row.get("installation_scheduled_start_at")
-        if start_dt is None:
-            reset_connection_rls_gucs(db)
-            return
+        start_dt = start_dt_raw
         if getattr(start_dt, "tzinfo", None) is None:
             start_dt = start_dt.replace(tzinfo=timezone.utc)
 
