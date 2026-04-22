@@ -410,6 +410,10 @@ export function AppLayout() {
   const location = useLocation()
   const title = appTitle()
   const [me, setMe] = useState<Me | null>(null)
+  const [activeCompanyBrand, setActiveCompanyBrand] = useState<{
+    name: string
+    logoHref: string | null
+  } | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   /** Desktop (lg+): narrow icon rail; persisted in localStorage. */
   const [navCollapsed, setNavCollapsed] = useState(readInitialSidebarNavCollapsed)
@@ -510,6 +514,33 @@ export function AppLayout() {
     touchLastActivity()
   }, [location.pathname])
 
+  useEffect(() => {
+    const id = (me?.active_company_id ?? me?.company_id ?? '').trim()
+    const nameFallback = (me?.active_company_name ?? me?.company_name ?? '').trim()
+    if (!id) {
+      setActiveCompanyBrand(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        // Best-effort: if the user can view company details, show logo + name.
+        const co = await getJson<{ name: string; logo_url?: string | null }>(`/companies/${id}`)
+        if (cancelled) return
+        const rawLogo = (co.logo_url ?? '').trim()
+        const logoHref = rawLogo ? `${apiBase()}${rawLogo.startsWith('/') ? rawLogo : `/${rawLogo}`}` : null
+        setActiveCompanyBrand({ name: (co.name ?? '').trim() || nameFallback || title, logoHref })
+      } catch {
+        if (!cancelled) {
+          setActiveCompanyBrand({ name: nameFallback || title, logoHref: null })
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [me?.active_company_id, me?.company_id, me?.active_company_name, me?.company_name, title])
+
   async function switchRole(role: string) {
     if (!me || role === (me.active_role ?? me.roles[0] ?? '')) return
     try {
@@ -565,11 +596,22 @@ export function AppLayout() {
           <div
             className={`flex min-w-0 items-center gap-2 ${navCollapsed ? 'lg:flex-1 lg:justify-center' : 'flex-1'}`}
           >
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-600 text-sm font-bold text-white">
-              {title.slice(0, 1).toUpperCase()}
-            </div>
+            {activeCompanyBrand?.logoHref ? (
+              <img
+                src={activeCompanyBrand.logoHref}
+                alt=""
+                className="h-9 w-9 shrink-0 rounded-lg border border-slate-200 bg-white object-contain"
+                loading="lazy"
+              />
+            ) : (
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-600 text-sm font-bold text-white">
+                {(activeCompanyBrand?.name ?? title).slice(0, 1).toUpperCase()}
+              </div>
+            )}
             <div className={`min-w-0 flex-1 leading-tight ${navCollapsed ? 'lg:hidden' : ''}`}>
-              <p className="truncate text-sm font-semibold text-slate-800">{title}</p>
+              <p className="truncate text-sm font-semibold text-slate-800">
+                {activeCompanyBrand?.name ?? title}
+              </p>
               <p className="text-xs text-slate-500">Blinds</p>
             </div>
           </div>
