@@ -1042,7 +1042,7 @@ export function EstimatesPage() {
                   <td className="align-top px-2 py-3 text-slate-800 sm:px-4">
                     <Link
                       to={`/customers/${r.customer_id}`}
-                      className="text-teal-700 hover:underline"
+                      className="font-semibold text-slate-900 hover:text-slate-950 hover:underline"
                     >
                       {r.customer_display || r.customer_id}
                     </Link>

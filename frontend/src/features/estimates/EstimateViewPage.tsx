@@ -195,7 +195,7 @@ export function EstimateViewPage() {
 
       <Link
         to="/estimates"
-        className="inline-flex items-center gap-2 text-sm font-medium text-teal-700 hover:underline"
+        className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900 hover:text-slate-950 hover:underline"
       >
         <ArrowLeft className="h-4 w-4" />
         Back to estimates
@@ -291,7 +291,7 @@ export function EstimateViewPage() {
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Customer</div>
                   <div className="mt-1 text-base font-semibold text-slate-900">
                     {(row.customer_id ?? '').trim() ? (
-                      <Link to={`/customers/${row.customer_id}`} className="hover:underline">
+                      <Link to={`/customers/${row.customer_id}`} className="font-semibold text-slate-900 hover:text-slate-950 hover:underline">
                         {row.customer_display || row.customer_id}
                       </Link>
                     ) : (

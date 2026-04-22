@@ -262,7 +262,7 @@ export function OrderViewPage() {
         </div>
       ) : null}
 
-      <Link to="/orders" className="inline-flex items-center gap-2 text-sm font-medium text-teal-700 hover:underline">
+      <Link to="/orders" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900 hover:text-slate-950 hover:underline">
         <ArrowLeft className="h-4 w-4" />
         Back to orders
       </Link>

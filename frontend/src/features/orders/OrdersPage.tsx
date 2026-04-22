@@ -730,7 +730,7 @@ export function OrdersPage() {
                       <div className="flex flex-col gap-1">
                         <Link
                           to={`/customers/${r.customer_id}`}
-                          className="font-medium text-teal-700 hover:underline"
+                          className="font-semibold text-slate-900 hover:text-slate-950 hover:underline"
                         >
                           {r.customer_display || r.customer_id}
                         </Link>

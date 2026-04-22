@@ -886,8 +886,8 @@ export function CompaniesPage() {
                         to={`/companies/${r.id}`}
                         className={
                           inactive
-                            ? 'font-medium text-slate-600 line-through hover:text-teal-800 hover:underline'
-                            : 'font-medium text-teal-700 hover:text-teal-800 hover:underline'
+                            ? 'font-medium text-slate-600 line-through hover:text-slate-800 hover:underline'
+                            : 'font-semibold text-slate-900 hover:text-slate-950 hover:underline'
                         }
                       >
                         {r.name}
@@ -914,7 +914,7 @@ export function CompaniesPage() {
                         canViewUserDir ? (
                           <Link
                             to={`/users/${r.owner.id}`}
-                            className="inline-block max-w-full break-words font-medium text-teal-700 hover:text-teal-800 hover:underline"
+                            className="inline-block max-w-full break-words font-semibold text-slate-900 hover:text-slate-950 hover:underline"
                           >
                             {`${r.owner.first_name} ${r.owner.last_name}`.trim() || r.owner.email}
                           </Link>
@@ -949,7 +949,7 @@ export function CompaniesPage() {
                           }
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-block max-w-full break-all text-teal-700 underline-offset-2 hover:underline"
+                          className="inline-block max-w-full break-all font-semibold text-slate-900 underline-offset-2 hover:text-slate-950 hover:underline"
                         >
                           {r.website}
                         </a>

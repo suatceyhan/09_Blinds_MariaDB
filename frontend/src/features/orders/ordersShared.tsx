@@ -1055,7 +1055,7 @@ export function OrderAttachmentsBlock(props: {
                   href={a.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-medium text-teal-700 hover:underline"
+                  className="font-semibold text-slate-900 hover:text-slate-950 hover:underline"
                 >
                   {a.filename}
                 </a>

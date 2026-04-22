@@ -845,7 +845,7 @@ export function OrderEditPage() {
         </div>
       ) : null}
 
-      <Link to={orderId ? `/orders/${orderId}` : '/orders'} className="inline-flex items-center gap-2 text-sm font-medium text-teal-700 hover:underline">
+      <Link to={orderId ? `/orders/${orderId}` : '/orders'} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900 hover:text-slate-950 hover:underline">
         <ArrowLeft className="h-4 w-4" />
         Back to order
       </Link>
@@ -1027,7 +1027,7 @@ export function OrderEditPage() {
                 {editEstimateId ? (
                   <p className="rounded-lg border border-teal-100 bg-teal-50/80 px-3 py-2 text-xs text-teal-900">
                     Linked to estimate{' '}
-                    <Link className="font-semibold underline" to={`/estimates/${editEstimateId}`}>
+                    <Link className="font-semibold text-slate-950 underline hover:text-slate-900" to={`/estimates/${editEstimateId}`}>
                       {editEstimateId}
                     </Link>
                     . Customer matches the estimate and cannot be changed here.

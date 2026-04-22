@@ -81,7 +81,7 @@ export function CompanyViewPage() {
     <div className="mx-auto w-full max-w-6xl space-y-8">
       <Link
         to="/companies"
-        className="inline-flex items-center gap-2 text-sm font-medium text-teal-700 hover:text-teal-800"
+        className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900 hover:text-slate-950 hover:underline"
       >
         <ArrowLeft className="h-4 w-4" strokeWidth={2} />
         Back to companies
@@ -144,7 +144,7 @@ export function CompanyViewPage() {
                     {canViewUserDir ? (
                       <Link
                         to={`/users/${row.owner.id}`}
-                        className="text-sm font-medium text-teal-700 hover:text-teal-800 hover:underline"
+                        className="text-sm font-semibold text-slate-900 hover:text-slate-950 hover:underline"
                       >
                         {`${row.owner.first_name} ${row.owner.last_name}`.trim() || row.owner.email}
                       </Link>
@@ -208,7 +208,7 @@ export function CompanyViewPage() {
                     href={websiteHref}
                     target="_blank"
                     rel="noreferrer"
-                    className="break-all text-sm font-medium text-teal-700 hover:text-teal-800 hover:underline"
+                    className="break-all text-sm font-semibold text-slate-900 hover:text-slate-950 hover:underline"
                   >
                     {row.website}
                   </a>

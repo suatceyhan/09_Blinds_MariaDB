@@ -31,8 +31,8 @@ export function AddressMapLink({
   }
   const href = mapsLinkForCompany(t, mapsUrl ?? null)
   const linkCls = muted
-    ? 'text-slate-600 underline-offset-2 hover:text-teal-800 hover:underline'
-    : 'text-teal-700 underline-offset-2 hover:text-teal-800 hover:underline'
+    ? 'text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline'
+    : 'font-semibold text-slate-900 underline-offset-2 hover:text-slate-950 hover:underline'
   const wrap = lineClamp ? 'line-clamp-3 break-words' : 'break-words whitespace-pre-wrap'
   if (!href) {
     return <span className={`text-sm ${wrap} text-slate-800 ${className}`.trim()}>{t}</span>

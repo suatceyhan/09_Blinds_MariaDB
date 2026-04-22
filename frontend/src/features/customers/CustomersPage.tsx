@@ -526,8 +526,8 @@ export function CustomersPage() {
                         to={`/customers/${r.id}`}
                         className={
                           !r.active
-                            ? 'font-medium text-slate-500 line-through hover:text-teal-800 hover:underline'
-                            : 'font-medium text-teal-700 hover:text-teal-800 hover:underline'
+                            ? 'font-medium text-slate-500 line-through hover:text-slate-800 hover:underline'
+                            : 'font-semibold text-slate-900 hover:text-slate-950 hover:underline'
                         }
                       >
                         {displayName(r)}

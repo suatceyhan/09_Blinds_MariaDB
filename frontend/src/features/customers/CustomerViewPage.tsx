@@ -78,7 +78,7 @@ export function CustomerViewPage() {
     <div className="mx-auto w-full max-w-4xl space-y-8">
       <Link
         to="/customers"
-        className="inline-flex items-center gap-2 text-sm font-medium text-teal-700 hover:text-teal-800"
+        className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900 hover:text-slate-950 hover:underline"
       >
         <ArrowLeft className="h-4 w-4" strokeWidth={2} />
         Back to customers
@@ -116,7 +116,7 @@ export function CustomerViewPage() {
             {canEditCustomer && customerId ? (
               <Link
                 to={`/customers?edit=${encodeURIComponent(customerId)}`}
-                className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-teal-700 hover:bg-teal-50"
+                className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 hover:bg-slate-50"
               >
                 Edit
               </Link>
@@ -172,7 +172,7 @@ export function CustomerViewPage() {
                       </div>
                       <Link
                         to={`/estimates/${e.id}`}
-                        className="shrink-0 text-xs font-medium text-teal-700 hover:underline"
+                        className="shrink-0 text-xs font-semibold text-slate-900 hover:text-slate-950 hover:underline"
                       >
                         Open
                       </Link>

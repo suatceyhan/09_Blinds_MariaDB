@@ -789,8 +789,8 @@ export function UsersPage() {
                         to={`/users/${r.id}`}
                         className={
                           r.is_deleted
-                            ? 'font-medium text-slate-500 line-through hover:text-teal-800 hover:underline'
-                            : 'font-medium text-teal-700 hover:text-teal-800 hover:underline'
+                            ? 'font-medium text-slate-500 line-through hover:text-slate-800 hover:underline'
+                            : 'font-semibold text-slate-900 hover:text-slate-950 hover:underline'
                         }
                       >
                         {r.first_name} {r.last_name}
@@ -817,7 +817,7 @@ export function UsersPage() {
                                   {canViewCompanies ? (
                                     <Link
                                       to={`/companies/${c.id}`}
-                                      className="min-w-0 truncate text-teal-700 hover:text-teal-800 hover:underline"
+                                      className="min-w-0 truncate font-semibold text-slate-900 hover:text-slate-950 hover:underline"
                                     >
                                       {c.name}
                                     </Link>
@@ -852,7 +852,7 @@ export function UsersPage() {
                                   {canViewCompanies && r.company_id ? (
                                     <Link
                                       to={`/companies/${r.company_id}`}
-                                      className="text-teal-700 hover:text-teal-800 hover:underline"
+                                      className="font-semibold text-slate-900 hover:text-slate-950 hover:underline"
                                     >
                                       {r.company_name}
                                     </Link>

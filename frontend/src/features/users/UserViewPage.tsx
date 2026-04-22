@@ -67,7 +67,7 @@ export function UserViewPage() {
     <div className="mx-auto max-w-3xl space-y-8">
       <Link
         to="/users"
-        className="inline-flex items-center gap-2 text-sm font-medium text-teal-700 hover:text-teal-800"
+        className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900 hover:text-slate-950 hover:underline"
       >
         <ArrowLeft className="h-4 w-4" strokeWidth={2} />
         Back to directory
@@ -132,7 +132,7 @@ export function UserViewPage() {
                         <Link
                           key={c.id}
                           to={`/companies/${c.id}`}
-                          className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-teal-700 hover:bg-teal-50 hover:text-teal-800"
+                          className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-900 hover:bg-slate-200/90 hover:text-slate-950"
                         >
                           <Building2 className="h-3.5 w-3.5 opacity-70" strokeWidth={2} />
                           {c.name}
@@ -151,7 +151,7 @@ export function UserViewPage() {
                 ) : row.company_id && row.company_name && canViewCompanies ? (
                   <Link
                     to={`/companies/${row.company_id}`}
-                    className="text-sm font-medium text-teal-700 hover:text-teal-800 hover:underline"
+                    className="text-sm font-semibold text-slate-900 hover:text-slate-950 hover:underline"
                   >
                     {row.company_name}
                   </Link>
