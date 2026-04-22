@@ -324,7 +324,15 @@ export function OrderViewPage() {
 
               <details className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm" open>
                 <summary className="cursor-pointer select-none text-sm font-semibold text-slate-900">
-                  Original order
+                  <span className="inline-flex items-center gap-2">
+                    Original order
+                    {(Number(viewOrder.balance ?? 0) <= 0.005 || Number(viewOrder.financial_totals?.balance ?? 0) <= 0.005) &&
+                    (viewOrder.line_item_additions?.length ?? 0) > 0 ? (
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 ring-1 ring-emerald-100">
+                        Paid
+                      </span>
+                    ) : null}
+                  </span>
                 </summary>
                 <div className="mt-4 space-y-5">
                   <OrderAttachmentsBlock

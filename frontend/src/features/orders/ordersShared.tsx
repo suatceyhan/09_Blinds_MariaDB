@@ -529,6 +529,8 @@ export function OrderFinancialSecondRow(props: {
   belowBalance?: ReactNode
 }) {
   const { paidDisplay, balance, tax, belowBalance } = props
+  const b = parseMoneyAmount(balance) ?? null
+  const fullyPaid = b !== null && Math.abs(b) <= 0.005
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
       <div className="block min-w-0 text-sm text-slate-700">
@@ -538,8 +540,20 @@ export function OrderFinancialSecondRow(props: {
         </p>
       </div>
       <div className="block min-w-0 text-sm text-slate-700">
-        <span className="mb-1 block font-medium text-teal-800/80">Balance due</span>
-        <p className="rounded-lg border border-teal-100 bg-teal-50/50 px-3 py-2 text-sm font-semibold text-teal-900">
+        <span
+          className={`mb-1 block font-medium ${
+            fullyPaid ? 'text-emerald-800/90' : 'text-teal-800/80'
+          }`}
+        >
+          Balance due
+        </span>
+        <p
+          className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+            fullyPaid
+              ? 'border border-emerald-200 bg-emerald-50/70 text-emerald-900'
+              : 'border border-teal-100 bg-teal-50/50 text-teal-900'
+          }`}
+        >
           {fmtMoney(balance)}
         </p>
         {belowBalance ? <div className="mt-2">{belowBalance}</div> : null}
@@ -646,9 +660,21 @@ export function statusCodeLabel(code: string): string {
 }
 
 export function parseOptionalDecimal(raw: string): number | null {
-  const t = raw.trim()
+  const t = raw.trim().replaceAll(' ', '')
   if (!t) return null
-  const n = Number.parseFloat(t.replace(',', '.'))
+  // Accept common formats:
+  // - "6549.75"
+  // - "6,549.75" (thousands comma)
+  // - "6549,75" (decimal comma)
+  let norm = t
+  if (norm.includes(',') && norm.includes('.')) {
+    // Assume comma is thousands separator.
+    norm = norm.replaceAll(',', '')
+  } else if (norm.includes(',') && !norm.includes('.')) {
+    // Assume comma is decimal separator.
+    norm = norm.replace(',', '.')
+  }
+  const n = Number.parseFloat(norm)
   if (Number.isNaN(n)) return null
   return n
 }

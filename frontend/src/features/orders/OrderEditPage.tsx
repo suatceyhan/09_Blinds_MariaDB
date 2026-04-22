@@ -181,6 +181,8 @@ export function OrderEditPage() {
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [paymentAmountInput, setPaymentAmountInput] = useState('')
   const [paymentPending, setPaymentPending] = useState(false)
+  const [paymentErr, setPaymentErr] = useState<string | null>(null)
+  const paymentAmountRef = useRef<HTMLInputElement | null>(null)
   const [deletePaymentEntryId, setDeletePaymentEntryId] = useState<string | null>(null)
   const [deletePaymentPending, setDeletePaymentPending] = useState(false)
   const [deleteAttachmentTarget, setDeleteAttachmentTarget] = useState<{
@@ -655,28 +657,40 @@ export function OrderEditPage() {
     if (!orderId || !canEdit) return
     const amt = parseOptionalDecimal(paymentAmountInput.trim())
     if (amt == null || amt <= 0) {
-      setErr('Enter a valid payment amount.')
+      setPaymentErr('Enter a valid payment amount.')
       return
     }
     setPaymentPending(true)
-    setErr(null)
+    setPaymentErr(null)
     try {
       await postJson<OrderDetail>(`/orders/${orderId}/record-payment`, { amount: amt })
       setPaymentModalOpen(false)
       setPaymentAmountInput('')
+      setPaymentErr(null)
       await loadOrderPageData(false)
       scheduleOrderFormBaselineCapture()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not record payment')
+      setPaymentErr(e instanceof Error ? e.message : 'Could not record payment')
     } finally {
       setPaymentPending(false)
     }
   }
 
+  useEffect(() => {
+    if (!paymentModalOpen) return
+    setPaymentErr(null)
+    const t = globalThis.setTimeout(() => {
+      paymentAmountRef.current?.focus()
+      paymentAmountRef.current?.select()
+    }, 0)
+    return () => globalThis.clearTimeout(t)
+  }, [paymentModalOpen])
+
   async function runDeletePaymentEntry() {
     if (!orderId || !deletePaymentEntryId || !canEdit) return
     setDeletePaymentPending(true)
     setErr(null)
+    setPaymentErr(null)
     try {
       await deleteJson(`/orders/${orderId}/payment-entries/${deletePaymentEntryId}`)
       setDeletePaymentEntryId(null)
@@ -749,6 +763,7 @@ export function OrderEditPage() {
             if (!paymentPending && e.target === e.currentTarget) {
               setPaymentModalOpen(false)
               setPaymentAmountInput('')
+              setPaymentErr(null)
             }
           }}
         >
@@ -765,6 +780,11 @@ export function OrderEditPage() {
             <p className="mt-2 text-sm text-slate-600">
               Enter the amount to record. It cannot exceed the current balance due.
             </p>
+            {paymentErr ? (
+              <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                {paymentErr}
+              </div>
+            ) : null}
             <label className="mt-4 block text-sm text-slate-700">
               <span className="mb-1 block font-medium">Amount</span>
               <input
@@ -772,8 +792,16 @@ export function OrderEditPage() {
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
                 value={paymentAmountInput}
                 onChange={(e) => setPaymentAmountInput(e.target.value)}
+                onBlur={() => {
+                  const n = parseOptionalDecimal(paymentAmountInput)
+                  if (n == null) return
+                  setPaymentAmountInput(
+                    n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+                  )
+                }}
                 placeholder="0.00"
                 disabled={paymentPending}
+                ref={paymentAmountRef}
               />
             </label>
             <div className="mt-6 flex flex-wrap justify-end gap-2">
@@ -783,6 +811,7 @@ export function OrderEditPage() {
                 onClick={() => {
                   setPaymentModalOpen(false)
                   setPaymentAmountInput('')
+                  setPaymentErr(null)
                 }}
                 className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -806,7 +835,7 @@ export function OrderEditPage() {
         Back to orders
       </Link>
 
-      {err ? (
+      {err && !paymentModalOpen ? (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{err}</div>
       ) : null}
 
@@ -992,7 +1021,16 @@ export function OrderEditPage() {
 
                 <details className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm" open>
                   <summary className="cursor-pointer select-none text-sm font-semibold text-slate-900">
-                    Original order
+                    <span className="inline-flex items-center gap-2">
+                      Original order
+                      {editComputedBalance != null &&
+                      editComputedBalance <= 0.005 &&
+                      (editAdditionOrders?.length ?? 0) > 0 ? (
+                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 ring-1 ring-emerald-100">
+                          Paid
+                        </span>
+                      ) : null}
+                    </span>
                   </summary>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <fieldset className="min-w-0 rounded-lg border border-slate-200 bg-slate-50/60 p-3 sm:col-span-2">

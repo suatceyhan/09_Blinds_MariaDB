@@ -238,6 +238,29 @@ def _normalize_upload_content_type(raw: str | None) -> str:
     return raw.split(";")[0].strip().lower()
 
 
+def _job_remaining_balance_sum(db: Session, cid: UUID, anchor_order_id: str) -> Decimal:
+    """Sum of `orders.balance` for the anchor row and active child orders (`parent_order_id`).
+
+    Matches JOB TOTALS remaining obligation: installments posted on the anchor reduce the anchor
+    balance while additionals keep their own balance until conceptually covered by the same pool.
+    """
+    q = Decimal("0.01")
+    aid = anchor_order_id.strip()
+    row = db.execute(
+        text(
+            """
+            SELECT COALESCE(SUM(COALESCE(o.balance, 0)), 0) AS s
+            FROM orders o
+            WHERE o.company_id = CAST(:cid AS uuid)
+              AND o.active IS TRUE
+              AND (o.id = :aid OR o.parent_order_id = :aid)
+            """
+        ),
+        {"cid": str(cid), "aid": aid},
+    ).mappings().first()
+    return Decimal(str(row["s"] if row else 0)).quantize(q, rounding=ROUND_HALF_UP)
+
+
 def _sync_order_final_payment_from_entries(db: Session, cid: UUID, oid: str) -> None:
     q = Decimal("0.01")
     r = db.execute(
@@ -279,6 +302,137 @@ def _sync_order_final_payment_from_entries(db: Session, cid: UUID, oid: str) -> 
         {"cid": str(cid), "oid": oid, "fp": sum_fp, "bal": bal},
     )
     _sync_order_done_status_with_balance(db, cid, oid)
+
+
+def _rebalance_job_overpayments(db: Session, cid: UUID, anchor_order_id: str) -> bool:
+    """Move recorded payments forward so no job row is overpaid while later rows remain unpaid.
+
+    This keeps per-row `balance` non-negative (within epsilon) by transferring payment entries
+    from earlier rows to later rows, preserving entry timestamps where possible.
+    """
+    q = Decimal("0.01")
+    eps = _DONE_BALANCE_EPS
+    aid = anchor_order_id.strip()
+
+    # Fetch the job rows in display/payment order: anchor first, then additions by created_at.
+    rows = db.execute(
+        text(
+            """
+            SELECT o.id::text AS id, o.created_at, COALESCE(o.balance, 0) AS balance
+            FROM orders o
+            WHERE o.company_id = CAST(:cid AS uuid)
+              AND o.active IS TRUE
+              AND (o.id = :aid OR o.parent_order_id = :aid)
+            ORDER BY CASE WHEN o.id = :aid THEN 0 ELSE 1 END, o.created_at ASC NULLS LAST
+            """
+        ),
+        {"cid": str(cid), "aid": aid},
+    ).mappings().all()
+    if not rows or str(rows[0].get("id") or "") != aid:
+        return False
+
+    # Materialize balances (quantized) so we can simulate transfers.
+    job = [
+        {"id": str(r["id"]), "balance": Decimal(str(r.get("balance") or 0)).quantize(q, rounding=ROUND_HALF_UP)}
+        for r in rows
+    ]
+
+    any_change = False
+
+    # Helper: move up to `amt` from src order entries to dst order entries.
+    def _transfer(src_oid: str, dst_oid: str, amt: Decimal) -> Decimal:
+        nonlocal any_change
+        remaining = amt
+        if remaining <= 0:
+            return Decimal("0.00")
+        # Work from newest entries first (typical user expectation when rebalancing).
+        entries = db.execute(
+            text(
+                """
+                SELECT id::text AS id, amount, created_at
+                FROM order_payment_entries
+                WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid
+                  AND COALESCE(is_deleted, FALSE) = FALSE
+                ORDER BY created_at DESC, id DESC
+                """
+            ),
+            {"cid": str(cid), "oid": src_oid},
+        ).mappings().all()
+        for e in entries:
+            if remaining <= eps:
+                break
+            eid = str(e["id"])
+            eamt = Decimal(str(e.get("amount") or 0)).quantize(q, rounding=ROUND_HALF_UP)
+            if eamt <= 0:
+                continue
+            moved = min(eamt, remaining).quantize(q, rounding=ROUND_HALF_UP)
+            left = (eamt - moved).quantize(q, rounding=ROUND_HALF_UP)
+
+            # Delete the original row and re-insert split parts.
+            db.execute(
+                text(
+                    """
+                    UPDATE order_payment_entries
+                    SET is_deleted = TRUE
+                    WHERE company_id = CAST(:cid AS uuid) AND id = CAST(:eid AS uuid)
+                      AND COALESCE(is_deleted, FALSE) = FALSE
+                    """
+                ),
+                {"cid": str(cid), "eid": eid},
+            )
+            paid_at = e.get("created_at")
+            if left > eps:
+                db.execute(
+                    text(
+                        """
+                        INSERT INTO order_payment_entries (company_id, order_id, amount, created_at)
+                        VALUES (CAST(:cid AS uuid), :oid, :amt, :paid_at)
+                        """
+                    ),
+                    {"cid": str(cid), "oid": src_oid, "amt": left, "paid_at": paid_at},
+                )
+            if moved > eps:
+                db.execute(
+                    text(
+                        """
+                        INSERT INTO order_payment_entries (company_id, order_id, amount, created_at)
+                        VALUES (CAST(:cid AS uuid), :oid, :amt, :paid_at)
+                        """
+                    ),
+                    {"cid": str(cid), "oid": dst_oid, "amt": moved, "paid_at": paid_at},
+                )
+            remaining = (remaining - moved).quantize(q, rounding=ROUND_HALF_UP)
+            any_change = True
+        return (amt - remaining).quantize(q, rounding=ROUND_HALF_UP)
+
+    # Walk the job rows, pushing credits (negative balances) forward.
+    for i in range(len(job) - 1):
+        src = job[i]
+        src_bal = src["balance"]
+        if src_bal >= -eps:
+            continue
+        credit = (-src_bal).quantize(q, rounding=ROUND_HALF_UP)
+        if credit <= eps:
+            continue
+        for j in range(i + 1, len(job)):
+            dst = job[j]
+            dst_bal = dst["balance"]
+            if dst_bal <= eps:
+                continue
+            take = min(credit, dst_bal).quantize(q, rounding=ROUND_HALF_UP)
+            moved = _transfer(src["id"], dst["id"], take)
+            if moved > eps:
+                # Moving payment off src increases its balance; moving onto dst decreases its balance.
+                src["balance"] = (src["balance"] + moved).quantize(q, rounding=ROUND_HALF_UP)
+                dst["balance"] = (dst["balance"] - moved).quantize(q, rounding=ROUND_HALF_UP)
+                credit = (credit - moved).quantize(q, rounding=ROUND_HALF_UP)
+            if credit <= eps:
+                break
+
+    if any_change:
+        for r in job:
+            _sync_order_final_payment_from_entries(db, cid, r["id"])
+    return any_change
 
 
 _SQL_BLINDS_SUMMARY = """
@@ -1291,7 +1445,8 @@ def record_order_payment(
               o.tax_amount,
               o.final_payment,
               o.balance,
-              o.active
+              o.active,
+              NULLIF(trim(o.parent_order_id::text), '') AS parent_order_id
             FROM orders o
             WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid
             LIMIT 1
@@ -1306,31 +1461,69 @@ def record_order_payment(
     total = row.get("total_amount")
     if total is None:
         raise HTTPException(status_code=400, detail="Order has no total amount.")
-    cur_fp = row.get("final_payment")
-    cur_fp_d = Decimal("0") if cur_fp is None else Decimal(str(cur_fp))
-    down = row.get("downpayment")
-    tax_amt = row.get("tax_amount")
-    owed = _order_balance(Decimal(str(total)), down, tax_amt, cur_fp_d)
-    if owed is None:
-        raise HTTPException(status_code=400, detail="Cannot compute balance for this order.")
-    owed_q = owed.quantize(q, rounding=ROUND_HALF_UP)
-    if pay_amt > owed_q:
+    parent_ref = (str(row.get("parent_order_id") or "")).strip() or None
+    anchor_oid = parent_ref if parent_ref else oid
+
+    # Fix historic overpayments on earlier rows by moving payment entries forward.
+    # This prevents negative balances like "-125.25" on the original when additions still owe money.
+    if _rebalance_job_overpayments(db, cid, anchor_oid):
+        db.commit()
+
+    job_rem = _job_remaining_balance_sum(db, cid, anchor_oid)
+    # Cap additional installments by rolled-up job remaining (not only this row's balance).
+    effective_cap = job_rem if job_rem > _DONE_BALANCE_EPS else Decimal("0").quantize(q)
+    if pay_amt > effective_cap:
         raise HTTPException(
             status_code=400,
-            detail="Payment exceeds balance due.",
+            detail="Payment exceeds remaining job balance.",
         )
-    db.execute(
+
+    # Waterfall allocation: original order first, then additions by created_at.
+    job_rows = db.execute(
         text(
             """
-            INSERT INTO order_payment_entries (company_id, order_id, amount)
-            VALUES (CAST(:cid AS uuid), :oid, :amt)
+            SELECT o.id::text AS id, COALESCE(o.balance, 0) AS balance, o.created_at
+            FROM orders o
+            WHERE o.company_id = CAST(:cid AS uuid)
+              AND o.active IS TRUE
+              AND (o.id = :aid OR o.parent_order_id = :aid)
+            ORDER BY CASE WHEN o.id = :aid THEN 0 ELSE 1 END, o.created_at ASC NULLS LAST
             """
         ),
-        {"cid": str(cid), "oid": oid, "amt": pay_amt},
-    )
-    _sync_order_final_payment_from_entries(db, cid, oid)
+        {"cid": str(cid), "aid": anchor_oid},
+    ).mappings().all()
+
+    remaining = pay_amt
+    touched: set[str] = set()
+    for r in job_rows:
+        if remaining <= _DONE_BALANCE_EPS:
+            break
+        rid = str(r["id"])
+        bal = Decimal(str(r.get("balance") or 0)).quantize(q, rounding=ROUND_HALF_UP)
+        if bal <= _DONE_BALANCE_EPS:
+            continue
+        take = min(remaining, bal).quantize(q, rounding=ROUND_HALF_UP)
+        if take <= _DONE_BALANCE_EPS:
+            continue
+        db.execute(
+            text(
+                """
+                INSERT INTO order_payment_entries (company_id, order_id, amount)
+                VALUES (CAST(:cid AS uuid), :oid, :amt)
+                """
+            ),
+            {"cid": str(cid), "oid": rid, "amt": take},
+        )
+        touched.add(rid)
+        remaining = (remaining - take).quantize(q, rounding=ROUND_HALF_UP)
+
+    if remaining > _DONE_BALANCE_EPS:
+        raise HTTPException(status_code=400, detail="Payment exceeds remaining job balance.")
+
+    for rid in touched:
+        _sync_order_final_payment_from_entries(db, cid, rid)
     db.commit()
-    return get_order(order_id=oid, db=db, current_user=current_user)
+    return get_order(order_id=anchor_oid, db=db, current_user=current_user)
 
 
 @router.delete(
@@ -1555,6 +1748,54 @@ def get_order(
     rollup_source: list[dict[str, Any]] = [_financial_row_for_rollup(d)]
     line_item_additions: list[OrderLineItemAdditionOut] = []
     if not parent_ref:
+        # Keep job rows consistent: if the original row is overpaid while additions still owe money,
+        # move payments forward so balances don't go negative in the UI.
+        if _rebalance_job_overpayments(db, cid, oid):
+            db.commit()
+            # Reload the anchor row after rebalancing.
+            row2 = db.execute(
+                text(
+                    """
+                    SELECT
+                      o.company_id,
+                      o.id,
+                      o.customer_id,
+                      trim(concat_ws(' ', c.name, c.surname)) AS customer_display,
+                      o.estimate_id,
+                      o.total_amount,
+                      o.downpayment,
+                      o.final_payment,
+                      o.balance,
+                      o.tax_uygulanacak_miktar,
+                      o.tax_amount,
+                      o.blinds_lines AS blinds_lines_json,
+                      o.order_note,
+                      o.agree_data,
+                      o.agreement_date,
+                      o.parent_order_id,
+                      o.status_code,
+                      o.status_orde_id,
+                      so.name AS status_order_label,
+                      o.installation_scheduled_start_at,
+                      o.installation_scheduled_end_at,
+                      o.created_at,
+                      o.updated_at,
+                      o.active
+                    FROM orders o
+                    JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
+                    LEFT JOIN status_order so ON so.id = o.status_orde_id
+                    WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid
+                    LIMIT 1
+                    """
+                ),
+                {"cid": str(cid), "oid": oid},
+            ).mappings().first()
+            if row2:
+                d = dict(row2)
+                parent_ref = (str(d.pop("parent_order_id", None) or "")).strip() or None
+                lines = _normalize_blinds_lines(d.pop("blinds_lines_json", None))
+                rollup_source = [_financial_row_for_rollup(d)]
+
         child_rows = db.execute(
             text(
                 """
