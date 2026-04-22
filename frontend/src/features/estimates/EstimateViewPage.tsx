@@ -315,19 +315,11 @@ export function EstimateViewPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                          Scheduled start
+                          Scheduled
                         </div>
                         <div className="mt-0.5 text-sm font-semibold text-slate-900">
                           {formatDt(row.scheduled_start_at ?? row.tarih_saat)}
                         </div>
-                      </div>
-                    </div>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                          Scheduled end
-                        </div>
-                        <div className="mt-0.5 text-sm font-semibold text-slate-900">{formatDt(row.scheduled_end_at)}</div>
                       </div>
                     </div>
                     {row.visit_time_zone ? (
@@ -362,15 +354,18 @@ export function EstimateViewPage() {
                 <section className="rounded-xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm">
                   <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Blinds</h3>
                   {row.blinds_types?.length ? (
-                    <ul className="mt-3 flex flex-wrap gap-2">
+                    <ul className="mt-3 space-y-2">
                       {row.blinds_types.map((b) => (
-                        <li
-                          key={b.id}
-                          className="rounded-full bg-teal-50 px-3 py-1 text-xs font-medium text-teal-900 ring-1 ring-teal-100"
-                        >
-                          {b.name}
-                          {b.window_count != null ? ` · ${b.window_count} windows` : ''}
-                          {b.line_amount != null && b.line_amount > 0 ? ` · $${Number(b.line_amount).toFixed(2)}` : ''}
+                        <li key={b.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-slate-900">{b.name}</div>
+                            <div className="mt-0.5 text-xs font-medium text-slate-600">
+                              {b.window_count != null ? `${b.window_count} windows` : '—'}
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-sm font-semibold tabular-nums text-slate-900">
+                            {b.line_amount != null && Number(b.line_amount) > 0 ? `$${Number(b.line_amount).toFixed(2)}` : '—'}
+                          </div>
                         </li>
                       ))}
                     </ul>
@@ -378,28 +373,19 @@ export function EstimateViewPage() {
                     <div className="mt-2 text-slate-600">—</div>
                   )}
                   {row.blinds_types?.length ? (
-                    <div className="mt-3 text-xs font-semibold text-rose-700">
-                      Total amount: $
-                      {row.blinds_types
-                        .reduce((acc, b) => acc + (Number(b.line_amount ?? 0) || 0), 0)
-                        .toFixed(2)}
+                    <div className="mt-3">
+                      <div className="flex items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50/80 px-3 py-2">
+                        <div className="text-sm font-semibold text-rose-900">Total amount</div>
+                        <div className="shrink-0 text-sm font-semibold tabular-nums text-rose-900">
+                          $
+                          {row.blinds_types
+                            .reduce((acc, b) => acc + (Number(b.line_amount ?? 0) || 0), 0)
+                            .toFixed(2)}
+                        </div>
+                      </div>
                     </div>
                   ) : null}
                 </section>
-
-                {row.visit_address?.trim() ? (
-                  <section className="rounded-xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm">
-                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Visit address</h3>
-                    <div className="mt-2">
-                      <AddressMapLink address={row.visit_address} lineClamp={false} />
-                    </div>
-                    {row.visit_postal_code?.trim() ? (
-                      <div className="mt-1 text-xs font-medium text-slate-600">
-                        Postal code: {row.visit_postal_code.trim()}
-                      </div>
-                    ) : null}
-                  </section>
-                ) : null}
 
                 {row.visit_notes?.trim() ? (
                   <section className="rounded-xl border border-amber-100 bg-amber-50/40 px-4 py-4">
