@@ -28,6 +28,7 @@ export type OrderRow = {
   final_payment?: string | number | null
   balance: string | number | null
   tax_amount?: string | number | null
+  expense_total?: string | number | null
   status_code: string
   status_orde_id?: string | null
   status_order_label: string | null

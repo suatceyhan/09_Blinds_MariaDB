@@ -29,6 +29,7 @@ import {
   OrderStatusBadge,
   OrderStatusOpt,
   PendingOrderAttachment,
+  parseMoneyAmount,
   parseOptionalDecimal,
   parseTaxRatePercent,
   blindsLineToPayload,
@@ -758,7 +759,30 @@ export function OrdersPage() {
                     </td>
                     <td className="px-2 py-3 sm:px-4">
                       <div className="flex flex-col gap-0.5">
-                        <span className="font-medium">{fmtTotalIncludingTax(r.total_amount, r.tax_amount)}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{fmtTotalIncludingTax(r.total_amount, r.tax_amount)}</span>
+                          {(() => {
+                            const exp = parseMoneyAmount(r.expense_total) ?? 0
+                            if (!(exp > 0.005)) return null
+                            const tot = (parseMoneyAmount(r.total_amount) ?? 0) + (parseMoneyAmount(r.tax_amount) ?? 0)
+                            const prof = safeRound2(tot - exp)
+                            return (
+                            <span className="group relative inline-flex">
+                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-extrabold text-white ring-1 ring-red-600">
+                                !
+                              </span>
+                              <span className="pointer-events-none absolute left-1/2 top-full z-10 mt-2 w-56 -translate-x-1/2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-medium text-slate-700 shadow-lg opacity-0 transition group-hover:opacity-100">
+                                <span className="block text-slate-700">
+                                  Expense total: <span className="font-semibold tabular-nums">{fmtMoney(exp)}</span>
+                                </span>
+                                <span className="mt-0.5 block text-slate-700">
+                                  Profit: <span className="font-semibold tabular-nums">{fmtMoney(prof)}</span>
+                                </span>
+                              </span>
+                            </span>
+                            )
+                          })()}
+                        </div>
                         <span className="text-[11px] text-slate-600">Paid: {orderListPaidDisplay(r)}</span>
                       </div>
                     </td>

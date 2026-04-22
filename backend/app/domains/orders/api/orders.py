@@ -902,6 +902,7 @@ class OrderListItemOut(BaseModel):
     balance: Decimal | None = None
     tax_uygulanacak_miktar: Decimal | None = None
     tax_amount: Decimal | None = None
+    expense_total: Decimal | None = None
     status_code: str
     status_orde_id: str | None = None
     status_order_label: str | None = None
@@ -1461,6 +1462,7 @@ def list_orders(
               COALESCE(o.balance, 0) + COALESCE(ch.balance, 0) AS balance,
               COALESCE(o.tax_uygulanacak_miktar, 0) + COALESCE(ch.tax_uygulanacak_miktar, 0) AS tax_uygulanacak_miktar,
               COALESCE(o.tax_amount, 0) + COALESCE(ch.tax_amount, 0) AS tax_amount,
+              COALESCE(ex.expense_total, 0) AS expense_total,
               o.status_code,
               o.status_orde_id,
               so.name AS status_order_label,
@@ -1487,6 +1489,18 @@ def list_orders(
                 AND (CASE WHEN :include_deleted THEN TRUE ELSE o2.active IS TRUE END)
               GROUP BY o2.company_id, o2.parent_order_id
             ) ch ON ch.company_id = o.company_id AND ch.parent_order_id = o.id
+            LEFT JOIN (
+              SELECT
+                o3.company_id,
+                COALESCE(o3.parent_order_id, o3.id) AS anchor_id,
+                COALESCE(SUM(e.amount), 0) AS expense_total
+              FROM orders o3
+              INNER JOIN order_expense_entries e
+                ON e.company_id = o3.company_id AND e.order_id = o3.id AND COALESCE(e.is_deleted, FALSE) = FALSE
+              WHERE o3.company_id = CAST(:cid AS uuid)
+                AND (CASE WHEN :include_deleted THEN TRUE ELSE o3.active IS TRUE END)
+              GROUP BY o3.company_id, COALESCE(o3.parent_order_id, o3.id)
+            ) ex ON ex.company_id = o.company_id AND ex.anchor_id = o.id
             WHERE {w}
               AND (o.parent_order_id IS NULL)
             ORDER BY o.created_at DESC NULLS LAST
