@@ -947,6 +947,7 @@ class OrderPaymentEntryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    order_id: str | None = None
     amount: Decimal
     paid_at: datetime
 
@@ -1019,6 +1020,7 @@ def _rollup_financial_totals(rows: list[dict[str, Any]]) -> OrderFinancialTotals
 
 
 def _build_payment_entries_for_detail(
+    order_id: str | None,
     downpayment: Any,
     agreement_date: Any,
     created_at: Any,
@@ -1035,11 +1037,16 @@ def _build_payment_entries_for_detail(
         out.append(
             OrderPaymentEntryOut(
                 id="downpayment",
+                order_id=order_id,
                 amount=down_d,
                 paid_at=_down_payment_paid_at(agreement_date, created_at),
             )
         )
-    out.extend(OrderPaymentEntryOut(**dict(pr)) for pr in pay_rows)
+    for pr in pay_rows:
+        d = dict(pr)
+        # When callers SELECT order_id (job aggregation), avoid passing it twice.
+        d.pop("order_id", None)
+        out.append(OrderPaymentEntryOut(order_id=order_id, **d))
     out.sort(key=lambda e: (e.paid_at, 0 if e.id == "downpayment" else 1))
     return out
 
@@ -1838,24 +1845,74 @@ def get_order(
             )
     financial_totals = _rollup_financial_totals(rollup_source)
 
-    pay_rows = db.execute(
-        text(
-            """
-            SELECT id::text AS id, amount, created_at AS paid_at
-            FROM order_payment_entries
-            WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid
-              AND COALESCE(is_deleted, FALSE) = FALSE
-            ORDER BY created_at ASC
-            """
-        ),
-        {"cid": str(cid), "oid": oid},
-    ).mappings().all()
-    payment_entries = _build_payment_entries_for_detail(
-        d.get("downpayment"),
-        d.get("agreement_date"),
-        d.get("created_at"),
-        list(pay_rows),
-    )
+    payment_entries: list[OrderPaymentEntryOut] = []
+    if not parent_ref:
+        job_rows = db.execute(
+            text(
+                """
+                SELECT o.id::text AS oid, o.downpayment, o.agreement_date, o.created_at
+                FROM orders o
+                WHERE o.company_id = CAST(:cid AS uuid)
+                  AND o.active IS TRUE
+                  AND (o.id = :aid OR o.parent_order_id = :aid)
+                ORDER BY CASE WHEN o.id = :aid THEN 0 ELSE 1 END, o.created_at ASC NULLS LAST
+                """
+            ),
+            {"cid": str(cid), "aid": oid},
+        ).mappings().all()
+        oids = [str(r["oid"]) for r in job_rows]
+        pay_all = (
+            db.execute(
+                text(
+                    """
+                    SELECT id::text AS id, order_id::text AS order_id, amount, created_at AS paid_at
+                    FROM order_payment_entries
+                    WHERE company_id = CAST(:cid AS uuid)
+                      AND order_id = ANY(:oids)
+                      AND COALESCE(is_deleted, FALSE) = FALSE
+                    ORDER BY created_at ASC
+                    """
+                ),
+                {"cid": str(cid), "oids": oids},
+            ).mappings().all()
+            if oids
+            else []
+        )
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for pr in pay_all:
+            grouped.setdefault(str(pr.get("order_id") or ""), []).append(dict(pr))
+        for r in job_rows:
+            joid = str(r["oid"])
+            payment_entries.extend(
+                _build_payment_entries_for_detail(
+                    joid,
+                    r.get("downpayment"),
+                    r.get("agreement_date"),
+                    r.get("created_at"),
+                    grouped.get(joid, []),
+                )
+            )
+        payment_entries.sort(key=lambda e: (e.paid_at, 0 if e.id == "downpayment" else 1, e.order_id or ""))
+    else:
+        pay_rows = db.execute(
+            text(
+                """
+                SELECT id::text AS id, amount, created_at AS paid_at
+                FROM order_payment_entries
+                WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid
+                  AND COALESCE(is_deleted, FALSE) = FALSE
+                ORDER BY created_at ASC
+                """
+            ),
+            {"cid": str(cid), "oid": oid},
+        ).mappings().all()
+        payment_entries = _build_payment_entries_for_detail(
+            oid,
+            d.get("downpayment"),
+            d.get("agreement_date"),
+            d.get("created_at"),
+            list(pay_rows),
+        )
     attachments = _fetch_order_attachments(db, cid, oid)
     return OrderDetailOut(
         **d,

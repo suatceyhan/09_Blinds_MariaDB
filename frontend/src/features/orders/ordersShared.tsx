@@ -70,7 +70,7 @@ export type OrderLineItemAdditionRow = {
   status_order_label?: string | null
 }
 
-export type PaymentEntry = { id: string; amount: string | number; paid_at: string }
+export type PaymentEntry = { id: string; order_id?: string | null; amount: string | number; paid_at: string }
 
 export type OrderDetail = {
   id: string

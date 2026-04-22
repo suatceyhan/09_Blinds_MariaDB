@@ -183,7 +183,10 @@ export function OrderEditPage() {
   const [paymentPending, setPaymentPending] = useState(false)
   const [paymentErr, setPaymentErr] = useState<string | null>(null)
   const paymentAmountRef = useRef<HTMLInputElement | null>(null)
-  const [deletePaymentEntryId, setDeletePaymentEntryId] = useState<string | null>(null)
+  const [paymentPickIds, setPaymentPickIds] = useState<string[]>([])
+  const [deletePaymentEntryTarget, setDeletePaymentEntryTarget] = useState<{ orderId: string; entryId: string } | null>(
+    null,
+  )
   const [deletePaymentPending, setDeletePaymentPending] = useState(false)
   const [deleteAttachmentTarget, setDeleteAttachmentTarget] = useState<{
     orderId: string
@@ -679,6 +682,7 @@ export function OrderEditPage() {
   useEffect(() => {
     if (!paymentModalOpen) return
     setPaymentErr(null)
+    setPaymentPickIds([])
     const t = globalThis.setTimeout(() => {
       paymentAmountRef.current?.focus()
       paymentAmountRef.current?.select()
@@ -686,14 +690,28 @@ export function OrderEditPage() {
     return () => globalThis.clearTimeout(t)
   }, [paymentModalOpen])
 
+  const paymentBalancePicks = useMemo(() => {
+    const out: Array<{ id: string; label: string; amount: number; kind: 'job' | 'order' }> = []
+    const jobRem = Math.max(0, safeRound2(editRollupTotals.bal ?? 0))
+    if (jobRem > 0.005) out.push({ id: 'job', label: 'Job total remaining', amount: jobRem, kind: 'job' })
+    const origRem = Math.max(0, safeRound2(editComputedBalance ?? 0))
+    if (origRem > 0.005) out.push({ id: 'orig', label: 'Original order remaining', amount: origRem, kind: 'order' })
+    for (let i = 0; i < editAdditionComputed.length; i++) {
+      const x = editAdditionComputed[i]
+      const rem = Math.max(0, safeRound2(x.balance ?? 0))
+      if (rem > 0.005) out.push({ id: `add:${x.order_id}`, label: `Additional order #${i + 1} remaining`, amount: rem, kind: 'order' })
+    }
+    return out
+  }, [editRollupTotals.bal, editComputedBalance, editAdditionComputed])
+
   async function runDeletePaymentEntry() {
-    if (!orderId || !deletePaymentEntryId || !canEdit) return
+    if (!deletePaymentEntryTarget || !canEdit) return
     setDeletePaymentPending(true)
     setErr(null)
     setPaymentErr(null)
     try {
-      await deleteJson(`/orders/${orderId}/payment-entries/${deletePaymentEntryId}`)
-      setDeletePaymentEntryId(null)
+      await deleteJson(`/orders/${deletePaymentEntryTarget.orderId}/payment-entries/${deletePaymentEntryTarget.entryId}`)
+      setDeletePaymentEntryTarget(null)
       await loadOrderPageData(false)
       scheduleOrderFormBaselineCapture()
     } catch (e) {
@@ -732,7 +750,7 @@ export function OrderEditPage() {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6">
       <ConfirmModal
-        open={deletePaymentEntryId !== null}
+        open={deletePaymentEntryTarget !== null}
         title="Remove this payment?"
         description="This payment line will be removed and the order balance will be recalculated. You cannot restore it from the app."
         confirmLabel="Remove payment"
@@ -740,7 +758,7 @@ export function OrderEditPage() {
         variant="danger"
         pending={deletePaymentPending}
         onConfirm={() => void runDeletePaymentEntry()}
-        onCancel={() => !deletePaymentPending && setDeletePaymentEntryId(null)}
+        onCancel={() => !deletePaymentPending && setDeletePaymentEntryTarget(null)}
       />
 
       <ConfirmModal
@@ -783,6 +801,56 @@ export function OrderEditPage() {
             {paymentErr ? (
               <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                 {paymentErr}
+              </div>
+            ) : null}
+            {paymentBalancePicks.length > 0 ? (
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Quick pick</div>
+                <div className="mt-2 space-y-2">
+                  {paymentBalancePicks.map((p) => {
+                    const checked = paymentPickIds.includes(p.id)
+                    return (
+                      <label key={p.id} className="flex cursor-pointer items-center justify-between gap-3 text-sm">
+                        <span className="flex items-center gap-2 text-slate-800">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 accent-teal-600"
+                            checked={checked}
+                            disabled={paymentPending}
+                            onChange={() => {
+                              setPaymentErr(null)
+                              setPaymentPickIds((prev) => {
+                                const has = prev.includes(p.id)
+                                let next = has ? prev.filter((x) => x !== p.id) : [...prev, p.id]
+                                if (p.id === 'job') {
+                                  next = has ? [] : ['job']
+                                } else {
+                                  next = next.filter((x) => x !== 'job')
+                                }
+                                const pickedSum = next
+                                  .map((id) => paymentBalancePicks.find((x) => x.id === id)?.amount ?? 0)
+                                  .reduce((a, b) => safeRound2(a + b), 0)
+                                if (pickedSum > 0) {
+                                  setPaymentAmountInput(
+                                    pickedSum.toLocaleString(undefined, {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    }),
+                                  )
+                                } else {
+                                  setPaymentAmountInput('')
+                                }
+                                return next
+                              })
+                            }}
+                          />
+                          {p.label}
+                        </span>
+                        <span className="font-semibold tabular-nums text-slate-900">{fmtMoney(p.amount)}</span>
+                      </label>
+                    )
+                  })}
+                </div>
               </div>
             ) : null}
             <label className="mt-4 block text-sm text-slate-700">
@@ -981,13 +1049,22 @@ export function OrderEditPage() {
                     <ul className="mt-2 divide-y divide-slate-100">
                       {editPaymentEntries.map((p) => (
                         <li
-                          key={p.id}
+                          key={`${p.order_id ?? orderId ?? 'order'}:${p.id}`}
                           className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
                         >
                           <div className="min-w-0 flex-1">
                             <span className="font-medium tabular-nums text-slate-900">{fmtMoney(p.amount)}</span>
                             {p.id === 'downpayment' ? (
                               <span className="ml-2 text-xs font-normal text-slate-500">Down payment</span>
+                            ) : null}
+                            {p.order_id && orderId && p.order_id !== orderId ? (
+                              <span className="ml-2 text-xs font-normal text-slate-500">
+                                ({(() => {
+                                  const idx =
+                                    (editAdditionOrders ?? []).findIndex((a) => a.order_id === p.order_id) ?? -1
+                                  return idx >= 0 ? `Additional #${idx + 1}` : p.order_id
+                                })()})
+                              </span>
                             ) : null}
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
@@ -997,7 +1074,11 @@ export function OrderEditPage() {
                                 type="button"
                                 title="Remove payment"
                                 className="rounded-lg border border-red-200 p-1.5 text-red-700 hover:bg-red-50"
-                                onClick={() => setDeletePaymentEntryId(p.id)}
+                                onClick={() => {
+                                  const oid = (p.order_id ?? orderId ?? '').trim()
+                                  if (!oid) return
+                                  setDeletePaymentEntryTarget({ orderId: oid, entryId: p.id })
+                                }}
                               >
                                 <Trash2 className="h-4 w-4" strokeWidth={2} />
                               </button>
