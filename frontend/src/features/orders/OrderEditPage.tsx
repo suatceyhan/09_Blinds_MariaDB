@@ -174,6 +174,11 @@ export function OrderEditPage() {
   const [editSaving, setEditSaving] = useState(false)
   const [editExtraPaid, setEditExtraPaid] = useState(0)
   const [editPaymentEntries, setEditPaymentEntries] = useState<PaymentEntry[]>([])
+  const [editExpenseTotal, setEditExpenseTotal] = useState(0)
+  const [editProfit, setEditProfit] = useState(0)
+  const [editExpenseEntries, setEditExpenseEntries] = useState<
+    Array<{ id: string; amount: string | number; note?: string | null }>
+  >([])
   const [editInstallationStart, setEditInstallationStart] = useState('')
   const [editAttachments, setEditAttachments] = useState<OrderAttachmentRow[]>([])
   const [editAdditionOrders, setEditAdditionOrders] = useState<EditAdditionOrder[]>([])
@@ -184,6 +189,14 @@ export function OrderEditPage() {
   const [paymentErr, setPaymentErr] = useState<string | null>(null)
   const paymentAmountRef = useRef<HTMLInputElement | null>(null)
   const [paymentPickIds, setPaymentPickIds] = useState<string[]>([])
+  const [expenseModalOpen, setExpenseModalOpen] = useState(false)
+  const [expenseAmountInput, setExpenseAmountInput] = useState('')
+  const [expenseNoteInput, setExpenseNoteInput] = useState('')
+  const [expensePending, setExpensePending] = useState(false)
+  const [expenseErr, setExpenseErr] = useState<string | null>(null)
+  const expenseAmountRef = useRef<HTMLInputElement | null>(null)
+  const [deleteExpenseTarget, setDeleteExpenseTarget] = useState<{ orderId: string; expenseId: string } | null>(null)
+  const [deleteExpensePending, setDeleteExpensePending] = useState(false)
   const [deletePaymentEntryTarget, setDeletePaymentEntryTarget] = useState<{ orderId: string; entryId: string } | null>(
     null,
   )
@@ -349,6 +362,15 @@ export function OrderEditPage() {
     })
     setEditExtraPaid(safeRound2(parseMoneyAmount(detail.final_payment) ?? 0))
     setEditPaymentEntries(detail.payment_entries ?? [])
+    setEditExpenseTotal(safeRound2(parseMoneyAmount(detail.expense_total) ?? 0))
+    setEditProfit(safeRound2(parseMoneyAmount(detail.profit) ?? 0))
+    setEditExpenseEntries(
+      (detail.expense_entries ?? []).map((e) => ({
+        id: e.id,
+        amount: e.amount,
+        note: e.note ?? null,
+      })),
+    )
     setEditInstallationStart(installationWallFromIso(detail.installation_scheduled_start_at))
     setEditAttachments(detail.attachments ?? [])
     setEditAdditionOrders(
@@ -376,6 +398,9 @@ export function OrderEditPage() {
       setEditBlindsLines([])
       setEditExtraPaid(0)
       setEditPaymentEntries([])
+      setEditExpenseTotal(0)
+      setEditProfit(0)
+      setEditExpenseEntries([])
       setEditInstallationStart('')
       setEditAttachments([])
       setEditAdditionOrders([])
@@ -690,6 +715,16 @@ export function OrderEditPage() {
     return () => globalThis.clearTimeout(t)
   }, [paymentModalOpen])
 
+  useEffect(() => {
+    if (!expenseModalOpen) return
+    setExpenseErr(null)
+    const t = globalThis.setTimeout(() => {
+      expenseAmountRef.current?.focus()
+      expenseAmountRef.current?.select()
+    }, 0)
+    return () => globalThis.clearTimeout(t)
+  }, [expenseModalOpen])
+
   const paymentBalancePicks = useMemo(() => {
     const out: Array<{ id: string; label: string; amount: number; kind: 'job' | 'order' }> = []
     const jobRem = Math.max(0, safeRound2(editRollupTotals.bal ?? 0))
@@ -718,6 +753,48 @@ export function OrderEditPage() {
       setErr(e instanceof Error ? e.message : 'Could not remove payment')
     } finally {
       setDeletePaymentPending(false)
+    }
+  }
+
+  async function submitRecordExpense() {
+    if (!orderId || !canEdit) return
+    const amt = parseOptionalDecimal(expenseAmountInput.trim())
+    if (amt == null || amt <= 0) {
+      setExpenseErr('Enter a valid expense amount.')
+      return
+    }
+    setExpensePending(true)
+    setExpenseErr(null)
+    try {
+      await postJson<OrderDetail>(`/orders/${orderId}/expenses`, {
+        amount: amt,
+        note: expenseNoteInput.trim() || null,
+      })
+      setExpenseModalOpen(false)
+      setExpenseAmountInput('')
+      setExpenseNoteInput('')
+      await loadOrderPageData(false)
+      scheduleOrderFormBaselineCapture()
+    } catch (e) {
+      setExpenseErr(e instanceof Error ? e.message : 'Could not record expense')
+    } finally {
+      setExpensePending(false)
+    }
+  }
+
+  async function runDeleteExpense() {
+    if (!deleteExpenseTarget || !canEdit) return
+    setDeleteExpensePending(true)
+    setErr(null)
+    try {
+      await deleteJson(`/orders/${deleteExpenseTarget.orderId}/expenses/${deleteExpenseTarget.expenseId}`)
+      setDeleteExpenseTarget(null)
+      await loadOrderPageData(false)
+      scheduleOrderFormBaselineCapture()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not remove expense')
+    } finally {
+      setDeleteExpensePending(false)
     }
   }
 
@@ -771,6 +848,18 @@ export function OrderEditPage() {
         pending={deleteAttachmentPending}
         onConfirm={() => void runDeleteAttachment()}
         onCancel={() => !deleteAttachmentPending && setDeleteAttachmentTarget(null)}
+      />
+
+      <ConfirmModal
+        open={deleteExpenseTarget !== null}
+        title="Remove this expense?"
+        description="This expense line will be removed. Profit will be recalculated."
+        confirmLabel="Remove expense"
+        cancelLabel="Cancel"
+        variant="danger"
+        pending={deleteExpensePending}
+        onConfirm={() => void runDeleteExpense()}
+        onCancel={() => !deleteExpensePending && setDeleteExpenseTarget(null)}
       />
 
       {paymentModalOpen && orderId ? (
@@ -892,6 +981,85 @@ export function OrderEditPage() {
                 className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {paymentPending ? 'Saving...' : 'Pay'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {expenseModalOpen && orderId ? (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (!expensePending && e.target === e.currentTarget) {
+              setExpenseModalOpen(false)
+              setExpenseAmountInput('')
+              setExpenseNoteInput('')
+              setExpenseErr(null)
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="order-edit-expense-modal-title"
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <h2 id="order-edit-expense-modal-title" className="text-lg font-semibold text-slate-900">
+              Record expense
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">Expenses affect profit only. They do not change payments or balance.</p>
+            {expenseErr ? (
+              <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                {expenseErr}
+              </div>
+            ) : null}
+            <label className="mt-4 block text-sm text-slate-700">
+              <span className="mb-1 block font-medium">Amount</span>
+              <input
+                inputMode="decimal"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                value={expenseAmountInput}
+                onChange={(e) => setExpenseAmountInput(e.target.value)}
+                placeholder="0.00"
+                disabled={expensePending}
+                ref={expenseAmountRef}
+              />
+            </label>
+            <label className="mt-4 block text-sm text-slate-700">
+              <span className="mb-1 block font-medium">Note (optional)</span>
+              <textarea
+                rows={2}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                value={expenseNoteInput}
+                onChange={(e) => setExpenseNoteInput(e.target.value)}
+                placeholder="What was this expense for?"
+                disabled={expensePending}
+              />
+            </label>
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={expensePending}
+                onClick={() => {
+                  setExpenseModalOpen(false)
+                  setExpenseAmountInput('')
+                  setExpenseNoteInput('')
+                  setExpenseErr(null)
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={expensePending}
+                onClick={() => void submitRecordExpense()}
+                className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {expensePending ? 'Saving...' : 'Save'}
               </button>
             </div>
           </div>
@@ -1042,6 +1210,65 @@ export function OrderEditPage() {
                       ) : undefined
                     }
                   />
+                </div>
+
+                <div className="rounded-xl border border-slate-200/80 bg-white p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Extra expenses</h3>
+                      <p className="mt-1 text-[11px] text-slate-500">Affects profit only (does not change payments/balance).</p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!canEdit || expensePending}
+                      className="rounded-lg border border-teal-200 bg-teal-50/70 px-3 py-2 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50 disabled:opacity-50"
+                      onClick={() => {
+                        setExpenseAmountInput('')
+                        setExpenseNoteInput('')
+                        setExpenseModalOpen(true)
+                      }}
+                    >
+                      Add expense
+                    </button>
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Expense total</div>
+                      <div className="mt-1 text-sm font-semibold tabular-nums text-slate-900">
+                        {fmtMoney(editExpenseTotal)}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Profit</div>
+                      <div className="mt-1 text-sm font-semibold tabular-nums text-slate-900">
+                        {fmtMoney(editProfit)}
+                      </div>
+                    </div>
+                  </div>
+                  {editExpenseEntries.length > 0 ? (
+                    <ul className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200">
+                      {editExpenseEntries.map((e) => (
+                        <li key={e.id} className="flex items-start justify-between gap-3 bg-white px-3 py-2 text-sm">
+                          <div className="min-w-0">
+                            <div className="font-semibold tabular-nums text-slate-900">{fmtMoney(e.amount)}</div>
+                            {e.note?.trim() ? <div className="mt-0.5 text-xs text-slate-600">{e.note.trim()}</div> : null}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <button
+                              type="button"
+                              title="Remove expense"
+                              className="rounded-lg border border-red-200 p-1.5 text-red-700 hover:bg-red-50"
+                              onClick={() => orderId && setDeleteExpenseTarget({ orderId, expenseId: e.id })}
+                            >
+                              <Trash2 className="h-4 w-4" strokeWidth={2} />
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-3 text-sm text-slate-500">No expenses recorded.</p>
+                  )}
                 </div>
 
                 {editPaymentEntries.length > 0 ? (

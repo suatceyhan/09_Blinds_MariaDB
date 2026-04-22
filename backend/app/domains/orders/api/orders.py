@@ -1084,6 +1084,71 @@ def _fetch_order_attachments(db: Session, cid: UUID, oid: str) -> list[OrderAtta
     ]
 
 
+def _fetch_order_expense_entries(db: Session, cid: UUID, oid: str) -> list[dict[str, Any]]:
+    rows = db.execute(
+        text(
+            """
+            SELECT id::text AS id, amount, note, spent_at, created_at
+            FROM order_expense_entries
+            WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid
+              AND COALESCE(is_deleted, FALSE) = FALSE
+            ORDER BY COALESCE(spent_at, created_at) DESC, created_at DESC
+            """
+        ),
+        {"cid": str(cid), "oid": oid},
+    ).mappings().all()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "id": str(r["id"]),
+                "amount": _money_q(r.get("amount")),
+                "note": (str(r.get("note") or "").strip() or None),
+                "spent_at": r.get("spent_at"),
+                "created_at": r.get("created_at"),
+            }
+        )
+    return out
+
+
+def _sum_expenses_for_job(db: Session, cid: UUID, anchor_order_id: str) -> Decimal:
+    q = Decimal("0.01")
+    aid = anchor_order_id.strip()
+    row = db.execute(
+        text(
+            """
+            SELECT COALESCE(SUM(e.amount), 0) AS s
+            FROM order_expense_entries e
+            INNER JOIN orders o
+              ON o.company_id = e.company_id AND o.id = e.order_id
+            WHERE e.company_id = CAST(:cid AS uuid)
+              AND COALESCE(e.is_deleted, FALSE) = FALSE
+              AND o.active IS TRUE
+              AND (o.id = :aid OR o.parent_order_id = :aid)
+            """
+        ),
+        {"cid": str(cid), "aid": aid},
+    ).mappings().first()
+    return Decimal(str(row["s"] if row else 0)).quantize(q, rounding=ROUND_HALF_UP)
+
+
+def _sum_expenses_for_order(db: Session, cid: UUID, order_id: str) -> Decimal:
+    q = Decimal("0.01")
+    oid = order_id.strip()
+    row = db.execute(
+        text(
+            """
+            SELECT COALESCE(SUM(amount), 0) AS s
+            FROM order_expense_entries
+            WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid
+              AND COALESCE(is_deleted, FALSE) = FALSE
+            """
+        ),
+        {"cid": str(cid), "oid": oid},
+    ).mappings().first()
+    return Decimal(str(row["s"] if row else 0)).quantize(q, rounding=ROUND_HALF_UP)
+
+
 class OrderDetailOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -1100,6 +1165,9 @@ class OrderDetailOut(BaseModel):
     tax_amount: Decimal | None = None
     blinds_lines: list[dict[str, Any]] = Field(default_factory=list)
     payment_entries: list[OrderPaymentEntryOut] = Field(default_factory=list)
+    expense_total: Decimal | None = None
+    profit: Decimal | None = None
+    expense_entries: list[dict[str, Any]] = Field(default_factory=list)
     attachments: list[OrderAttachmentOut] = Field(default_factory=list)
     order_note: str | None = None
     agree_data: str | None = None
@@ -1130,6 +1198,12 @@ class OrderLineItemAdditionCreateIn(BaseModel):
 
 class OrderRecordPaymentIn(BaseModel):
     amount: Decimal = Field(..., gt=0)
+
+
+class OrderExpenseCreateIn(BaseModel):
+    amount: Decimal = Field(..., gt=0)
+    note: str | None = Field(None, max_length=4000)
+    spent_at: datetime | None = None
 
 
 class OrderPatchIn(BaseModel):
@@ -1543,6 +1617,89 @@ def record_order_payment(
     return get_order(order_id=anchor_oid, db=db, current_user=current_user)
 
 
+@router.post("/{order_id}/expenses", response_model=OrderDetailOut)
+def create_order_expense(
+    order_id: str,
+    body: OrderExpenseCreateIn,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("orders.edit"))],
+):
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    oid = order_id.strip()
+    ok = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM orders
+            WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+            LIMIT 1
+            """
+        ),
+        {"cid": str(cid), "oid": oid},
+    ).first()
+    if not ok:
+        raise HTTPException(status_code=404, detail="Order not found.")
+
+    q = Decimal("0.01")
+    amt = Decimal(str(body.amount)).quantize(q, rounding=ROUND_HALF_UP)
+    if amt <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be positive.")
+    note = (body.note or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    note = note[:4000] if note else None
+    db.execute(
+        text(
+            """
+            INSERT INTO order_expense_entries (company_id, order_id, amount, note, spent_at, created_by_user_id)
+            VALUES (CAST(:cid AS uuid), :oid, :amt, :note, :spent_at, :uid)
+            """
+        ),
+        {
+            "cid": str(cid),
+            "oid": oid,
+            "amt": amt,
+            "note": note,
+            "spent_at": body.spent_at,
+            "uid": str(current_user.id),
+        },
+    )
+    db.commit()
+    return get_order(order_id=oid, db=db, current_user=current_user)
+
+
+@router.delete("/{order_id}/expenses/{expense_id}", status_code=status.HTTP_204_NO_CONTENT)
+def soft_delete_order_expense(
+    order_id: str,
+    expense_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("orders.edit"))],
+):
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    oid = order_id.strip()
+    try:
+        xid = UUID(expense_id.strip())
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Expense not found.") from exc
+    res = db.execute(
+        text(
+            """
+            UPDATE order_expense_entries
+            SET is_deleted = TRUE
+            WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid AND id = CAST(:xid AS uuid)
+              AND COALESCE(is_deleted, FALSE) = FALSE
+            """
+        ),
+        {"cid": str(cid), "oid": oid, "xid": str(xid)},
+    )
+    if res.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Expense not found.")
+    db.commit()
+    return None
+
+
 @router.delete(
     "/{order_id}/payment-entries/{entry_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -1873,6 +2030,11 @@ def get_order(
                 )
             )
     financial_totals = _rollup_financial_totals(rollup_source)
+    # Expenses are always stored per-order, but the anchor job view should roll them up.
+    expense_total = _sum_expenses_for_job(db, cid, oid) if not parent_ref else _sum_expenses_for_order(db, cid, oid)
+
+    total_incl_tax = _money_q(financial_totals.subtotal_ex_tax) + _money_q(financial_totals.tax_amount)
+    profit = (total_incl_tax - _money_q(expense_total)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     payment_entries: list[OrderPaymentEntryOut] = []
     if not parent_ref:
@@ -1969,10 +2131,14 @@ def get_order(
             list(pay_rows),
         )
     attachments = _fetch_order_attachments(db, cid, oid)
+    expense_entries = _fetch_order_expense_entries(db, cid, oid)
     return OrderDetailOut(
         **d,
         blinds_lines=lines,
         payment_entries=payment_entries,
+        expense_total=_money_q(expense_total),
+        profit=profit,
+        expense_entries=expense_entries,
         attachments=attachments,
         parent_order_id=parent_ref,
         financial_totals=financial_totals,

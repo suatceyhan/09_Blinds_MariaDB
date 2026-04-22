@@ -103,7 +103,16 @@ export type OrderDetail = {
   updated_at?: string | null
   active?: boolean
   /** Down payment (`id` downpayment) + recorded Pay rows; chronological from API. */
-  payment_entries?: Array<{ id: string; amount: string | number; paid_at: string }>
+  payment_entries?: Array<{ id: string; order_id?: string | null; amount: string | number; paid_at: string }>
+  expense_total?: string | number | null
+  profit?: string | number | null
+  expense_entries?: Array<{
+    id: string
+    amount: string | number
+    note?: string | null
+    spent_at?: string | null
+    created_at?: string | null
+  }>
   attachments?: OrderAttachmentRow[]
 }
 
