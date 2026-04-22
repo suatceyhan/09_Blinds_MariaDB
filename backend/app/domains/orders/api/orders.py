@@ -942,6 +942,7 @@ class OrderAttachmentOut(BaseModel):
     filename: str
     url: str
     created_at: Any
+    blinds_type_id: str | None = None
 
 
 class OrderPaymentEntryOut(BaseModel):
@@ -1068,6 +1069,7 @@ def _fetch_order_attachments(db: Session, cid: UUID, oid: str) -> list[OrderAtta
             FROM order_attachments
             WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid
               AND COALESCE(is_deleted, FALSE) = FALSE
+              AND kind IN ('photo', 'excel')
             ORDER BY created_at DESC
             """
         ),
@@ -1080,9 +1082,80 @@ def _fetch_order_attachments(db: Session, cid: UUID, oid: str) -> list[OrderAtta
             filename=str(r["original_filename"]),
             url=f"/uploads/{r['stored_relpath']}",
             created_at=r["created_at"],
+            blinds_type_id=None,
         )
         for r in rows
     ]
+
+
+_ATT_HAS_BLINDS_TYPE_COL_CACHE_KEY = "orders_att_has_blinds_type_id"
+
+
+def _order_attachments_has_blinds_type_id(db: Session) -> bool:
+    cached = db.info.get(_ATT_HAS_BLINDS_TYPE_COL_CACHE_KEY)
+    if cached is not None:
+        return bool(cached)
+    exists = db.execute(
+        text(
+            """
+            SELECT EXISTS (
+              SELECT 1
+              FROM information_schema.columns
+              WHERE table_catalog = current_database()
+                AND table_name = 'order_attachments'
+                AND column_name = 'blinds_type_id'
+            )
+            """
+        )
+    ).scalar()
+    db.info[_ATT_HAS_BLINDS_TYPE_COL_CACHE_KEY] = bool(exists)
+    return bool(exists)
+
+
+def _fetch_order_line_photos(
+    db: Session,
+    cid: UUID,
+    oid: str,
+) -> dict[str, list[OrderAttachmentOut]]:
+    """Per-line photos keyed by blinds_type_id. Returns {} if migration hasn't added the column yet."""
+    if not _order_attachments_has_blinds_type_id(db):
+        return {}
+    rows = db.execute(
+        text(
+            """
+            SELECT
+              id::text AS id,
+              kind,
+              original_filename,
+              stored_relpath,
+              created_at,
+              trim(COALESCE(blinds_type_id::text,'')) AS blinds_type_id
+            FROM order_attachments
+            WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid
+              AND COALESCE(is_deleted, FALSE) = FALSE
+              AND kind = 'line_photo'
+              AND blinds_type_id IS NOT NULL
+            ORDER BY created_at DESC
+            """
+        ),
+        {"cid": str(cid), "oid": oid},
+    ).mappings().all()
+    out: dict[str, list[OrderAttachmentOut]] = {}
+    for r in rows:
+        bt = str(r.get("blinds_type_id") or "").strip()
+        if not bt:
+            continue
+        out.setdefault(bt, []).append(
+            OrderAttachmentOut(
+                id=str(r["id"]),
+                kind=str(r["kind"]),
+                filename=str(r["original_filename"]),
+                url=f"/uploads/{r['stored_relpath']}",
+                created_at=r["created_at"],
+                blinds_type_id=bt,
+            )
+        )
+    return out
 
 
 def _fetch_order_expense_entries(db: Session, cid: UUID, oid: str) -> list[dict[str, Any]]:
@@ -1170,6 +1243,7 @@ class OrderDetailOut(BaseModel):
     profit: Decimal | None = None
     expense_entries: list[dict[str, Any]] = Field(default_factory=list)
     attachments: list[OrderAttachmentOut] = Field(default_factory=list)
+    line_photos: dict[str, list[OrderAttachmentOut]] = Field(default_factory=dict)
     order_note: str | None = None
     agree_data: str | None = None
     agreement_date: date | None = None
@@ -1864,6 +1938,101 @@ async def upload_order_attachment(
     return get_order(order_id=oid, db=db, current_user=current_user)
 
 
+@router.post("/{order_id}/line-photos", response_model=OrderDetailOut)
+async def upload_order_line_photo(
+    order_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("orders.edit"))],
+    blinds_type_id: Annotated[str, Form()],
+    file: Annotated[UploadFile, File()],
+):
+    """Upload a per-blinds-line photo (fabric reference)."""
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    oid = order_id.strip()
+    bt = (blinds_type_id or "").strip()
+    if not bt:
+        raise HTTPException(status_code=400, detail="blinds_type_id is required.")
+    if not _order_attachments_has_blinds_type_id(db):
+        raise HTTPException(
+            status_code=503,
+            detail="Database migration required: run SQL from DB/38_order_line_photos.sql.",
+        )
+
+    row = db.execute(
+        text(
+            """
+            SELECT o.blinds_lines AS blinds_lines_json
+            FROM orders o
+            WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid AND o.active IS TRUE
+            LIMIT 1
+            """
+        ),
+        {"cid": str(cid), "oid": oid},
+    ).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    lines = _normalize_blinds_lines(row.get("blinds_lines_json"))
+    if not any(str(x.get("id") or "").strip() == bt for x in lines):
+        raise HTTPException(status_code=400, detail="This blinds type is not selected on the order.")
+
+    ct = _normalize_upload_content_type(file.content_type)
+    fn_low = (file.filename or "").lower()
+    ext = ORDER_PHOTO_TYPES.get(ct)
+    if not ext and fn_low.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
+        ext = Path(fn_low).suffix.lower()
+        if ext == ".jpeg":
+            ext = ".jpg"
+        ct = ct or "image/jpeg"
+    if not ext:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid image type. Use PNG, JPEG, WebP, or GIF.",
+        )
+    data = await file.read()
+    if len(data) > ORDER_PHOTO_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="File too large.")
+
+    safe = _safe_upload_basename(file.filename or f"upload{ext}")
+    unique = f"{uuid4().hex}_{safe}"
+    if not unique.lower().endswith(ext.lower()):
+        unique = f"{unique}{ext}"
+
+    dest_dir = _orders_upload_dir(cid, oid) / "line_photos" / bt
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = dest_dir / unique
+    rel = Path("orders") / str(cid) / oid / "line_photos" / bt / unique
+    stored_relpath = rel.as_posix()
+    dest_path.write_bytes(data)
+
+    db.execute(
+        text(
+            """
+            INSERT INTO order_attachments (
+              company_id, order_id, kind, blinds_type_id,
+              original_filename, stored_relpath, content_type, file_size
+            )
+            VALUES (
+              CAST(:cid AS uuid), :oid, 'line_photo', :bt,
+              :oname, :spath, :ct, :fsz
+            )
+            """
+        ),
+        {
+            "cid": str(cid),
+            "oid": oid,
+            "bt": bt,
+            "oname": safe,
+            "spath": stored_relpath,
+            "ct": ct or None,
+            "fsz": len(data),
+        },
+    )
+    db.commit()
+    return get_order(order_id=oid, db=db, current_user=current_user)
+
+
 @router.delete(
     "/{order_id}/attachments/{attachment_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -2145,6 +2314,7 @@ def get_order(
             list(pay_rows),
         )
     attachments = _fetch_order_attachments(db, cid, oid)
+    line_photos = _fetch_order_line_photos(db, cid, oid)
     expense_entries = _fetch_order_expense_entries(db, cid, oid)
     return OrderDetailOut(
         **d,
@@ -2154,6 +2324,7 @@ def get_order(
         profit=profit,
         expense_entries=expense_entries,
         attachments=attachments,
+        line_photos=line_photos,
         parent_order_id=parent_ref,
         financial_totals=financial_totals,
         has_line_item_additions=len(line_item_additions) > 0,

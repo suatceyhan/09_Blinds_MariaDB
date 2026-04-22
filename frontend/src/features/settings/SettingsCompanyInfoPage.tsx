@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Building2, ExternalLink } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Building2, ExternalLink, Image as ImageIcon, Trash2, Upload } from 'lucide-react'
 import { REFRESH_SESSION_EVENT, useAuthSession } from '@/app/authSession'
 import { AddressAutocompleteInput } from '@/components/ui/AddressAutocompleteInput'
 import { ADDRESS_FORMAT_HINT } from '@/components/ui/AddressMapLink'
 import { companyCountrySelectOptions } from '@/lib/addressCountryOptions'
 import { listCompanySubnationals } from '@/lib/companyRegions'
-import { getJson, patchJson } from '@/lib/api'
+import { apiBase, getJson, patchJson } from '@/lib/api'
 import { mapsLinkForCompany } from '@/lib/googleMaps'
 import { isValidCaPostalCode, normalizeCaPostalCode } from '@/lib/caPostalCode'
+import { resizePhotoForUpload } from '@/lib/imageResize'
 
 type CompanyOut = {
   id: string
@@ -21,6 +22,7 @@ type CompanyOut = {
   region_code?: string | null
   maps_url: string | null
   tax_rate_percent?: string | number | null
+  logo_url?: string | null
 }
 
 export function SettingsCompanyInfoPage() {
@@ -45,8 +47,10 @@ export function SettingsCompanyInfoPage() {
   const [taxRatePercent, setTaxRatePercent] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [logoUploading, setLogoUploading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement | null>(null)
   const isCa = countryCode.trim().toUpperCase() === 'CA'
   const postalErr = isCa && postalCode.trim() !== '' && !isValidCaPostalCode(postalCode)
 
@@ -96,6 +100,86 @@ export function SettingsCompanyInfoPage() {
       addr === (row?.address ?? '').trim() && pc === (row?.postal_code ?? '').trim()
     return mapsLinkForCompany(q, unchanged ? row?.maps_url ?? null : null)
   }, [address, postalCode, row?.address, row?.postal_code, row?.maps_url])
+
+  const logoHref = useMemo(() => {
+    const raw = (row?.logo_url ?? '').trim()
+    if (!raw) return null
+    return `${apiBase()}${raw.startsWith('/') ? raw : `/${raw}`}`
+  }, [row?.logo_url])
+
+  async function uploadLogo(file: File) {
+    if (!companyId || !canEdit) return
+    setErr(null)
+    setOk(null)
+    setLogoUploading(true)
+    try {
+      const resized = await resizePhotoForUpload(file, {
+        maxDimension: 512,
+        outputType: 'image/webp',
+        quality: 0.84,
+        maxBytes: 2 * 1024 * 1024,
+      })
+      const form = new FormData()
+      form.append('file', resized)
+      const t = localStorage.getItem('starter_app_access_token')
+      const r = await fetch(`${apiBase()}/companies/${companyId}/logo`, {
+        method: 'POST',
+        headers: t ? { Authorization: `Bearer ${t}` } : undefined,
+        body: form,
+      })
+      if (!r.ok) {
+        let msg = 'Could not upload logo.'
+        try {
+          const j = (await r.json()) as { detail?: string }
+          if (j?.detail) msg = j.detail
+        } catch {
+          // ignore
+        }
+        throw new Error(msg)
+      }
+      const updated = (await r.json()) as CompanyOut
+      setRow(updated)
+      setOk('Logo updated.')
+      globalThis.dispatchEvent(new Event(REFRESH_SESSION_EVENT))
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not upload logo')
+    } finally {
+      setLogoUploading(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  async function deleteLogo() {
+    if (!companyId || !canEdit) return
+    setErr(null)
+    setOk(null)
+    setLogoUploading(true)
+    try {
+      const t = localStorage.getItem('starter_app_access_token')
+      const r = await fetch(`${apiBase()}/companies/${companyId}/logo`, {
+        method: 'DELETE',
+        headers: t ? { Authorization: `Bearer ${t}` } : undefined,
+      })
+      if (!r.ok) {
+        let msg = 'Could not remove logo.'
+        try {
+          const j = (await r.json()) as { detail?: string }
+          if (j?.detail) msg = j.detail
+        } catch {
+          // ignore
+        }
+        throw new Error(msg)
+      }
+      const updated = (await r.json()) as CompanyOut
+      setRow(updated)
+      setOk('Logo removed.')
+      globalThis.dispatchEvent(new Event(REFRESH_SESSION_EVENT))
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not remove logo')
+    } finally {
+      setLogoUploading(false)
+    }
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -225,6 +309,84 @@ export function SettingsCompanyInfoPage() {
               <section className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm">
                 <h2 className="text-base font-semibold text-slate-900">Contact &amp; location</h2>
                 <p className="mt-2 text-sm text-slate-600">Update the fields below and save. Empty optional fields are cleared.</p>
+
+                <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-900">Company logo</h3>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Upload a square logo (PNG/JPG/WebP/GIF, max 2MB). Used on printable documents where applicable.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {canEdit ? (
+                        <>
+                          <input
+                            ref={fileRef}
+                            type="file"
+                            accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0]
+                              if (f) void uploadLogo(f)
+                            }}
+                            disabled={logoUploading}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => fileRef.current?.click()}
+                            disabled={logoUploading}
+                            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-60"
+                          >
+                            <Upload className="h-4 w-4" strokeWidth={2} />
+                            {logoUploading ? 'Uploading…' : 'Upload'}
+                          </button>
+                          {row?.logo_url ? (
+                            <button
+                              type="button"
+                              onClick={() => void deleteLogo()}
+                              disabled={logoUploading}
+                              className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-800 shadow-sm hover:bg-red-50 disabled:opacity-60"
+                            >
+                              <Trash2 className="h-4 w-4" strokeWidth={2} />
+                              Remove
+                            </button>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex items-center gap-4">
+                    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white">
+                      {logoHref ? (
+                        <img
+                          src={logoHref}
+                          alt="Company logo"
+                          className="h-full w-full object-contain"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <ImageIcon className="h-6 w-6 text-slate-400" strokeWidth={2} />
+                      )}
+                    </div>
+                    <div className="text-sm text-slate-600">
+                      {logoHref ? (
+                        <a
+                          href={logoHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 font-medium text-teal-700 hover:text-teal-800"
+                        >
+                          View logo file
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      ) : (
+                        <span>No logo uploaded.</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
 
                 <div className="mt-4 grid gap-4 sm:grid-cols-1">
                   <label className="block text-sm font-medium text-slate-700">

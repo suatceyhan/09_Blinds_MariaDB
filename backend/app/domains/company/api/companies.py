@@ -555,11 +555,21 @@ async def upload_company_logo(
     company_id: UUID,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _super: Users = Depends(require_superadmin),
+    current_user: Users = Depends(
+        require_permissions("companies.edit", "settings.company_info.edit")
+    ),
 ):
     row = db.query(Companies).filter(Companies.id == company_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="Company not found.")
+    super_u = is_effective_superadmin(
+        db, current_user.id, getattr(current_user, "active_role", None)
+    )
+    if not super_u:
+        if not user_has_membership(db, current_user.id, company_id):
+            raise HTTPException(status_code=403, detail="Not allowed.")
+        if row.is_deleted:
+            raise HTTPException(status_code=404, detail="Company not found.")
     ext = _logo_extension(file.content_type)
     if not ext:
         raise HTTPException(
@@ -584,11 +594,21 @@ async def upload_company_logo(
 def delete_company_logo(
     company_id: UUID,
     db: Session = Depends(get_db),
-    current_user: Users = Depends(require_superadmin),
+    current_user: Users = Depends(
+        require_permissions("companies.edit", "settings.company_info.edit")
+    ),
 ):
     row = db.query(Companies).filter(Companies.id == company_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="Company not found.")
+    super_u = is_effective_superadmin(
+        db, current_user.id, getattr(current_user, "active_role", None)
+    )
+    if not super_u:
+        if not user_has_membership(db, current_user.id, company_id):
+            raise HTTPException(status_code=403, detail="Not allowed.")
+        if row.is_deleted:
+            raise HTTPException(status_code=404, detail="Company not found.")
     _remove_logo_files(company_id)
     row.logo_url = None
     db.commit()

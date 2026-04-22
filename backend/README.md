@@ -14,6 +14,7 @@ copy .env.example .env   # SECRET_KEY, DATABASE_URL zorunlu; isteğe bağlı SUP
 
 PostgreSQL URL örneği: `postgresql://user:pass@localhost:5432/myapp`  
 Şema: kökteki **`DB/blinds.sql`** dosyası auth/RBAC + kiracı + blinds iş tablolarını oluşturur (`psql -f ../DB/blinds.sql`). Bu yolu seçtiyseniz `.env` içinde `AUTO_CREATE_TABLES=false` yapın; aksi hâlde uygulama açılışta `create_all_tables()` ile aynı tabloları tekrar oluşturmaya çalışabilir. `gen_random_uuid()` için PostgreSQL 13+ yeterlidir. Ödeme geçmişi / grup id ve ekler için **`DB/36_order_payment_entries_payment_group_id.sql`**, order masrafları için **`DB/37_order_expense_entries.sql`** (veya güncel `blinds.sql`) uygulanmalıdır.
+Line-item additions (ek siparişler / anchor’a bağlı alt siparişler) için **`DB/35_orders_parent_order_id.sql`** (veya güncel `blinds.sql`) gereklidir.
 
 ## Çalıştırma
 

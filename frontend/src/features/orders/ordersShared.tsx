@@ -115,6 +115,8 @@ export type OrderDetail = {
     created_at?: string | null
   }>
   attachments?: OrderAttachmentRow[]
+  /** Per-blinds-line photos: key = blinds_type_id, value = list of photo attachments. */
+  line_photos?: Record<string, OrderAttachmentRow[]>
 }
 
 export type OrderStatusOpt = { id: string; name: string; sort_order?: number }
@@ -734,6 +736,7 @@ export function BlindsTypesGrid(props: {
   setLineNote: (typeId: string, value: string) => void
   setLineAmount: (typeId: string, value: string) => void
   keyPrefix?: string
+  renderLinePhotoCell?: (typeId: string, checked: boolean) => ReactNode
 }) {
   const {
     blindsTypes: bt,
@@ -745,6 +748,7 @@ export function BlindsTypesGrid(props: {
     setLineNote,
     setLineAmount,
     keyPrefix = '',
+    renderLinePhotoCell,
   } = props
   const attrRows = lineAttributeRows(blindsOrderOptions)
 
@@ -802,6 +806,14 @@ export function BlindsTypesGrid(props: {
               >
                 Line note
               </th>
+              {renderLinePhotoCell ? (
+                <th
+                  scope="col"
+                  className="w-[6.5rem] min-w-[6.5rem] px-1 py-2 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-600"
+                >
+                  Photo
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -932,6 +944,11 @@ export function BlindsTypesGrid(props: {
                       onChange={(e) => setLineNote(b.id, e.target.value)}
                     />
                   </td>
+                  {renderLinePhotoCell ? (
+                    <td className="w-[6.5rem] min-w-[6.5rem] px-1 py-1 align-top">
+                      {renderLinePhotoCell(b.id, checked)}
+                    </td>
+                  ) : null}
                 </tr>
               )
             })}

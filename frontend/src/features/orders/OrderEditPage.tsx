@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, FolderKanban, Trash2 } from 'lucide-react'
+import { ArrowLeft, Camera, FolderKanban, Trash2, Upload } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { VisitStartQuarterPicker } from '@/components/ui/VisitStartQuarterPicker'
-import { deleteJson, getJson, patchJson, postJson } from '@/lib/api'
+import { deleteJson, getJson, patchJson, postJson, postMultipartJson } from '@/lib/api'
+import { resizePhotoForUpload } from '@/lib/imageResize'
 import { snapWallToQuarterMinutes } from '@/lib/visitSchedule'
 import {
   BlindsLineState,
@@ -181,6 +182,9 @@ export function OrderEditPage() {
   >([])
   const [editInstallationStart, setEditInstallationStart] = useState('')
   const [editAttachments, setEditAttachments] = useState<OrderAttachmentRow[]>([])
+  const [editLinePhotosByOrder, setEditLinePhotosByOrder] = useState<
+    Record<string, Record<string, OrderAttachmentRow[]>>
+  >({})
   const [editAdditionOrders, setEditAdditionOrders] = useState<EditAdditionOrder[]>([])
   const [attachmentUploadBusy, setAttachmentUploadBusy] = useState(false)
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
@@ -373,11 +377,119 @@ export function OrderEditPage() {
     )
     setEditInstallationStart(installationWallFromIso(detail.installation_scheduled_start_at))
     setEditAttachments(detail.attachments ?? [])
+    const linePhotoNext: Record<string, Record<string, OrderAttachmentRow[]>> = {}
+    if (detail.id) linePhotoNext[detail.id] = detail.line_photos ?? {}
+    for (const ad of additions) {
+      if (ad?.id) linePhotoNext[ad.id] = ad.line_photos ?? {}
+    }
+    setEditLinePhotosByOrder(linePhotoNext)
     setEditAdditionOrders(
       additions
         .map(toEditAdditionOrder)
         .sort((a, b) => String(a.created_at ?? '').localeCompare(String(b.created_at ?? ''))),
     )
+  }
+
+  async function uploadLinePhoto(targetOrderId: string, blindsTypeId: string, file: File | null | undefined) {
+    if (!targetOrderId || !canEdit || !file) return
+    setErr(null)
+    try {
+      const resized = await resizePhotoForUpload(file, {
+        maxDimension: 1600,
+        outputType: 'image/webp',
+        quality: 0.82,
+        maxBytes: 4 * 1024 * 1024,
+      })
+      const fd = new FormData()
+      fd.append('blinds_type_id', blindsTypeId)
+      fd.append('file', resized)
+      await postMultipartJson<OrderDetail>(`/orders/${targetOrderId}/line-photos`, fd)
+      await loadOrderPageData(false)
+      scheduleOrderFormBaselineCapture()
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : 'Could not upload photo')
+    }
+  }
+
+  function renderLinePhotoCell(targetOrderId: string, keyPrefix: string) {
+    return (typeId: string, checked: boolean) => {
+      const photos = editLinePhotosByOrder[targetOrderId]?.[typeId] ?? []
+      const latest = photos[0] ?? null
+      const camId = `${keyPrefix}-line-photo-cam-${targetOrderId}-${typeId}`
+      const upId = `${keyPrefix}-line-photo-up-${targetOrderId}-${typeId}`
+      return (
+        <div className="flex flex-col items-center gap-1.5">
+          <input
+            id={camId}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            disabled={!checked}
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              e.target.value = ''
+              void uploadLinePhoto(targetOrderId, typeId, f)
+            }}
+          />
+          <input
+            id={upId}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            disabled={!checked}
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              e.target.value = ''
+              void uploadLinePhoto(targetOrderId, typeId, f)
+            }}
+          />
+          <div className="flex items-center justify-center gap-1">
+            <button
+              type="button"
+              title={checked ? 'Take photo' : 'Select type first'}
+              aria-label={`Take photo for ${typeId}`}
+              disabled={!checked}
+              onClick={() => document.getElementById(camId)?.click()}
+              className="rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400"
+            >
+              <Camera className="h-4 w-4" strokeWidth={2} />
+            </button>
+            <button
+              type="button"
+              title={checked ? 'Upload photo' : 'Select type first'}
+              aria-label={`Upload photo for ${typeId}`}
+              disabled={!checked}
+              onClick={() => document.getElementById(upId)?.click()}
+              className="rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400"
+            >
+              <Upload className="h-4 w-4" strokeWidth={2} />
+            </button>
+          </div>
+          {latest ? (
+            <a
+              href={latest.url}
+              target="_blank"
+              rel="noreferrer"
+              title={latest.filename}
+              className="mt-0.5 block"
+            >
+              <img
+                src={latest.url}
+                alt="Line"
+                className="h-8 w-8 rounded-md border border-slate-200 object-cover"
+                loading="lazy"
+              />
+            </a>
+          ) : (
+            <span className="text-[10px] text-slate-400">{checked ? '—' : ''}</span>
+          )}
+          {photos.length > 1 ? (
+            <span className="text-[10px] font-semibold text-slate-500">{photos.length} photos</span>
+          ) : null}
+        </div>
+      )
+    }
   }
 
   async function loadOrderPageData(showSpinner = true) {
@@ -1357,6 +1469,7 @@ export function OrderEditPage() {
                         setLineField={editSetBlindsLineField}
                         setLineNote={editSetBlindsLineNote}
                         setLineAmount={editSetBlindsLineAmount}
+                        renderLinePhotoCell={orderId ? renderLinePhotoCell(orderId, 'edit-orig') : undefined}
                         keyPrefix="edit"
                       />
                       {editBlindsLines.length === 0 ? (
@@ -1529,6 +1642,9 @@ export function OrderEditPage() {
                                   setLineField={(id, key, v) => editAdditionSetBlindsLineField(a.order_id, id, key, v)}
                                   setLineNote={(id, v) => editAdditionSetBlindsLineNote(a.order_id, id, v)}
                                   setLineAmount={(id, v) => editAdditionSetBlindsLineAmount(a.order_id, id, v)}
+                                  renderLinePhotoCell={
+                                    !isPendingAdditionOrderId(a.order_id) ? renderLinePhotoCell(a.order_id, `edit-add-${a.order_id}`) : undefined
+                                  }
                                   keyPrefix={`edit-add-${a.order_id}`}
                                 />
                                 {a.blinds_lines.length === 0 ? (

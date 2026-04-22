@@ -10,6 +10,7 @@ import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
 import { useAuthSession } from '@/app/authSession'
 import { deleteJson, getJson, patchJson, postJson, postMultipartJson } from '@/lib/api'
 import { isValidCaPostalCode, normalizeCaPostalCode } from '@/lib/caPostalCode'
+import { resizePhotoForUpload } from '@/lib/imageResize'
 type CompanyOwner = {
   id: string
   email: string
@@ -280,8 +281,14 @@ export function CompaniesPage() {
         owner_user_id: ownerUserId.trim() || null,
       })
       if (createLogoFile) {
+        const resized = await resizePhotoForUpload(createLogoFile, {
+          maxDimension: 512,
+          outputType: 'image/webp',
+          quality: 0.84,
+          maxBytes: 2 * 1024 * 1024,
+        })
         const fd = new FormData()
-        fd.append('file', createLogoFile)
+        fd.append('file', resized)
         await postMultipartJson<CompanyRow>(`/companies/${created.id}/logo`, fd)
       }
       setName('')
@@ -313,8 +320,14 @@ export function CompaniesPage() {
     setLogoBusy(true)
     setErr(null)
     try {
+      const resized = await resizePhotoForUpload(editLogoFile, {
+        maxDimension: 512,
+        outputType: 'image/webp',
+        quality: 0.84,
+        maxBytes: 2 * 1024 * 1024,
+      })
       const fd = new FormData()
-      fd.append('file', editLogoFile)
+      fd.append('file', resized)
       const updated = await postMultipartJson<CompanyRow>(`/companies/${editing.id}/logo`, fd)
       setEditing((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev))
       setEditLogoFile(null)

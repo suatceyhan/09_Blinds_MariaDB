@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, FolderKanban, Pencil, Trash2 } from 'lucide-react'
+import { ArrowLeft, FolderKanban, Pencil } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
-import { ConfirmModal } from '@/components/ui/ConfirmModal'
-import { deleteJson, getJson } from '@/lib/api'
+import { getJson } from '@/lib/api'
 import {
   blindsLineSummarySuffix,
   BlindsOrderOptions,
@@ -26,6 +25,7 @@ export function OrderViewPage() {
   const me = useAuthSession()
   const canView = Boolean(me?.permissions.includes('orders.view'))
   const canEdit = Boolean(me?.permissions.includes('orders.edit'))
+  const canMutateInView = false
 
   const [err, setErr] = useState<string | null>(null)
   const [viewOrder, setViewOrder] = useState<OrderDetail | null | undefined>(undefined)
@@ -33,13 +33,6 @@ export function OrderViewPage() {
   const [viewAdditionDetails, setViewAdditionDetails] = useState<Record<string, OrderDetail>>({})
   const [blindsOrderOptions, setBlindsOrderOptions] = useState<BlindsOrderOptions | null>(null)
   const [attachmentUploadBusy, setAttachmentUploadBusy] = useState(false)
-  const [deleteExpenseTarget, setDeleteExpenseTarget] = useState<{ orderId: string; expenseId: string } | null>(null)
-  const [deleteExpensePending, setDeleteExpensePending] = useState(false)
-  const [deleteAttachmentTarget, setDeleteAttachmentTarget] = useState<{
-    orderId: string
-    id: string
-  } | null>(null)
-  const [deleteAttachmentPending, setDeleteAttachmentPending] = useState(false)
 
   const viewPaidFormatted = useMemo(() => {
     if (!viewOrder) return '-'
@@ -139,36 +132,6 @@ export function OrderViewPage() {
     }
   }
 
-  async function runDeleteExpense() {
-    if (!deleteExpenseTarget || !canEdit) return
-    setDeleteExpensePending(true)
-    setErr(null)
-    try {
-      await deleteJson(`/orders/${deleteExpenseTarget.orderId}/expenses/${deleteExpenseTarget.expenseId}`)
-      setDeleteExpenseTarget(null)
-      await refreshOrder()
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not remove expense')
-    } finally {
-      setDeleteExpensePending(false)
-    }
-  }
-
-  async function runDeleteAttachment() {
-    if (!deleteAttachmentTarget || !canEdit) return
-    const { orderId: targetOrderId, id } = deleteAttachmentTarget
-    setDeleteAttachmentPending(true)
-    setErr(null)
-    try {
-      await deleteJson(`/orders/${targetOrderId}/attachments/${id}`)
-      setDeleteAttachmentTarget(null)
-      await refreshOrder()
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not remove attachment')
-    } finally {
-      setDeleteAttachmentPending(false)
-    }
-  }
 
   if (!me) return <p className="text-sm text-slate-500">Loading...</p>
 
@@ -182,30 +145,6 @@ export function OrderViewPage() {
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6">
-      <ConfirmModal
-        open={deleteAttachmentTarget !== null}
-        title="Remove this file?"
-        description="The attachment will no longer appear on this order."
-        confirmLabel="Remove file"
-        cancelLabel="Cancel"
-        variant="danger"
-        pending={deleteAttachmentPending}
-        onConfirm={() => void runDeleteAttachment()}
-        onCancel={() => !deleteAttachmentPending && setDeleteAttachmentTarget(null)}
-      />
-
-      <ConfirmModal
-        open={deleteExpenseTarget !== null}
-        title="Remove this expense?"
-        description="This expense line will be removed. Profit will be recalculated."
-        confirmLabel="Remove expense"
-        cancelLabel="Cancel"
-        variant="danger"
-        pending={deleteExpensePending}
-        onConfirm={() => void runDeleteExpense()}
-        onCancel={() => !deleteExpensePending && setDeleteExpenseTarget(null)}
-      />
-
       <Link to="/orders" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900 hover:text-slate-950 hover:underline">
         <ArrowLeft className="h-4 w-4" />
         Back to orders
@@ -352,16 +291,7 @@ export function OrderViewPage() {
                           <div className="font-semibold tabular-nums text-slate-900">{fmtMoney(e.amount)}</div>
                           {e.note?.trim() ? <div className="mt-0.5 text-xs text-slate-600">{e.note.trim()}</div> : null}
                         </div>
-                        {canEdit && viewOrder.active !== false ? (
-                          <button
-                            type="button"
-                            title="Remove expense"
-                            className="rounded-lg border border-red-200 p-1.5 text-red-700 hover:bg-red-50"
-                            onClick={() => orderId && setDeleteExpenseTarget({ orderId, expenseId: e.id })}
-                          >
-                            <Trash2 className="h-4 w-4" strokeWidth={2} />
-                          </button>
-                        ) : null}
+                        {/* View-only: no mutations here */}
                       </li>
                     ))}
                   </ul>
@@ -415,31 +345,57 @@ export function OrderViewPage() {
                     serverFiles={viewOrder.attachments ?? []}
                     pendingFiles={[]}
                     onPendingChange={() => {}}
-                    canEdit={canEdit && viewOrder.active !== false}
+                    canEdit={canMutateInView}
                     uploadBusy={attachmentUploadBusy}
                     setUploadBusy={setAttachmentUploadBusy}
                     onAfterServerMutation={refreshOrder}
                     setErr={setErr}
-                    onRequestDeleteAttachment={(id) => orderId && setDeleteAttachmentTarget({ orderId, id })}
+                    onRequestDeleteAttachment={() => {}}
                   />
 
                   {viewOrder.blinds_lines && viewOrder.blinds_lines.length > 0 ? (
                     <section className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
                       <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Blinds</h3>
-                      <ul className="mt-3 flex flex-wrap gap-2">
-                        {viewOrder.blinds_lines.map((b) => (
-                          <li
-                            key={b.id}
-                            className="rounded-full bg-teal-50 px-3 py-1 text-xs font-medium text-teal-900 ring-1 ring-teal-100"
-                          >
-                            {b.name}
-                            {b.window_count != null ? ` - ${b.window_count}` : ''}
-                            {blindsLineSummarySuffix(
-                              normalizeBlindsLineFromApi(b as Record<string, unknown>),
-                              blindsOrderOptions,
-                            )}
-                          </li>
-                        ))}
+                      <ul className="mt-3 space-y-2">
+                        {viewOrder.blinds_lines.map((b) => {
+                          const line = normalizeBlindsLineFromApi(b as Record<string, unknown>)
+                          const photos = viewOrder.line_photos?.[String(b.id)] ?? []
+                          const latest = photos[0] ?? null
+                          return (
+                            <li key={b.id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50/40 px-3 py-2">
+                              <div className="min-w-0">
+                                <div className="text-xs font-semibold text-slate-900">
+                                  {b.name}
+                                  {b.window_count != null ? ` - ${b.window_count}` : ''}
+                                  <span className="ml-1 text-xs font-normal text-slate-500">
+                                    {blindsLineSummarySuffix(line, blindsOrderOptions)}
+                                  </span>
+                                </div>
+                                {latest ? (
+                                  <a
+                                    href={latest.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="mt-2 inline-flex items-center gap-2"
+                                    title={latest.filename}
+                                  >
+                                    <img
+                                      src={latest.url}
+                                      alt="Line"
+                                      className="h-10 w-10 rounded-md border border-slate-200 object-cover"
+                                      loading="lazy"
+                                    />
+                                    <span className="text-xs font-medium text-teal-700 hover:underline">
+                                      View photo{photos.length > 1 ? ` (${photos.length})` : ''}
+                                    </span>
+                                  </a>
+                                ) : (
+                                  <div className="mt-2 text-xs text-slate-500">No photo yet.</div>
+                                )}
+                              </div>
+                            </li>
+                          )
+                        })}
                       </ul>
                     </section>
                   ) : null}

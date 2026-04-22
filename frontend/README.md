@@ -65,4 +65,6 @@ Yeni modüller: `src/features` altına ek sayfalar ve `AppRoutes` + `appPages.ts
 
 **Settings → Company info:** `/settings/company-info` — active company (header switcher) için ad, iletişim, adres ve **default sales tax (%)**; siparişte **taxable base** × bu oran = **tax amount** (sunucuda `orders.tax_amount`). Kayıt **`PATCH /companies/{id}`** — UI izinleri **`settings.company_info.*`**; API ayrıca eski roller için **`companies.edit`** / **`companies.view`** ile **OR** kabul eder.
 
+- **Company logo**: upload/remove company logo (PNG/JPG/WebP/GIF, max 2MB) from the same page. Backend stores files under `UPLOAD_ROOT` (default `backend/data/uploads`) and serves them at `/uploads/...` (Vite dev proxy forwards `/uploads` to FastAPI).
+
 **Integrations:** `/settings/integrations` — Google Calendar OAuth (**`settings.integrations.*`**; API’de `companies.*` ile OR); yeni estimate’ler bağlı takvimde etkinlik oluşturabilir (backend `.env` + `docs/GOOGLE_CALENDAR_SETUP.md`).
