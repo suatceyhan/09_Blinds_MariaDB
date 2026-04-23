@@ -19,6 +19,7 @@ import {
   fmtDisplayDateTime,
   fmtMoney,
   fmtTotalIncludingTax,
+  formatMoneyInputValue,
   hydrateBlindsLinesDefaults,
   installationWallFromIso,
   isReadyForInstallationStatus,
@@ -145,8 +146,8 @@ function toEditAdditionOrder(ad: OrderDetail): EditAdditionOrder {
     blinds_lines: ad.blinds_lines?.length
       ? ad.blinds_lines.map((x) => normalizeBlindsLineFromApi(x as Record<string, unknown>))
       : [],
-    downpayment: ad.downpayment != null ? String(ad.downpayment) : '',
-    tax_base: ad.tax_uygulanacak_miktar != null ? String(ad.tax_uygulanacak_miktar) : '',
+    downpayment: ad.downpayment != null ? formatMoneyInputValue(String(ad.downpayment)) : '',
+    tax_base: ad.tax_uygulanacak_miktar != null ? formatMoneyInputValue(String(ad.tax_uygulanacak_miktar)) : '',
     agreement_date: (ad.agreement_date ?? '').toString().trim().slice(0, 10),
     order_note: ad.order_note ?? '',
     final_payment: ad.final_payment,
@@ -375,8 +376,8 @@ export function OrderEditPage() {
         : [],
     )
     const nextDraft: EditDraft = {
-      downpayment: detail.downpayment != null ? String(detail.downpayment) : '',
-      tax_base: detail.tax_uygulanacak_miktar != null ? String(detail.tax_uygulanacak_miktar) : '',
+      downpayment: detail.downpayment != null ? formatMoneyInputValue(String(detail.downpayment)) : '',
+      tax_base: detail.tax_uygulanacak_miktar != null ? formatMoneyInputValue(String(detail.tax_uygulanacak_miktar)) : '',
       agreement_date: (detail.agreement_date ?? '').toString().trim().slice(0, 10),
       order_note: detail.order_note ?? '',
       status_orde_id: detail.status_orde_id?.trim() ?? '',
@@ -1614,16 +1615,11 @@ export function OrderEditPage() {
                             value={editDraft.downpayment}
                             onChange={(e) => setEditDraft((d) => (d ? { ...d, downpayment: e.target.value } : d))}
                             onBlur={() => {
-                              const n = parseOptionalDecimal(editDraft.downpayment)
-                              if (n == null) return
                               setEditDraft((d) =>
                                 d
                                   ? {
                                       ...d,
-                                      downpayment: n.toLocaleString(undefined, {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2,
-                                      }),
+                                      downpayment: formatMoneyInputValue(d.downpayment),
                                     }
                                   : d,
                               )
@@ -1639,16 +1635,11 @@ export function OrderEditPage() {
                             value={editDraft.tax_base}
                             onChange={(e) => setEditDraft((d) => (d ? { ...d, tax_base: e.target.value } : d))}
                             onBlur={() => {
-                              const n = parseOptionalDecimal(editDraft.tax_base)
-                              if (n == null) return
                               setEditDraft((d) =>
                                 d
                                   ? {
                                       ...d,
-                                      tax_base: n.toLocaleString(undefined, {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2,
-                                      }),
+                                      tax_base: formatMoneyInputValue(d.tax_base),
                                     }
                                   : d,
                               )
@@ -1789,13 +1780,8 @@ export function OrderEditPage() {
                                       value={a.downpayment}
                                       onChange={(e) => editAdditionUpdate(a.order_id, { downpayment: e.target.value })}
                                       onBlur={() => {
-                                        const n = parseOptionalDecimal(a.downpayment)
-                                        if (n == null) return
                                         editAdditionUpdate(a.order_id, {
-                                          downpayment: n.toLocaleString(undefined, {
-                                            minimumFractionDigits: 2,
-                                            maximumFractionDigits: 2,
-                                          }),
+                                          downpayment: formatMoneyInputValue(a.downpayment),
                                         })
                                       }}
                                       placeholder="0.00"
@@ -1809,13 +1795,8 @@ export function OrderEditPage() {
                                       value={a.tax_base}
                                       onChange={(e) => editAdditionUpdate(a.order_id, { tax_base: e.target.value })}
                                       onBlur={() => {
-                                        const n = parseOptionalDecimal(a.tax_base)
-                                        if (n == null) return
                                         editAdditionUpdate(a.order_id, {
-                                          tax_base: n.toLocaleString(undefined, {
-                                            minimumFractionDigits: 2,
-                                            maximumFractionDigits: 2,
-                                          }),
+                                          tax_base: formatMoneyInputValue(a.tax_base),
                                         })
                                       }}
                                       placeholder="0.00"

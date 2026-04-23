@@ -538,6 +538,13 @@ export function fmtMoney(v: string | number | null | undefined): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+/** Money input display helper (empty stays empty; always groups + 2 decimals). */
+export function formatMoneyInputValue(raw: string): string {
+  const n = parseOptionalDecimal(raw)
+  if (n == null) return raw
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 /** Second financial row: paid (down + recorded payments), balance due, tax. */
 export function OrderFinancialSecondRow(props: {
   paidDisplay: string

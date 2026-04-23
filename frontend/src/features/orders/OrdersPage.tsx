@@ -1,6 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Eye, FolderKanban, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { AlertTriangle, Eye, FolderKanban, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
@@ -38,6 +38,7 @@ import {
   orderAdvanceTextButtonClass,
   orderListPaidDisplay,
   orderListRowDoneSyncedHighlight,
+  orderStatusWorkflowBucketFromName,
   resolveOrderAdvanceAction,
   safeRound2,
   sanitizeLineAmountInput,
@@ -721,6 +722,9 @@ export function OrdersPage() {
                 rows.map((r) => {
                   const advance = resolveOrderAdvanceAction(r, orderStatuses)
                   const doneSyncedHighlight = orderListRowDoneSyncedHighlight(r)
+                  const bucket = orderStatusWorkflowBucketFromName((r.status_order_label ?? '').trim())
+                  const missingInstallation =
+                    r.active !== false && bucket === 'rfi' && !String(r.installation_scheduled_start_at ?? '').trim()
                   return (
                   <tr
                     key={r.id}
@@ -742,6 +746,18 @@ export function OrdersPage() {
                         </Link>
                         <div className="flex flex-wrap items-center gap-2">
                           <OrderStatusBadge label={r.status_order_label} />
+                          {missingInstallation ? (
+                            <span className="group relative inline-flex items-center">
+                              <AlertTriangle
+                                className="h-4 w-4 text-amber-700"
+                                strokeWidth={2}
+                                aria-label="Installation date-time missing"
+                              />
+                              <span className="pointer-events-none absolute left-1/2 top-full z-10 mt-2 w-56 -translate-x-1/2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-medium text-slate-700 shadow-lg opacity-0 transition group-hover:opacity-100">
+                                Ready for installation, but no installation date-time is set.
+                              </span>
+                            </span>
+                          ) : null}
                           {r.active === false ? (
                             <span className="text-[11px] font-medium text-slate-500">Deleted</span>
                           ) : null}
