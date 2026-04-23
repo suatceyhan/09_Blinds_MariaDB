@@ -40,11 +40,11 @@ function Shell({
   title,
   subtitle,
   children,
-}: {
+}: Readonly<{
   title: string
   subtitle: string
   children?: React.ReactNode
-}) {
+}>) {
   return (
     <div className="mx-auto max-w-3xl space-y-4">
       <div className="flex items-start gap-3">
@@ -65,15 +65,12 @@ export function ReportsHubPage() {
   return (
     <Shell
       title="Reports"
-      subtitle="Summary of what lives under Reports in the sidebar. Use the sidebar to open each screen."
+      subtitle="Use the sidebar to open each report screen."
     >
       <div className="space-y-4 text-sm text-slate-600">
         <p>
-          <span className="font-medium text-slate-800">Operational</span> covers operations-style
-          reporting. Under it you will find <span className="font-medium text-slate-800">Quarterly summary</span>{' '}
-          for period-level views, and <span className="font-medium text-slate-800">Detail view</span> for the
-          sample toolbar (Edit, Delete, Print) that demonstrates separate “see control” versus “run action”
-          permission keys in the role matrix.
+          Financial reports provide revenue, collected cash, outstanding balances, profit, tax, and trends for the
+          selected date range.
         </p>
         <p className="text-xs text-slate-500">
           Click the <span className="font-medium text-slate-700">Reports</span> row to return here; click the
@@ -182,13 +179,13 @@ function ToolButton({
   canSee,
   canUse,
   permUseKey,
-}: {
+}: Readonly<{
   label: string
   icon: typeof Pencil
   canSee: boolean
   canUse: boolean
   permUseKey: string
-}) {
+}>) {
   if (!canSee) return null
 
   const enabled = canUse

@@ -60,3 +60,12 @@ Vite varsayılanı `http://localhost:5173`; API proxy `/api` → `127.0.0.1:8000
 ## Klasör yapısı
 
 Modüler backend ve Vite React ön yüzü için bkz. [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md) (içerik proje evrimine göre güncellenebilir).
+
+## Dashboard & Reports (son değişiklikler)
+
+- **Dashboard** (`/`):
+  - Yeni kartlar: **Estimates (New / Pending)**, **Orders (Ready for installation: With date / Missing date)**,
+    **Estimate → Order (last 3 months)**, **Upcoming estimates**, **Upcoming installations**, **Order aging (weekly buckets)**.
+- **Reports → Financial** (`/reports/financial`):
+  - Tarih aralığı preset + custom range ile **Revenue**, **Collected**, **A/R balance**, **Profit**, **Tax**, **Taxable base**
+    ve **Revenue vs Collected** trend (daily/weekly) raporları.

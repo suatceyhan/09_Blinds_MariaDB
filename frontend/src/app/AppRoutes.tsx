@@ -27,12 +27,8 @@ import { LookupsHubPage } from '@/features/lookups/LookupsHubPage'
 import { UsersPage } from '@/features/users/UsersPage'
 import { UserViewPage } from '@/features/users/UserViewPage'
 import { DashboardPage } from '@/features/dashboard/DashboardPage'
-import {
-  ReportsHubPage,
-  ReportsOpsPage,
-  ReportsQuarterDetailPage,
-  ReportsQuarterPage,
-} from '@/features/reports/ReportsPages'
+import { ReportsHubPage } from '@/features/reports/ReportsPages'
+import { FinancialReportsPage } from '@/features/reports/FinancialReportsPage'
 import { PermissionsHubPage } from '@/features/settings/PermissionsHubPage'
 import { SettingsHubPage } from '@/features/settings/SettingsHubPage'
 import { SettingsRoleMatrixPage } from '@/features/settings/SettingsRoleMatrixPage'
@@ -118,9 +114,7 @@ export function AppRoutes() {
         <Route path="account" element={<AccountProfilePage />} />
         <Route path="account/password" element={<ChangePasswordPage />} />
         <Route path="reports" element={<ReportsHubPage />} />
-        <Route path="reports/ops" element={<ReportsOpsPage />} />
-        <Route path="reports/ops/quarter" element={<ReportsQuarterPage />} />
-        <Route path="reports/ops/quarter/detail" element={<ReportsQuarterDetailPage />} />
+        <Route path="reports/financial" element={<FinancialReportsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

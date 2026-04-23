@@ -42,6 +42,17 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 - **Tahmin oluşturma / ad-soyad:** **`POST /estimates`** yeni kayda varsayılan **`status_estimate.builtin_kind = 'new'`** (şirket matrisinde etkin `new` satırı; yoksa seed + 500). **`POST/PATCH /customers`** ve tahmindeki **prospect** `name` / `surname` ile siparişte prospect’ten oluşturulan müşteri adları kayıtta **kelime başı büyük, kalanı küçük** harfe normalize edilir (`app/core/person_names.py`).
 - **Sipariş ↔ tahmin (iptal / geri al):** Sipariş satırında **`estimate_id`** doluysa: **`DELETE /orders/{id}`** (soft delete) sonrası veya **`PATCH /orders/{id}`** ile sipariş durumu adında **`cancel`** geçiyorsa (ör. *Cancelled*), bağlı tahmin **`status_esti_id`** otomatik **Cancelled** (`status_estimate.builtin_kind`) olur. **`PATCH`** ile durum **cancel**’dan başka bir matris durumuna dönerse veya **`POST /orders/{id}/restore`** ile sipariş geri alınırsa**, tahmin yalnızca o an **Cancelled** ise tekrar **Converted** yapılır. **`PATCH /estimates/{id}`**: tahmin **`converted`** iken **`status_esti_id` gönderilemez** (durum yalnızca sipariş iptali/geri alma ile senkronlanır).
 - Dashboard: `GET /dashboard/summary`
+- **Financial reports (Reports → Financial):**
+  - `GET /reports/financial/summary` — revenue/collected/balance/profit/tax totals (date range)
+  - `GET /reports/financial/ar` — outstanding balance totals + top balances (date range)
+  - `GET /reports/financial/timeseries` — revenue vs collected trend (`group=daily|weekly`)
+
+Dashboard summary ayrıca aşağıdaki metrikleri de içerir:
+
+- `new_estimates_count`, `pending_estimates_count`
+- `ready_install_with_date_count`, `ready_install_missing_date_count`
+- `estimate_conversion_last_3_months` (ay-ay converted count + %)
+- `upcoming_estimates` (yaklaşan ziyaretler)
 - **`GET /estimates`** listesinde müşteri **`customer_address`** (join `customers.address`) ve aramada adres de metne dahildir.
 
 ### Google Calendar (estimate → Google, planlı)

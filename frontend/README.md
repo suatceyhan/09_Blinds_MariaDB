@@ -57,6 +57,10 @@ Yeni modüller: `src/features` altına ek sayfalar ve `AppRoutes` + `appPages.ts
 
 **Reports:** `/reports` hub has **no** separate “Overview” row in the sidebar or **Role permissions** matrix (same URL and keys as the parent Reports row). Sub-nav: **Operational** → **Quarterly summary** → **Detail view** (toolbar demo). Hub pages are text-only; use the sidebar to drill in.
 
+**Reports → Financial:** `/reports/financial` — monetary reports with a modern date range filter (presets + custom):
+Revenue (incl. tax), Collected (down payment + recorded payments), A/R balance, Profit (revenue − expenses), Tax,
+Taxable base, and a Revenue vs Collected trend table (daily/weekly).
+
 **Settings hub:** `/settings` — static overview; sidebar items use **scoped** keys (not the main **Companies** menu): **Company info** (`settings.company_info.*`), **Integrations** (`settings.integrations.*`), **Blinds line matrices** (`settings.blinds_line_matrices.*`), **Pending applications** (`settings.pending_applications.*`). The **Settings** row itself remains **`settings.access.*`** (hub only).
 
 **Settings → Blinds line matrices:** **`/settings/blinds-line-matrices`** — stacked matrices on one page: **product category** plus every active extra line attribute (e.g. lifting system, cassette type). Rows = options, columns = blinds types; **Save all changes**. Legacy **`/settings/blinds-category-matrix`** and **`/settings/blinds-extra-matrix/:kindId`** redirect here.
