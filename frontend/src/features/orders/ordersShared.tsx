@@ -276,7 +276,12 @@ export function hydrateBlindsLinesDefaults(
     const next: BlindsLineState = { ...line }
     for (const row of lineAttributeRows(opts)) {
       const allowed = allowedIdsForAttributeRow(row, line.id)
-      if (!allowed.length) continue
+      // If the matrix has no allowed options for this type, clear any stale value
+      // so the backend validator doesn't reject the payload.
+      if (!allowed.length) {
+        next[row.json_key] = null
+        continue
+      }
       const allowedLc = new Set(allowed.map((a) => a.toLowerCase()))
       const raw = next[row.json_key]
       const cur = raw != null && String(raw).trim() ? String(raw).trim().toLowerCase() : ''

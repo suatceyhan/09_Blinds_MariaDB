@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Camera, FolderKanban, Trash2, Upload } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
@@ -30,6 +30,7 @@ import {
   OrderFinancialSecondRow,
   OrderStatusBadge,
   OrderStatusOpt,
+  orderStatusWorkflowBucketFromName,
   parseMoneyAmount,
   parseOptionalDecimal,
   parseTaxRatePercent,
@@ -157,6 +158,8 @@ function toEditAdditionOrder(ad: OrderDetail): EditAdditionOrder {
 
 export function OrderEditPage() {
   const { orderId } = useParams()
+  const location = useLocation()
+  const navigate = useNavigate()
   const me = useAuthSession()
   const canEdit = Boolean(me?.permissions.includes('orders.edit'))
   const canViewCompanies = Boolean(me?.permissions.includes('companies.view'))
@@ -188,9 +191,17 @@ export function OrderEditPage() {
   const [editAdditionOrders, setEditAdditionOrders] = useState<EditAdditionOrder[]>([])
   const [attachmentUploadBusy, setAttachmentUploadBusy] = useState(false)
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
+  const [doneGateOpen, setDoneGateOpen] = useState(false)
+  const [doneGateNextStatusId, setDoneGateNextStatusId] = useState<string | null>(null)
+  const [paidMustBeDoneOpen, setPaidMustBeDoneOpen] = useState(false)
   const [paymentAmountInput, setPaymentAmountInput] = useState('')
   const [paymentPending, setPaymentPending] = useState(false)
   const [paymentErr, setPaymentErr] = useState<string | null>(null)
+  const [autoOpenInstallation, setAutoOpenInstallation] = useState(false)
+  const [pendingPrefillStatusId, setPendingPrefillStatusId] = useState<string | null>(null)
+  const [pendingOpenInstallation, setPendingOpenInstallation] = useState(false)
+  const pendingPrefillStatusIdRef = useRef<string | null>(null)
+  const pendingOpenInstallationRef = useRef<boolean>(false)
   const paymentAmountRef = useRef<HTMLInputElement | null>(null)
   const [paymentPickIds, setPaymentPickIds] = useState<string[]>([])
   const [expenseModalOpen, setExpenseModalOpen] = useState(false)
@@ -285,6 +296,13 @@ export function OrderEditPage() {
     editAdditionComputed,
   ])
 
+  const jobBalanceDue = useMemo(() => Math.max(0, safeRound2(editRollupTotals.bal ?? 0)), [editRollupTotals.bal])
+
+  const doneStatusId = useMemo(() => {
+    const done = (orderStatuses ?? []).find((s) => orderStatusWorkflowBucketFromName((s.name ?? '').trim()) === 'done')
+    return done?.id ?? null
+  }, [orderStatuses])
+
   const editCustomerDisplay = useMemo(() => {
     const cid = editCustomerId.trim()
     if (!cid) return ''
@@ -356,14 +374,27 @@ export function OrderEditPage() {
         ? detail.blinds_lines.map((x) => normalizeBlindsLineFromApi(x as Record<string, unknown>))
         : [],
     )
-    setEditDraft({
+    const nextDraft: EditDraft = {
       downpayment: detail.downpayment != null ? String(detail.downpayment) : '',
       tax_base: detail.tax_uygulanacak_miktar != null ? String(detail.tax_uygulanacak_miktar) : '',
       agreement_date: (detail.agreement_date ?? '').toString().trim().slice(0, 10),
       order_note: detail.order_note ?? '',
       status_orde_id: detail.status_orde_id?.trim() ?? '',
       status_order_label_fallback: detail.status_order_label?.trim() ?? null,
-    })
+    }
+    const pre = pendingPrefillStatusIdRef.current ?? pendingPrefillStatusId
+    const openInst = pendingOpenInstallationRef.current || pendingOpenInstallation
+    if (pre) {
+      nextDraft.status_orde_id = pre
+      // Do not clear here: in React StrictMode, load effects can run twice and re-apply API status.
+      // We'll clear when the user manually changes status.
+    }
+    if (openInst) {
+      setAutoOpenInstallation(true)
+      pendingOpenInstallationRef.current = false
+      setPendingOpenInstallation(false)
+    }
+    setEditDraft(nextDraft)
     setEditExtraPaid(safeRound2(parseMoneyAmount(detail.final_payment) ?? 0))
     setEditPaymentEntries(detail.payment_entries ?? [])
     setEditExpenseTotal(safeRound2(parseMoneyAmount(detail.expense_total) ?? 0))
@@ -389,6 +420,28 @@ export function OrderEditPage() {
         .sort((a, b) => String(a.created_at ?? '').localeCompare(String(b.created_at ?? ''))),
     )
   }
+
+  // Handle deep link from Orders list: preselect status + open installation picker.
+  useEffect(() => {
+    const sp = new URLSearchParams(location.search)
+    const pre = (sp.get('prefillStatus') ?? '').trim()
+    const openInst = sp.get('openInstallation') === '1'
+    if (!pre && !openInst) return
+    if (pre) {
+      pendingPrefillStatusIdRef.current = pre
+      setPendingPrefillStatusId(pre)
+    }
+    if (openInst) {
+      pendingOpenInstallationRef.current = true
+      setPendingOpenInstallation(true)
+    }
+    // Clear query so it won't re-trigger on further state changes.
+    sp.delete('prefillStatus')
+    sp.delete('openInstallation')
+    navigate({ pathname: location.pathname, search: sp.toString() ? `?${sp.toString()}` : '' }, { replace: true })
+  }, [location.pathname, location.search, navigate])
+
+  // Prefill is applied in `applyOrderData` after order loads, so it can't be overwritten by API state.
 
   async function uploadLinePhoto(targetOrderId: string, blindsTypeId: string, file: File | null | undefined) {
     if (!targetOrderId || !canEdit || !file) return
@@ -809,6 +862,11 @@ export function OrderEditPage() {
       setPaymentErr(null)
       await loadOrderPageData(false)
       scheduleOrderFormBaselineCapture()
+      if (doneGateNextStatusId) {
+        // Best-effort: user intended to mark Done after paying.
+        setEditDraft((d) => (d ? { ...d, status_orde_id: doneGateNextStatusId } : d))
+        setDoneGateNextStatusId(null)
+      }
     } catch (e) {
       setPaymentErr(e instanceof Error ? e.message : 'Could not record payment')
     } finally {
@@ -972,6 +1030,41 @@ export function OrderEditPage() {
         pending={deleteExpensePending}
         onConfirm={() => void runDeleteExpense()}
         onCancel={() => !deleteExpensePending && setDeleteExpenseTarget(null)}
+      />
+
+      <ConfirmModal
+        open={doneGateOpen}
+        title="Pay the balance before marking Done"
+        description={`This job still has a balance due of ${fmtMoney(jobBalanceDue)}. Record the remaining payment before setting status to Done.`}
+        confirmLabel="Record payment"
+        cancelLabel="Keep current status"
+        variant="danger"
+        pending={paymentPending}
+        onConfirm={() => {
+          setDoneGateOpen(false)
+          setPaymentAmountInput('')
+          setPaymentModalOpen(true)
+        }}
+        onCancel={() => {
+          if (paymentPending) return
+          setDoneGateOpen(false)
+          setDoneGateNextStatusId(null)
+        }}
+      />
+
+      <ConfirmModal
+        open={paidMustBeDoneOpen}
+        title="Order is fully paid"
+        description="This job has a zero balance due, so status must be Done."
+        confirmLabel="Set status to Done"
+        cancelLabel="Cancel"
+        pending={false}
+        onConfirm={() => {
+          const did = doneStatusId
+          if (did) setEditDraft((d) => (d ? { ...d, status_orde_id: did } : d))
+          setPaidMustBeDoneOpen(false)
+        }}
+        onCancel={() => setPaidMustBeDoneOpen(false)}
       />
 
       {paymentModalOpen && orderId ? (
@@ -1228,9 +1321,24 @@ export function OrderEditPage() {
                           required
                           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
                           value={editDraft.status_orde_id}
-                          onChange={(e) =>
-                            setEditDraft((d) => (d ? { ...d, status_orde_id: e.target.value } : d))
-                          }
+                          onChange={(e) => {
+                            const nextId = e.target.value
+                            // From deep-link prefill: once the user touches the status, stop forcing it.
+                            pendingPrefillStatusIdRef.current = null
+                            setPendingPrefillStatusId(null)
+                            const next = (orderStatuses ?? []).find((s) => s.id === nextId)
+                            const bucket = orderStatusWorkflowBucketFromName((next?.name ?? '').trim())
+                            if (bucket !== 'done' && jobBalanceDue <= 0.005) {
+                              setPaidMustBeDoneOpen(true)
+                              return
+                            }
+                            if (bucket === 'done' && jobBalanceDue > 0.005) {
+                              setDoneGateNextStatusId(nextId)
+                              setDoneGateOpen(true)
+                              return
+                            }
+                            setEditDraft((d) => (d ? { ...d, status_orde_id: nextId } : d))
+                          }}
                         >
                           <option value="">Select status...</option>
                           {editDraft.status_orde_id &&
@@ -1262,6 +1370,7 @@ export function OrderEditPage() {
                           onChange={(w) => setEditInstallationStart(w)}
                           disabled={!isReadyForInstallationStatus(editDraft.status_orde_id, orderStatuses ?? [])}
                           compact
+                          autoOpen={autoOpenInstallation}
                         />
                       </div>
                       <p className="mt-1 text-[11px] font-semibold text-slate-500">

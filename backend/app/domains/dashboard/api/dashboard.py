@@ -40,6 +40,9 @@ class DashboardSummary(BaseModel):
     week_estimate_count: int
     order_age_buckets: list[AgingBucket]
     ready_waiting: list[dict[str, Any]]
+    open_orders_count: int
+    balance_due_total: float
+    upcoming_installations: list[dict[str, Any]]
 
 
 def _utc_today_range() -> tuple[datetime, datetime]:
@@ -190,10 +193,61 @@ def get_dashboard_summary(
         {"cid": str(cid)},
     ).mappings().all()
 
+    open_orders_count = db.execute(
+        text(
+            """
+            SELECT COUNT(*)::int AS c
+            FROM orders
+            WHERE company_id = CAST(:cid AS uuid)
+              AND active IS TRUE
+              AND parent_order_id IS NULL
+            """
+        ),
+        {"cid": str(cid)},
+    ).mappings().one()["c"]
+
+    bal_row = db.execute(
+        text(
+            """
+            SELECT COALESCE(SUM(GREATEST(COALESCE(balance, 0), 0)), 0) AS s
+            FROM orders
+            WHERE company_id = CAST(:cid AS uuid)
+              AND active IS TRUE
+            """
+        ),
+        {"cid": str(cid)},
+    ).mappings().first()
+    balance_due_total = float(bal_row["s"] if bal_row else 0)
+
+    upcoming_rows = db.execute(
+        text(
+            """
+            SELECT
+              o.id,
+              o.customer_id,
+              trim(concat_ws(' ', c.name, c.surname)) AS customer_display,
+              o.installation_scheduled_start_at
+            FROM orders o
+            JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
+            WHERE o.company_id = CAST(:cid AS uuid)
+              AND o.active IS TRUE
+              AND o.installation_scheduled_start_at IS NOT NULL
+              AND o.installation_scheduled_start_at >= NOW() - INTERVAL '6 hours'
+              AND o.installation_scheduled_start_at < NOW() + INTERVAL '7 days'
+            ORDER BY o.installation_scheduled_start_at ASC
+            LIMIT 20
+            """
+        ),
+        {"cid": str(cid)},
+    ).mappings().all()
+
     return DashboardSummary(
         today_estimates=[EstimateListItem(**dict(r)) for r in today_rows],
         week_estimate_count=int(week_count),
         order_age_buckets=bucket_counts,
         ready_waiting=[dict(r) for r in ready_rows],
+        open_orders_count=int(open_orders_count),
+        balance_due_total=balance_due_total,
+        upcoming_installations=[dict(r) for r in upcoming_rows],
     )
 

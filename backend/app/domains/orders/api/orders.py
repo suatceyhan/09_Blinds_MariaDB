@@ -2935,6 +2935,7 @@ def patch_order(
               o.customer_id,
               o.status_code,
               o.status_orde_id,
+              o.parent_order_id,
               o.total_amount,
               o.downpayment,
               o.final_payment,
@@ -2956,6 +2957,7 @@ def patch_order(
     params: dict[str, Any] = {"cid": str(cid), "oid": oid}
     patch_fields = body.model_dump(exclude_unset=True)
     final_status_ord_id: str | None = (cur.get("status_orde_id") or "").strip() or None
+    parent_ref: str | None = (cur.get("parent_order_id") or "").strip() or None
     final_inst_start: Any = cur.get("installation_scheduled_start_at")
     final_inst_end: Any = cur.get("installation_scheduled_end_at")
 
@@ -3082,6 +3084,8 @@ def patch_order(
     done_now = bool(
         final_status_ord_id and _order_status_name_implies_done(db, cid, final_status_ord_id)
     )
+    job_rem = _job_remaining_balance_sum(db, cid, parent_ref or oid)
+    job_zb = abs(job_rem) <= _DONE_BALANCE_EPS
 
     if zb and "status_orde_id" in patch_fields:
         if not final_status_ord_id or not done_now:
@@ -3094,6 +3098,12 @@ def patch_order(
         raise HTTPException(
             status_code=400,
             detail="Order balance must be fully paid before status can be set to Done.",
+        )
+
+    if "status_orde_id" in patch_fields and final_status_ord_id and done_now and not job_zb:
+        raise HTTPException(
+            status_code=400,
+            detail="Job totals balance must be fully paid before status can be set to Done.",
         )
 
     if not sets:

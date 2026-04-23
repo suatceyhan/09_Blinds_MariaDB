@@ -190,13 +190,18 @@ export function OrdersPage() {
     if (!advanceConfirm || !canEdit) return
     const { row, act } = advanceConfirm
     const navigateToEdit = Boolean(opts?.navigateToEdit)
+    if (navigateToEdit) {
+      // Do not mutate status yet. Preselect it in Edit and auto-open installation picker.
+      setAdvanceConfirm(null)
+      navigate(`/orders/${row.id}/edit?prefillStatus=${encodeURIComponent(act.status_orde_id)}&openInstallation=1`)
+      return
+    }
     setAdvanceConfirmPending(true)
     setErr(null)
     try {
       await patchJson(`/orders/${row.id}`, { status_orde_id: act.status_orde_id })
       setAdvanceConfirm(null)
       await reloadList()
-      if (navigateToEdit) navigate(`/orders/${row.id}/edit`)
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not update order status')
     } finally {
@@ -884,7 +889,7 @@ export function OrdersPage() {
         description={
           advanceConfirm
             ? advanceConfirm.act.kind === 'patch' && advanceConfirm.act.stage === 'to_rfi'
-              ? `Set this order's status to "${advanceConfirm.act.nextLabel}"? Installation date and time are optional. Use "Enter installation now" to open Edit order and set them, or "Confirm" to change status only and add them later.`
+              ? `Set this order's status to "${advanceConfirm.act.nextLabel}"? Installation date and time are optional. Use "Enter installation date now" to open Edit order and set them, or "Confirm" to change status only and add them later.`
               : `Set this order's status to "${advanceConfirm.act.nextLabel}"?`
             : ''
         }
@@ -893,7 +898,7 @@ export function OrdersPage() {
         secondaryAction={
           advanceConfirm?.act.kind === 'patch' && advanceConfirm.act.stage === 'to_rfi'
             ? {
-                label: 'Enter installation now',
+                label: 'Enter installation date now',
                 onClick: () => void confirmAdvanceOrderStatus({ navigateToEdit: true }),
               }
             : undefined

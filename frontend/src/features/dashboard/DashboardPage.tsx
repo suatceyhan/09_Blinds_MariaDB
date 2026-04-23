@@ -24,6 +24,14 @@ type DashboardSummary = {
     created_at: string
     waiting_days: number
   }>
+  open_orders_count: number
+  balance_due_total: number
+  upcoming_installations: Array<{
+    id: string
+    customer_id: string
+    customer_display?: string | null
+    installation_scheduled_start_at?: string | null
+  }>
 }
 
 function fmtDateTime(v?: string | null): string {
@@ -31,6 +39,12 @@ function fmtDateTime(v?: string | null): string {
   const d = new Date(v)
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleString()
+}
+
+function fmtMoney(v: number | null | undefined): string {
+  if (v === null || v === undefined) return '—'
+  if (!Number.isFinite(v)) return String(v)
+  return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function estimateTime(e: DashboardSummary['today_estimates'][number]): string {
@@ -102,6 +116,7 @@ export function DashboardPage() {
   }, [])
 
   const readyTop = useMemo(() => (sum?.ready_waiting ?? []).slice(0, 8), [sum])
+  const upcomingTop = useMemo(() => (sum?.upcoming_installations ?? []).slice(0, 8), [sum])
   const isLoadingSummary = !sum && !sumErr
 
   return (
@@ -129,6 +144,43 @@ export function DashboardPage() {
           </p>
         </div>
 
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-700">
+              <Clock className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-slate-900">Open orders</p>
+              <p className="text-xs text-slate-500">Active jobs</p>
+            </div>
+          </div>
+          <p className="mt-4 text-sm">
+            <StatValue err={sumErr} loading={isLoadingSummary}>
+              <span className="text-2xl font-semibold tracking-tight text-slate-900">
+                {sum?.open_orders_count ?? 0}
+              </span>
+            </StatValue>
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50 text-rose-700">
+              <Database className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-slate-900">Balance due</p>
+              <p className="text-xs text-slate-500">Across active orders</p>
+            </div>
+          </div>
+          <p className="mt-4 text-sm">
+            <StatValue err={sumErr} loading={isLoadingSummary}>
+              <span className="text-2xl font-semibold tracking-tight text-slate-900">
+                {fmtMoney(sum?.balance_due_total ?? 0)}
+              </span>
+            </StatValue>
+          </p>
+        </div>
         <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-sky-700">
@@ -231,6 +283,38 @@ export function DashboardPage() {
                 <div className="text-right">
                   <p className="text-sm font-semibold text-slate-900">{r.waiting_days}d</p>
                   <p className="text-xs text-slate-500">{fmtDateTime(r.ready_at ?? r.created_at)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm lg:col-span-3">
+          <p className="text-sm font-medium text-slate-900">Upcoming installations</p>
+          <p className="mt-1 text-xs text-slate-500">Next 7 days (scheduled)</p>
+
+          <div className="mt-4 space-y-2">
+            {sumErr ? <div className="text-sm text-red-600">{sumErr}</div> : null}
+            {isLoadingSummary ? <div className="text-sm text-slate-400">Loading…</div> : null}
+            {sum && upcomingTop.length === 0 ? (
+              <div className="text-sm text-slate-500">No installations scheduled.</div>
+            ) : null}
+            {upcomingTop.map((r) => (
+              <div
+                key={r.id}
+                className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-white px-3 py-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-slate-900">
+                    {r.customer_display?.trim() ? r.customer_display : `Customer ${r.customer_id}`}
+                  </p>
+                  <p className="truncate text-xs text-slate-500">Order {r.id}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-sm text-slate-700">{fmtDateTime(r.installation_scheduled_start_at ?? null)}</p>
+                  <Link to={`/orders?viewOrder=${r.id}`} className="text-xs font-medium text-teal-700 hover:underline">
+                    View
+                  </Link>
                 </div>
               </div>
             ))}

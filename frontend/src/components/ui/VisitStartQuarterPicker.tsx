@@ -68,6 +68,8 @@ type VisitStartQuarterPickerProps = {
   /** Slightly tighter controls for modals. */
   compact?: boolean
   className?: string
+  /** When true, opens the picker panel once (on mount / when toggled). */
+  autoOpen?: boolean
 }
 
 /**
@@ -80,6 +82,7 @@ export function VisitStartQuarterPicker({
   disabled = false,
   compact = false,
   className = '',
+  autoOpen = false,
 }: Readonly<VisitStartQuarterPickerProps>) {
   const normalized = useMemo(() => snapWallToQuarterMinutes(value.trim() || ''), [value])
   const parts = useMemo(() => parseScheduledWallToParts(normalized), [normalized])
@@ -126,6 +129,19 @@ export function VisitStartQuarterPicker({
     setDraftYmd(parts.date)
     setOpen(true)
   }, [disabled, parts.date, syncPanelFromParts])
+
+  const didAutoOpen = useRef(false)
+  useEffect(() => {
+    if (!autoOpen) {
+      didAutoOpen.current = false
+      return
+    }
+    // If disabled at first render, wait until enabled to auto-open.
+    if (disabled) return
+    if (didAutoOpen.current) return
+    didAutoOpen.current = true
+    globalThis.setTimeout(() => openPanel(), 0)
+  }, [autoOpen, disabled, openPanel])
 
   useLayoutEffect(() => {
     if (!open || !rootRef.current) {
