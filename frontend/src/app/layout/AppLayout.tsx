@@ -48,6 +48,7 @@ type Me = SessionUser
 
 const pageIcons: Record<string, LucideIcon> = {
   dashboard: LayoutDashboard,
+  'schedule-root': CalendarDays,
   'customers-root': Users,
   'estimates-root': CalendarDays,
   'orders-root': FolderKanban,

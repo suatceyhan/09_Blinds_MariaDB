@@ -4,6 +4,8 @@
 APP_PERMISSION_SEEDS: list[tuple[str, str, str, int]] = [
     ("dashboard.view", "Dashboard — view", "dashboard", 10),
     ("dashboard.edit", "Dashboard — edit", "dashboard", 11),
+    ("schedule.view", "Schedule — view", "schedule", 11_000),
+    ("schedule.edit", "Schedule — edit", "schedule", 11_001),
     ("customers.view", "Customers — view", "customers", 12),
     ("customers.edit", "Customers — edit", "customers", 13),
     ("estimates.view", "Estimates — view", "estimates", 14),
@@ -74,6 +76,8 @@ APP_PERMISSION_SEEDS: list[tuple[str, str, str, int]] = [
 DEFAULT_USER_ROLE_PERMISSION_KEYS: tuple[str, ...] = (
     "dashboard.view",
     "dashboard.edit",
+    "schedule.view",
+    "schedule.edit",
     "customers.view",
     "customers.edit",
     "estimates.view",

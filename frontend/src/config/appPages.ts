@@ -26,6 +26,14 @@ export const appPages: PageConfig[] = [
     showInNav: true,
   },
   {
+    id: 'schedule-root',
+    name: 'Schedule',
+    basePath: '/schedule',
+    module: 'schedule',
+    permissions: { view: 'schedule.view', edit: 'schedule.edit' },
+    showInNav: true,
+  },
+  {
     id: 'customers-root',
     name: 'Customers',
     basePath: '/customers',

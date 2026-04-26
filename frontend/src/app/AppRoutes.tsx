@@ -43,6 +43,7 @@ import { SettingsIntegrationsPage } from '@/features/settings/SettingsIntegratio
 import { SettingsContractInvoicePage } from '@/features/settings/SettingsContractInvoicePage'
 import { SettingsUserRolesPage } from '@/features/settings/SettingsUserRolesPage'
 import { getAccessToken } from '@/lib/authStorage'
+import { SchedulePage } from '@/features/schedule/SchedulePage'
 
 function Protected({ children }: Readonly<{ children: React.ReactNode }>) {
   if (!getAccessToken()) {
@@ -115,6 +116,7 @@ export function AppRoutes() {
         <Route path="account/password" element={<ChangePasswordPage />} />
         <Route path="reports" element={<ReportsHubPage />} />
         <Route path="reports/financial" element={<FinancialReportsPage />} />
+        <Route path="schedule" element={<SchedulePage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

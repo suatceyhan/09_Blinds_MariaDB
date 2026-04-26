@@ -40,6 +40,7 @@ Tarayıcı: [http://127.0.0.1:5173](http://127.0.0.1:5173)
 - `src/features` — sayfalar (auth, dashboard, customers, **estimates**)
 - `src/lib` — `api.ts`, `authStorage.ts`, `sessionIdle.ts`, `useSessionIdleTimeout.ts`
 - `src/components/ui` — paylaşılan modal vb.
+- **Schedule:** `/schedule` — view-only calendar for **Estimates** visits and **Orders** installations (Day/Week/Month/Schedule views).
 - **List row actions** (Customers, Estimates, Companies, Users, Orders): icon-only **View / Edit / delete / Restore** share the same bordered control pattern as **Orders**; workflow text buttons (e.g. **Mark pending**, **Make order**, **Next: …**) stay separate. Workspace rule: **`.cursor/rules/blinds-list-table-actions.mdc`**.
 - **Settings → Contract / Invoice:** printable HTML documents (Deposit invoice + contract, Final invoice) are generated from DB and opened in a new tab for browser Print to PDF. Permissions: `settings.contract_invoice.view|edit`.
 
