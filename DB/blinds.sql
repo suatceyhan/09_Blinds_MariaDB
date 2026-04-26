@@ -272,6 +272,9 @@ CREATE TABLE IF NOT EXISTS company_document_templates (
   is_deleted   BOOLEAN NOT NULL DEFAULT FALSE,
   CONSTRAINT pk_company_document_templates PRIMARY KEY (company_id, kind)
 );
+-- 34_company_document_templates_preset_key.sql
+ALTER TABLE company_document_templates
+  ADD COLUMN IF NOT EXISTS preset_key VARCHAR(64) NULL;
 ALTER TABLE companies ALTER COLUMN is_deleted SET DEFAULT FALSE;
 ALTER TABLE companies ALTER COLUMN is_deleted SET NOT NULL;
 
@@ -2476,6 +2479,31 @@ VALUES
   ('lookups.blinds_extra_cassette_type.view', 'Lookups / Cassette type options — view', NULL, 'module', 'lookups', 'access', 'lookups', 134, FALSE),
   ('lookups.blinds_extra_cassette_type.edit', 'Lookups / Cassette type options — edit', NULL, 'module', 'lookups', 'access', 'lookups', 135, FALSE)
 ON CONFLICT (key) DO NOTHING;
+
+-- 32_settings_contract_invoice_permissions.sql
+-- Settings → Contract/Invoice permissions (view/edit).
+-- Adds new permission rows and grants them to roles that already have Settings access,
+-- so existing deployments pick up the new submenu without manual backfills.
+INSERT INTO permissions (key, name, parent_key, target_type, target_id, action, module_name, sort_index, is_deleted)
+VALUES
+  ('settings.contract_invoice.view', 'Settings — Contract / Invoice — view', NULL, 'module', 'settings', 'access', 'settings', 88, FALSE),
+  ('settings.contract_invoice.edit', 'Settings — Contract / Invoice — edit', NULL, 'module', 'settings', 'access', 'settings', 89, FALSE)
+ON CONFLICT (key) DO NOTHING;
+
+-- Grant to any role that can view Settings (keeps existing customizations intact by only inserting missing pairs).
+INSERT INTO role_permissions (role_id, permission_id, is_granted, is_deleted)
+SELECT
+  rp.role_id,
+  p_new.id,
+  TRUE,
+  FALSE
+FROM role_permissions rp
+JOIN permissions p_settings ON p_settings.id = rp.permission_id AND p_settings.key = 'settings.access.view'
+JOIN permissions p_new ON p_new.key IN ('settings.contract_invoice.view', 'settings.contract_invoice.edit')
+LEFT JOIN role_permissions exists_rp
+  ON exists_rp.role_id = rp.role_id AND exists_rp.permission_id = p_new.id
+WHERE rp.is_deleted IS NOT TRUE AND rp.is_granted IS TRUE
+  AND exists_rp.role_id IS NULL;
 -- Roles that had broad Lookups view: grant each granular .view
 INSERT INTO role_permissions (role_id, permission_id, is_granted, is_deleted)
 SELECT rp.role_id, pn.id, TRUE, FALSE
