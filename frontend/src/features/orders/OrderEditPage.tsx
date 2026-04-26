@@ -211,6 +211,7 @@ export function OrderEditPage() {
   const [expensePending, setExpensePending] = useState(false)
   const [expenseErr, setExpenseErr] = useState<string | null>(null)
   const expenseAmountRef = useRef<HTMLInputElement | null>(null)
+  const [productionCostPromptOpen, setProductionCostPromptOpen] = useState(false)
   const [deleteExpenseTarget, setDeleteExpenseTarget] = useState<{ orderId: string; expenseId: string } | null>(null)
   const [deleteExpensePending, setDeleteExpensePending] = useState(false)
   const [deletePaymentEntryTarget, setDeletePaymentEntryTarget] = useState<{ orderId: string; entryId: string } | null>(
@@ -427,7 +428,9 @@ export function OrderEditPage() {
     const sp = new URLSearchParams(location.search)
     const pre = (sp.get('prefillStatus') ?? '').trim()
     const openInst = sp.get('openInstallation') === '1'
-    if (!pre && !openInst) return
+    const openExpense = sp.get('openExpense') === '1'
+    const expenseNote = (sp.get('expenseNote') ?? '').trim()
+    if (!pre && !openInst && !openExpense && !expenseNote) return
     if (pre) {
       pendingPrefillStatusIdRef.current = pre
       setPendingPrefillStatusId(pre)
@@ -436,9 +439,16 @@ export function OrderEditPage() {
       pendingOpenInstallationRef.current = true
       setPendingOpenInstallation(true)
     }
+    if (openExpense || expenseNote) {
+      setExpenseAmountInput('')
+      setExpenseNoteInput(expenseNote || 'Production cost')
+      setExpenseModalOpen(true)
+    }
     // Clear query so it won't re-trigger on further state changes.
     sp.delete('prefillStatus')
     sp.delete('openInstallation')
+    sp.delete('openExpense')
+    sp.delete('expenseNote')
     navigate({ pathname: location.pathname, search: sp.toString() ? `?${sp.toString()}` : '' }, { replace: true })
   }, [location.pathname, location.search, navigate])
 
@@ -998,6 +1008,25 @@ export function OrderEditPage() {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6">
       <ConfirmModal
+        open={productionCostPromptOpen}
+        title="Add production cost?"
+        description="You just moved this order into In production. Do you want to record the production cost payable to the factory now?"
+        confirmLabel="Record production cost"
+        cancelLabel="Not now"
+        pending={expensePending}
+        onConfirm={() => {
+          setProductionCostPromptOpen(false)
+          setExpenseAmountInput('')
+          setExpenseNoteInput('Production cost')
+          setExpenseModalOpen(true)
+        }}
+        onCancel={() => {
+          if (expensePending) return
+          setProductionCostPromptOpen(false)
+        }}
+      />
+
+      <ConfirmModal
         open={deletePaymentEntryTarget !== null}
         title="Remove this payment?"
         description="This payment line will be removed and the order balance will be recalculated. You cannot restore it from the app."
@@ -1324,6 +1353,7 @@ export function OrderEditPage() {
                           value={editDraft.status_orde_id}
                           onChange={(e) => {
                             const nextId = e.target.value
+                            const prevId = editDraft.status_orde_id
                             // From deep-link prefill: once the user touches the status, stop forcing it.
                             pendingPrefillStatusIdRef.current = null
                             setPendingPrefillStatusId(null)
@@ -1339,6 +1369,12 @@ export function OrderEditPage() {
                               return
                             }
                             setEditDraft((d) => (d ? { ...d, status_orde_id: nextId } : d))
+
+                            const prev = (orderStatuses ?? []).find((s) => s.id === prevId)
+                            const prevBucket = orderStatusWorkflowBucketFromName((prev?.name ?? '').trim())
+                            if (bucket === 'production' && prevBucket !== 'production') {
+                              setProductionCostPromptOpen(true)
+                            }
                           }}
                         >
                           <option value="">Select status...</option>

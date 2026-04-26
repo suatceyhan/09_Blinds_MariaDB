@@ -210,6 +210,25 @@ export function OrdersPage() {
     }
   }
 
+  async function confirmAdvanceOrderStatusAndOpenExpense() {
+    if (!advanceConfirm || !canEdit) return
+    const { row, act } = advanceConfirm
+    setAdvanceConfirmPending(true)
+    setErr(null)
+    try {
+      await patchJson(`/orders/${row.id}`, { status_orde_id: act.status_orde_id })
+      setAdvanceConfirm(null)
+      await reloadList()
+      navigate(
+        `/orders/${row.id}/edit?openExpense=1&expenseNote=${encodeURIComponent('Production cost')}`,
+      )
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not update order status')
+    } finally {
+      setAdvanceConfirmPending(false)
+    }
+  }
+
   // (final invoice actions moved to the order details popup)
 
   useEffect(() => {
@@ -917,7 +936,12 @@ export function OrdersPage() {
                 label: 'Enter installation date now',
                 onClick: () => void confirmAdvanceOrderStatus({ navigateToEdit: true }),
               }
-            : undefined
+            : advanceConfirm?.act.kind === 'patch' && advanceConfirm.act.stage === 'to_production'
+              ? {
+                  label: 'Add production cost',
+                  onClick: () => void confirmAdvanceOrderStatusAndOpenExpense(),
+                }
+              : undefined
         }
         pending={advanceConfirmPending}
         onConfirm={() => void confirmAdvanceOrderStatus()}
