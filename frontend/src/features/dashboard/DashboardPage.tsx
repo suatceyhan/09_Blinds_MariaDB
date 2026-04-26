@@ -27,6 +27,12 @@ type DashboardSummary = {
     total_count: number
     percent: number
   }>
+  customer_sources_last_3_months: Array<{
+    month: string
+    advertising_count: number
+    referral_count: number
+    total_count: number
+  }>
   upcoming_installations: Array<{
     id: string
     customer_id: string
@@ -52,6 +58,122 @@ function StatValue(props: Readonly<{ err: string | null; loading: boolean; child
   if (props.err) return <span className="text-red-600">{props.err}</span>
   if (props.loading) return <span className="text-slate-400">Loading…</span>
   return <>{props.children}</>
+}
+
+function fmtMonthLabel(v: string): string {
+  const d = new Date(`${v}-01T00:00:00`)
+  if (Number.isNaN(d.getTime())) return v
+  return d.toLocaleString(undefined, { month: 'short', year: 'numeric' })
+}
+
+function fmtPercent(n: number): string {
+  if (!Number.isFinite(n)) return '—'
+  return `${n.toFixed(0)}%`
+}
+
+function EstimateToOrderWidget(props: Readonly<{ sum: DashboardSummary | null; err: string | null; loading: boolean }>) {
+  const { sum, err, loading } = props
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm lg:col-span-1">
+      <div className="flex items-center gap-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+          <CalendarDays className="h-5 w-5" />
+        </div>
+        <div>
+          <p className="text-sm font-medium text-slate-900">Estimate → Order</p>
+          <p className="text-xs text-slate-500">Last 3 months</p>
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        {err ? <div className="text-sm text-red-600">{err}</div> : null}
+        {loading ? <div className="text-sm text-slate-400">Loading…</div> : null}
+        {!loading && !err && (sum?.estimate_conversion_last_3_months?.length ?? 0) === 0 ? (
+          <div className="text-sm text-slate-500">No estimate data.</div>
+        ) : null}
+        {(sum?.estimate_conversion_last_3_months ?? []).map((r) => (
+          <div
+            key={r.month}
+            className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-slate-50/40 px-3 py-2"
+          >
+            <div className="min-w-0">
+              <div className="text-xs font-semibold text-slate-700">{r.month}</div>
+              <div className="text-[11px] text-slate-500">
+                {r.converted_count} / {r.total_count} converted
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              <div className="text-sm font-semibold tabular-nums text-slate-900">{r.percent.toFixed(1)}%</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function CustomerSourcesWidget(props: Readonly<{ sum: DashboardSummary | null; err: string | null; loading: boolean }>) {
+  const { sum, err, loading } = props
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm lg:col-span-1">
+      <div className="flex items-center gap-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700">
+          <Database className="h-5 w-5" />
+        </div>
+        <div>
+          <p className="text-sm font-medium text-slate-900">Customer sources</p>
+          <p className="text-xs text-slate-500">Last 3 months (estimates)</p>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        {err ? <div className="text-sm text-red-600">{err}</div> : null}
+        {loading ? <div className="text-sm text-slate-400">Loading…</div> : null}
+        {!loading && !err && (sum?.customer_sources_last_3_months?.length ?? 0) === 0 ? (
+          <div className="text-sm text-slate-500">No estimate data.</div>
+        ) : null}
+
+        {!loading && !err ? (
+          <div className="mt-3 overflow-hidden rounded-xl border border-slate-200/70">
+            <div className="grid grid-cols-3 bg-slate-50/60 px-3 py-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Month</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Advertising</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Referral</div>
+            </div>
+            {(sum?.customer_sources_last_3_months ?? []).map((r, idx) => {
+              const total = r.total_count || 0
+              const advPct = total > 0 ? (r.advertising_count / total) * 100 : 0
+              const refPct = total > 0 ? (r.referral_count / total) * 100 : 0
+              return (
+                <div
+                  key={r.month}
+                  className={[
+                    'grid grid-cols-3 px-3 py-2',
+                    idx === 0 ? '' : 'border-t border-slate-200/70',
+                    'bg-white',
+                  ].join(' ')}
+                >
+                  <div className="min-w-0 pr-2">
+                    <div className="truncate text-xs font-semibold text-slate-700">{fmtMonthLabel(r.month)}</div>
+                  </div>
+
+                  <div className="min-w-0 pr-2">
+                    <div className="text-xs font-semibold tabular-nums text-slate-900">{r.advertising_count}</div>
+                    <div className="text-[11px] text-slate-500">{fmtPercent(advPct)}</div>
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold tabular-nums text-slate-900">{r.referral_count}</div>
+                    <div className="text-[11px] text-slate-500">{fmtPercent(refPct)}</div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
 }
 
 export function DashboardPage() {
@@ -173,7 +295,7 @@ export function DashboardPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm lg:col-span-2">
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm lg:col-span-1">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700">
@@ -186,55 +308,23 @@ export function DashboardPage() {
             </div>
           </div>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-4">
-            {(sum?.order_age_buckets ?? []).map((b) => (
-              <div key={b.label} className="rounded-xl border border-slate-200/70 bg-slate-50/40 p-3">
-                <p className="text-xs font-medium text-slate-600">{b.label}</p>
-                <p className="mt-1 text-xl font-semibold tracking-tight text-slate-900">{b.count}</p>
-              </div>
-            ))}
-            {isLoadingSummary ? <div className="sm:col-span-4 text-sm text-slate-400">Loading…</div> : null}
-            {sumErr ? <div className="sm:col-span-4 text-sm text-red-600">{sumErr}</div> : null}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm lg:col-span-1">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
-              <CalendarDays className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-slate-900">Estimate → Order</p>
-              <p className="text-xs text-slate-500">Last 3 months</p>
-            </div>
-          </div>
-
           <div className="mt-4 space-y-2">
-            {sumErr ? <div className="text-sm text-red-600">{sumErr}</div> : null}
-            {isLoadingSummary ? <div className="text-sm text-slate-400">Loading…</div> : null}
-            {!isLoadingSummary &&
-            !sumErr &&
-            (sum?.estimate_conversion_last_3_months?.length ?? 0) === 0 ? (
-              <div className="text-sm text-slate-500">No estimate data.</div>
-            ) : null}
-            {(sum?.estimate_conversion_last_3_months ?? []).map((r) => (
+            {(sum?.order_age_buckets ?? []).map((b) => (
               <div
-                key={r.month}
+                key={b.label}
                 className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-slate-50/40 px-3 py-2"
               >
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold text-slate-700">{r.month}</div>
-                  <div className="text-[11px] text-slate-500">
-                    {r.converted_count} / {r.total_count} converted
-                  </div>
-                </div>
-                <div className="shrink-0 text-right">
-                  <div className="text-sm font-semibold tabular-nums text-slate-900">{r.percent.toFixed(1)}%</div>
-                </div>
+                <p className="text-xs font-medium text-slate-600">{b.label}</p>
+                <p className="text-sm font-semibold tabular-nums text-slate-900">{b.count}</p>
               </div>
             ))}
+            {isLoadingSummary ? <div className="text-sm text-slate-400">Loading…</div> : null}
+            {sumErr ? <div className="text-sm text-red-600">{sumErr}</div> : null}
           </div>
         </div>
+
+        <EstimateToOrderWidget sum={sum} err={sumErr} loading={isLoadingSummary} />
+        <CustomerSourcesWidget sum={sum} err={sumErr} loading={isLoadingSummary} />
 
         <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm lg:col-span-3">
           <p className="text-sm font-medium text-slate-900">Upcoming installations</p>

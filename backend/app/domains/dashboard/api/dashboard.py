@@ -42,6 +42,15 @@ class EstimateConversionMonth(BaseModel):
     percent: float
 
 
+class CustomerSourcesMonth(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    month: str
+    advertising_count: int
+    referral_count: int
+    total_count: int
+
+
 class DashboardSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -57,6 +66,7 @@ class DashboardSummary(BaseModel):
     ready_install_with_date_count: int
     ready_install_missing_date_count: int
     estimate_conversion_last_3_months: list[EstimateConversionMonth]
+    customer_sources_last_3_months: list[CustomerSourcesMonth]
     upcoming_installations: list[dict[str, Any]]
 
 
@@ -368,6 +378,51 @@ def get_dashboard_summary(
         for r in conv_rows
     ]
 
+    sources_rows = db.execute(
+        text(
+            """
+            WITH months AS (
+              SELECT generate_series(
+                date_trunc('month', NOW()) - INTERVAL '2 months',
+                date_trunc('month', NOW()),
+                INTERVAL '1 month'
+              ) AS month_start
+            ),
+            cohort AS (
+              SELECT
+                date_trunc('month', e.created_at) AS month_start,
+                COALESCE(SUM(CASE WHEN COALESCE(e.lead_source, 'advertising') = 'referral' THEN 1 ELSE 0 END), 0)::int AS referral_count,
+                COALESCE(SUM(CASE WHEN COALESCE(e.lead_source, 'advertising') <> 'referral' THEN 1 ELSE 0 END), 0)::int AS advertising_count,
+                COUNT(*)::int AS total_count
+              FROM estimate e
+              WHERE e.company_id = CAST(:cid AS uuid)
+                AND e.is_deleted IS NOT TRUE
+                AND e.created_at >= (date_trunc('month', NOW()) - INTERVAL '2 months')
+                AND e.created_at <  (date_trunc('month', NOW()) + INTERVAL '1 month')
+              GROUP BY 1
+            )
+            SELECT
+              to_char(m.month_start, 'YYYY-MM') AS month,
+              COALESCE(c.advertising_count, 0)::int AS advertising_count,
+              COALESCE(c.referral_count, 0)::int AS referral_count,
+              COALESCE(c.total_count, 0)::int AS total_count
+            FROM months m
+            LEFT JOIN cohort c ON c.month_start = m.month_start
+            ORDER BY m.month_start ASC
+            """
+        ),
+        {"cid": str(cid)},
+    ).mappings().all()
+    customer_sources_last_3_months = [
+        CustomerSourcesMonth(
+            month=str(r["month"]),
+            advertising_count=int(r["advertising_count"]),
+            referral_count=int(r["referral_count"]),
+            total_count=int(r["total_count"]),
+        )
+        for r in sources_rows
+    ]
+
     return DashboardSummary(
         week_estimate_count=int(week_count),
         week_order_count=int(week_order_count),
@@ -381,6 +436,7 @@ def get_dashboard_summary(
         ready_install_with_date_count=ready_install_with_date_count,
         ready_install_missing_date_count=ready_install_missing_date_count,
         estimate_conversion_last_3_months=estimate_conversion_last_3_months,
+        customer_sources_last_3_months=customer_sources_last_3_months,
         upcoming_installations=[dict(r) for r in upcoming_rows],
     )
 

@@ -66,7 +66,9 @@ Modüler backend ve Vite React ön yüzü için bkz. [docs/PROJECT_STRUCTURE.md]
 
 - **Dashboard** (`/`):
   - Yeni kartlar: **Estimates (New / Pending)**, **Orders (Ready for installation: With date / Missing date)**,
-    **Estimate → Order (last 3 months)**, **Upcoming estimates**, **Upcoming installations**, **Order aging (weekly buckets)**.
+    **Estimate → Order (last 3 months)**, **Customer sources (last 3 months)**, **Upcoming estimates**, **Upcoming installations**,
+    **Order aging (weekly buckets)**.
+  - **Customer sources (last 3 months)**: estimate’ler için **Advertising** vs **Referral** dağılımı. `lead_source` boşsa **Advertising** sayılır.
 - **Reports → Financial** (`/reports/financial`):
   - Tarih aralığı preset + custom range ile **Revenue**, **Collected**, **A/R balance**, **Profit**, **Tax**, **Taxable base**
     ve **Revenue vs Collected** trend (daily/weekly) raporları.
