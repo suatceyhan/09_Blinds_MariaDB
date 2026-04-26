@@ -248,7 +248,7 @@ export function CustomersPage() {
   if (!me) return <p className="text-sm text-slate-500">Loading…</p>
 
   return (
-    <div className="w-full max-w-none space-y-6">
+    <div className="mx-auto w-full max-w-6xl space-y-6">
       <ConfirmModal
         open={pending !== null}
         title={pending?.kind === 'restore' ? 'Restore customer' : 'Deactivate customer'}
@@ -270,13 +270,31 @@ export function CustomersPage() {
       />
 
       {editId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          role="dialog"
+          aria-modal="true"
+        >
           <form
             onSubmit={(e) => void onEditSave(e)}
-            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-xl"
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl"
           >
-            <h2 className="text-sm font-semibold text-slate-900">Edit customer</h2>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-semibold text-slate-900">Edit customer</h2>
+                <p className="mt-0.5 text-xs text-slate-500">Update contact info and address details.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditId(null)}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="px-5 py-4">
+              <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-sm text-slate-700">
                 <span className="mb-1 block font-medium">Name</span>
                 <input
@@ -339,8 +357,16 @@ export function CustomersPage() {
                   <span className="mt-1 block text-xs text-red-700">Enter a valid Canadian postal code (e.g. A1A 1A1) or leave empty.</span>
                 ) : null}
               </label>
+
+              <div className="sm:col-span-2">
+                <div className="mt-1 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 text-xs text-slate-600">
+                  Tip: Address suggestions respect your company&apos;s country/region.
+                </div>
+              </div>
+              </div>
             </div>
-            <div className="mt-4 flex justify-end gap-2">
+
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
               <button
                 type="button"
                 onClick={() => setEditId(null)}
@@ -390,9 +416,36 @@ export function CustomersPage() {
       ) : null}
 
       {canEdit && showCreate ? (
-        <form onSubmit={(e) => void onCreate(e)} className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
-          <h2 className="text-sm font-medium text-slate-800">New customer</h2>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <form
+          onSubmit={(e) => void onCreate(e)}
+          className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-semibold text-slate-900">New customer</h2>
+              <p className="mt-0.5 text-xs text-slate-500">Create a customer record for orders and estimates.</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => setShowCreate(false)}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
+              >
+                {saving ? 'Creating…' : 'Create'}
+              </button>
+            </div>
+          </div>
+
+          <div className="px-5 py-4">
+            <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm text-slate-700">
               <span className="mb-1 block font-medium">Name</span>
               <input
@@ -455,23 +508,7 @@ export function CustomersPage() {
                 <span className="mt-1 block text-xs text-red-700">Enter a valid Canadian postal code (e.g. A1A 1A1) or leave empty.</span>
               ) : null}
             </label>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() => setShowCreate(false)}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
-            >
-              {saving ? 'Creating…' : 'Create'}
-            </button>
+            </div>
           </div>
         </form>
       ) : null}
@@ -560,14 +597,14 @@ export function CustomersPage() {
                           >
                             <Eye className="h-4 w-4" strokeWidth={2} />
                           </Link>
-                          <button
-                            type="button"
-                            onClick={() => openEdit(r)}
-                            className="rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
+                          <Link
+                            to={`/customers/${encodeURIComponent(r.id)}/edit`}
+                            className="inline-flex rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
                             title="Edit customer"
+                            aria-label="Edit customer"
                           >
                             <Pencil className="h-4 w-4" strokeWidth={2} />
-                          </button>
+                          </Link>
                           {r.active ? (
                             <button
                               type="button"

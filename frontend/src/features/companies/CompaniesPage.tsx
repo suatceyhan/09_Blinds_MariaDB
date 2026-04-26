@@ -391,7 +391,7 @@ export function CompaniesPage() {
   }
 
   return (
-    <div className="w-full max-w-none space-y-6">
+    <div className="mx-auto w-full max-w-6xl space-y-6">
       <ConfirmModal
         open={deleteTarget != null}
         title="Deactivate company?"
@@ -429,10 +429,24 @@ export function CompaniesPage() {
         >
           <form
             onSubmit={(e) => void onSaveEdit(e)}
-            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl"
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl"
           >
-            <h2 className="text-sm font-semibold text-slate-900">Edit company</h2>
-            <div className="mt-3 grid gap-3">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-semibold text-slate-900">Edit company</h2>
+                <p className="mt-0.5 text-xs text-slate-500">Update organization details and owner.</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeEdit}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="px-5 py-4">
+              <div className="grid gap-3">
               <label className="block text-sm text-slate-700 sm:col-span-2">
                 <span className="mb-1 block font-medium">Name</span>
                 <input
@@ -597,8 +611,10 @@ export function CompaniesPage() {
                 </div>
                 <p className="mt-1.5 text-xs text-slate-500">PNG, JPEG, WebP veya GIF; en fazla 2MB.</p>
               </div>
+              </div>
             </div>
-            <div className="mt-4 flex justify-end gap-2">
+
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
               <button
                 type="button"
                 onClick={closeEdit}
@@ -658,10 +674,34 @@ export function CompaniesPage() {
       {isSuperadmin && showCreateForm ? (
         <form
           onSubmit={(e) => void onCreate(e)}
-          className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm"
+          className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
         >
-          <h2 className="text-sm font-medium text-slate-800">New company</h2>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-semibold text-slate-900">New company</h2>
+              <p className="mt-0.5 text-xs text-slate-500">Create an organization record.</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={closeCreateForm}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
+              >
+                {saving ? 'Creating…' : 'Create company'}
+              </button>
+            </div>
+          </div>
+
+          <div className="px-5 py-4">
+            <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm text-slate-700 sm:col-span-2">
               <span className="mb-1 block font-medium">Name</span>
               <input
@@ -802,22 +842,6 @@ export function CompaniesPage() {
               </span>
             </label>
           </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={saving}
-              onClick={closeCreateForm}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
-            >
-              {saving ? 'Creating…' : 'Create company'}
-            </button>
           </div>
         </form>
       ) : null}
@@ -981,14 +1005,14 @@ export function CompaniesPage() {
                           >
                             <Eye className="h-4 w-4" strokeWidth={2} />
                           </Link>
-                          <button
-                            type="button"
-                            onClick={() => openEdit(r)}
-                            className="rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
+                          <Link
+                            to={`/companies/${encodeURIComponent(r.id)}/edit`}
+                            className="inline-flex rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
                             title="Edit company"
+                            aria-label="Edit company"
                           >
                             <Pencil className="h-4 w-4" strokeWidth={2} />
-                          </button>
+                          </Link>
                           {inactive ? (
                             <button
                               type="button"

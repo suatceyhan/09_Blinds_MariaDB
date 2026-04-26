@@ -26,6 +26,7 @@ export function UserViewPage() {
   const me = useAuthSession()
   const isSuperadmin = useMemo(() => isSuperadminRoles(me?.roles), [me?.roles])
   const canViewCompanies = Boolean(me?.permissions.includes('companies.view'))
+  const canEditUserDir = Boolean(me?.permissions.includes('users.directory.edit'))
 
   const [row, setRow] = useState<UserRow | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -102,6 +103,14 @@ export function UserViewPage() {
                 </span>
               )}
             </div>
+            {canEditUserDir && userId ? (
+              <Link
+                to={`/users/${encodeURIComponent(userId)}/edit`}
+                className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 hover:bg-slate-50"
+              >
+                Edit
+              </Link>
+            ) : null}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">

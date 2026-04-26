@@ -11,8 +11,10 @@ import { PendingEmployeeRegisterPage } from '@/features/auth/registration/Pendin
 import { VerifyEmailPage } from '@/features/auth/registration/VerifyEmailPage'
 import { ResetPasswordPage } from '@/features/auth/ResetPasswordPage'
 import { CompaniesPage } from '@/features/companies/CompaniesPage'
+import { CompanyEditPage } from '@/features/companies/CompanyEditPage'
 import { CompanyViewPage } from '@/features/companies/CompanyViewPage'
 import { CustomersPage } from '@/features/customers/CustomersPage'
+import { CustomerEditPage } from '@/features/customers/CustomerEditPage'
 import { CustomerViewPage } from '@/features/customers/CustomerViewPage'
 import { EstimatesPage } from '@/features/estimates/EstimatesPage'
 import { OrdersPage } from '@/features/orders/OrdersPage'
@@ -25,6 +27,7 @@ import { BlindsProductCategoriesLookupPage } from '@/features/lookups/BlindsProd
 import { BlindsTypesLookupPage } from '@/features/lookups/BlindsTypesLookupPage'
 import { LookupsHubPage } from '@/features/lookups/LookupsHubPage'
 import { UsersPage } from '@/features/users/UsersPage'
+import { UserEditPage } from '@/features/users/UserEditPage'
 import { UserViewPage } from '@/features/users/UserViewPage'
 import { DashboardPage } from '@/features/dashboard/DashboardPage'
 import { ReportsHubPage } from '@/features/reports/ReportsPages'
@@ -72,6 +75,7 @@ export function AppRoutes() {
         }
       >
         <Route index element={<DashboardPage />} />
+        <Route path="customers/:customerId/edit" element={<CustomerEditPage />} />
         <Route path="customers/:customerId" element={<CustomerViewPage />} />
         <Route path="customers" element={<CustomersPage />} />
         <Route path="estimates/:estimateId/edit" element={<EstimateEditPage />} />
@@ -87,8 +91,10 @@ export function AppRoutes() {
         <Route path="lookups/order-statuses" element={<PermissionsOrderStatusMatrixPage />} />
         <Route path="lookups" element={<LookupsHubPage />} />
         <Route path="companies/:companyId" element={<CompanyViewPage />} />
+        <Route path="companies/:companyId/edit" element={<CompanyEditPage />} />
         <Route path="companies" element={<CompaniesPage />} />
         <Route path="users/:userId" element={<UserViewPage />} />
+        <Route path="users/:userId/edit" element={<UserEditPage />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="settings" element={<SettingsHubPage />} />
         <Route path="settings/pending-applications" element={<SettingsPendingApplicationsPage />} />

@@ -123,7 +123,7 @@ export function CompanyViewPage() {
               )}
               {canEditCompany && companyId ? (
                 <Link
-                  to={`/companies?edit=${encodeURIComponent(companyId)}`}
+                  to={`/companies/${encodeURIComponent(companyId)}/edit`}
                   className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-violet-700 hover:bg-violet-50"
                 >
                   Edit

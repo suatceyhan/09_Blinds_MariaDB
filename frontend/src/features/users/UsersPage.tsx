@@ -394,11 +394,29 @@ export function UsersPage() {
           <form
             autoComplete="off"
             onSubmit={(e) => void onEditSave(e)}
-            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-xl"
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl"
           >
-            <h2 className="text-sm font-semibold text-slate-900">Edit user</h2>
-            <p className="mt-1 text-xs text-slate-600">Leave password empty to keep the current one.</p>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-semibold text-slate-900">Edit user</h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Leave password empty to keep the current one.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditUserId(null)
+                  setEditPassword('')
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="px-5 py-4">
+              <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-sm text-slate-700 sm:col-span-2">
                 <span className="mb-1 block font-medium">Email</span>
                 <input
@@ -475,8 +493,10 @@ export function UsersPage() {
                   ))}
                 </select>
               </label>
+              </div>
             </div>
-            <div className="mt-4 flex justify-end gap-2">
+
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
               <button
                 type="button"
                 onClick={() => {
@@ -907,14 +927,14 @@ export function UsersPage() {
                             <Eye className="h-4 w-4" strokeWidth={2} />
                           </Link>
                           {canMutateRow ? (
-                            <button
-                              type="button"
-                              onClick={() => openEdit(r)}
-                              className="rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
+                            <Link
+                              to={`/users/${encodeURIComponent(r.id)}/edit`}
+                              className="inline-flex rounded-lg border border-slate-200 p-1.5 text-slate-700 hover:bg-slate-50"
                               title="Edit user"
+                              aria-label="Edit user"
                             >
                               <Pencil className="h-4 w-4" strokeWidth={2} />
-                            </button>
+                            </Link>
                           ) : null}
                           {canMutateRow && !r.is_deleted && r.id !== me.id ? (
                             <button

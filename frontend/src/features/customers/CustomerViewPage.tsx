@@ -115,7 +115,7 @@ export function CustomerViewPage() {
             </div>
             {canEditCustomer && customerId ? (
               <Link
-                to={`/customers?edit=${encodeURIComponent(customerId)}`}
+                to={`/customers/${encodeURIComponent(customerId)}/edit`}
                 className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 hover:bg-slate-50"
               >
                 Edit
