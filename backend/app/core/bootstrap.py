@@ -92,6 +92,41 @@ def seed_company_owner_missing_permission_grants(db: Session) -> None:
         db.commit()
 
 
+def seed_superadmin_missing_permission_grants(db: Session) -> None:
+    """Superadmin role should have all permissions (missing rows auto-added).
+
+    The UI role matrix reads from `role_permissions`. If a permission row exists in `permissions`
+    but the (role, permission) pair is missing in `role_permissions`, it appears as OFF.
+    We only insert missing pairs and do not modify existing rows (including `is_deleted=True` customizations).
+    """
+    role = db.query(Roles).filter(Roles.name == "superadmin", Roles.is_deleted.is_(False)).first()
+    if not role:
+        return
+    changed = False
+    for perm in db.query(Permissions).filter(Permissions.is_deleted.is_(False)).all():
+        exists = (
+            db.query(RolePermissions)
+            .filter(
+                RolePermissions.role_id == role.id,
+                RolePermissions.permission_id == perm.id,
+            )
+            .first()
+        )
+        if exists is not None:
+            continue
+        db.add(
+            RolePermissions(
+                role_id=role.id,
+                permission_id=perm.id,
+                is_granted=True,
+                is_deleted=False,
+            )
+        )
+        changed = True
+    if changed:
+        db.commit()
+
+
 def seed_starter_permissions(db: Session) -> None:
     """Menü / DWP tarzı matris ile uyumlu .view / .edit izinleri."""
     for key, name, module, sort_ix in APP_PERMISSION_SEEDS:

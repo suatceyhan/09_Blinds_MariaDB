@@ -13,6 +13,7 @@ from app.core.bootstrap import (
     seed_default_user_role_permission_grants,
     seed_starter_permissions,
     seed_super_admin,
+    seed_superadmin_missing_permission_grants,
 )
 from app.core.config import settings
 from app.core.database import SessionLocal, create_all_tables
@@ -64,6 +65,7 @@ async def lifespan(app: FastAPI):
         seed_starter_permissions(db)
         seed_default_user_role_permission_grants(db)
         seed_company_owner_missing_permission_grants(db)
+        seed_superadmin_missing_permission_grants(db)
     yield
 
 
