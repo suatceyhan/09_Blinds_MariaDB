@@ -78,6 +78,7 @@ export type OrderDetail = {
   customer_id: string
   customer_display: string
   estimate_id: string | null
+  lead_source?: 'referral' | 'advertising' | null
   estimate_status?: string | null
   total_amount: string | number | null
   downpayment: string | number | null

@@ -1231,6 +1231,7 @@ class OrderDetailOut(BaseModel):
     customer_id: str
     customer_display: str
     estimate_id: str | None = None
+    lead_source: str | None = None
     total_amount: Decimal | None = None
     downpayment: Decimal | None = None
     final_payment: Decimal | None = None
@@ -2087,6 +2088,7 @@ def get_order(
               o.customer_id,
               trim(concat_ws(' ', c.name, c.surname)) AS customer_display,
               o.estimate_id,
+              e.lead_source,
               o.total_amount,
               o.downpayment,
               o.final_payment,
@@ -2108,6 +2110,7 @@ def get_order(
               o.active
             FROM orders o
             JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
+            LEFT JOIN estimate e ON e.company_id = o.company_id AND e.id = o.estimate_id
             LEFT JOIN status_order so ON so.id = o.status_orde_id
             WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid
             LIMIT 1
@@ -2138,6 +2141,7 @@ def get_order(
                       o.customer_id,
                       trim(concat_ws(' ', c.name, c.surname)) AS customer_display,
                       o.estimate_id,
+                      e.lead_source,
                       o.total_amount,
                       o.downpayment,
                       o.final_payment,
@@ -2159,6 +2163,7 @@ def get_order(
                       o.active
                     FROM orders o
                     JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
+                    LEFT JOIN estimate e ON e.company_id = o.company_id AND e.id = o.estimate_id
                     LEFT JOIN status_order so ON so.id = o.status_orde_id
                     WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid
                     LIMIT 1

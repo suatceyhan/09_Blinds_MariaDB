@@ -223,18 +223,6 @@ export function UsersPage() {
     setShowCreateForm(false)
   }
 
-  function openEdit(row: UserRow) {
-    setEditUserId(row.id)
-    setEditEmail(row.email)
-    setEditFirstName(row.first_name)
-    setEditLastName(row.last_name)
-    setEditPhone(row.phone)
-    setEditPassword('')
-    setEditRoleName(row.roles[0] ?? 'user')
-    setEditEmailLocked(true)
-    setEditPasswordLocked(true)
-  }
-
   async function onEditSave(e: React.FormEvent) {
     e.preventDefault()
     if (!editUserId || !editEmail.trim() || !editFirstName.trim() || !editLastName.trim() || !editPhone.trim()) {

@@ -42,6 +42,21 @@ import {
   todayDateInput,
 } from './ordersShared'
 
+function orderLeadSourceLabel(v: string | null | undefined): 'Advertising' | 'Referral' | '—' {
+  const s = (v ?? '').trim().toLowerCase()
+  if (!s) return '—'
+  return s === 'referral' ? 'Referral' : 'Advertising'
+}
+
+function OrderLeadSourceBadge({ value }: Readonly<{ value: string | null | undefined }>) {
+  const label = orderLeadSourceLabel(value)
+  if (label === '—') {
+    return <span className="inline-flex rounded-full bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">—</span>
+  }
+  const cls = label === 'Referral' ? 'bg-indigo-50 text-indigo-900 ring-indigo-200' : 'bg-slate-50 text-slate-900 ring-slate-200'
+  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${cls}`}>{label}</span>
+}
+
 type EditAdditionOrder = {
   order_id: string
   created_at?: string | null
@@ -174,6 +189,7 @@ export function OrderEditPage() {
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null)
   const [editCustomerId, setEditCustomerId] = useState('')
   const [editEstimateId, setEditEstimateId] = useState<string | null>(null)
+  const [editLeadSource, setEditLeadSource] = useState<string | null>(null)
   const [editBlindsLines, setEditBlindsLines] = useState<BlindsLineState[]>([])
   const [editLoading, setEditLoading] = useState(false)
   const [editSaving, setEditSaving] = useState(false)
@@ -377,6 +393,7 @@ export function OrderEditPage() {
   function applyOrderData(detail: OrderDetail, additions: OrderDetail[]) {
     setEditCustomerId(detail.customer_id)
     setEditEstimateId(detail.estimate_id)
+    setEditLeadSource(detail.lead_source ?? null)
     setEditBlindsLines(
       detail.blinds_lines?.length
         ? detail.blinds_lines.map((x) => normalizeBlindsLineFromApi(x as Record<string, unknown>))
@@ -1337,6 +1354,9 @@ export function OrderEditPage() {
                   <p className="text-sm font-semibold tracking-tight text-slate-900">Edit Order</p>
                   <div className="mt-1 flex flex-wrap items-center gap-2">
                     <OrderStatusBadge label={editDraft.status_order_label_fallback ?? 'Current status'} />
+                    <span className="text-xs font-medium text-slate-400">·</span>
+                    <span className="text-xs font-semibold text-slate-500">Customer source</span>
+                    <OrderLeadSourceBadge value={editLeadSource} />
                   </div>
                 </div>
               </div>

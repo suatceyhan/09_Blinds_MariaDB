@@ -20,6 +20,21 @@ import {
   statusCodeLabel,
 } from './ordersShared'
 
+function orderLeadSourceLabel(v: string | null | undefined): 'Advertising' | 'Referral' | '—' {
+  const s = (v ?? '').trim().toLowerCase()
+  if (!s) return '—'
+  return s === 'referral' ? 'Referral' : 'Advertising'
+}
+
+function OrderLeadSourceBadge({ value }: Readonly<{ value: string | null | undefined }>) {
+  const label = orderLeadSourceLabel(value)
+  if (label === '—') {
+    return <span className="inline-flex rounded-full bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">—</span>
+  }
+  const cls = label === 'Referral' ? 'bg-indigo-50 text-indigo-900 ring-indigo-200' : 'bg-slate-50 text-slate-900 ring-slate-200'
+  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${cls}`}>{label}</span>
+}
+
 export function OrderViewPage() {
   const { orderId } = useParams()
   const me = useAuthSession()
@@ -179,6 +194,9 @@ export function OrderViewPage() {
                     <OrderStatusBadge
                       label={viewOrder.status_order_label?.trim() || statusCodeLabel(viewOrder.status_code)}
                     />
+                    <span className="text-xs font-medium text-slate-400">·</span>
+                    <span className="text-xs font-semibold text-slate-500">Customer source</span>
+                    <OrderLeadSourceBadge value={viewOrder.lead_source ?? null} />
                   </div>
                 </div>
               </div>

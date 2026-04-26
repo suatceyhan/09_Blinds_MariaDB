@@ -531,84 +531,174 @@ export function EstimateEditPage() {
       ) : loading || !detail ? (
         <p className="text-sm text-slate-500">Loading…</p>
       ) : (
-        <form onSubmit={(e) => void onSave(e)} className="space-y-4">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
-              <CalendarDays className="h-5 w-5" strokeWidth={2} />
-            </div>
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Edit estimate</h1>
-              <p className="mt-1 text-sm text-slate-500">
-                {detail.customer_display}
-                {(detail.customer_id ?? '').trim() ? (
-                  <>
-                    {' · '}
-                    <Link to={`/customers/${detail.customer_id}`} className="font-semibold text-slate-900 hover:text-slate-950 hover:underline">
-                      Customer profile
-                    </Link>
-                  </>
-                ) : (
-                  <span className="block text-xs text-slate-500">Prospect only — saved to Customers when an order is created.</span>
-                )}
-              </p>
-            </div>
-          </div>
-
-          {detail.is_deleted ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-              <p className="font-medium">This estimate is deleted</p>
-              <p className="mt-1 text-amber-900/90">
-                Restore it to make changes or show it in the default list again.
-              </p>
-              <button
-                type="button"
-                className="mt-3 rounded-lg bg-teal-600 px-3 py-2 text-sm font-medium text-white hover:bg-teal-700"
-                onClick={() => setRestoreOpen(true)}
-              >
-                Restore estimate
-              </button>
-            </div>
-          ) : null}
-
-          <section className="rounded-xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0">
-                <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Customer source</h3>
+        <form onSubmit={(e) => void onSave(e)} className="space-y-6">
+          <div className="rounded-2xl border border-slate-200/90 bg-white shadow-sm">
+            <div className="border-b border-slate-100 bg-gradient-to-br from-teal-50/90 via-white to-white px-5 py-4 sm:px-6">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+                  <CalendarDays className="h-5 w-5" strokeWidth={2} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold tracking-tight text-slate-900">Edit estimate</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <span className="inline-flex rounded-full bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-900 ring-1 ring-slate-200">
+                      {(detail.status_label ?? '').trim() || 'Status'}
+                    </span>
+                    <span className="text-xs font-medium text-slate-400">·</span>
+                    <span className="text-xs font-semibold text-slate-500">Customer source</span>
+                    <span
+                      className={[
+                        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1',
+                        leadSource === 'referral'
+                          ? 'bg-indigo-50 text-indigo-900 ring-indigo-200'
+                          : 'bg-slate-50 text-slate-900 ring-slate-200',
+                      ].join(' ')}
+                    >
+                      {leadSource === 'referral' ? 'Referral' : 'Advertising'}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  disabled={formDisabled}
-                  onClick={() => setLeadSource('advertising')}
-                  className={[
-                    'h-8 rounded-full px-3 text-xs font-semibold ring-1 transition',
-                    leadSource === 'advertising'
-                      ? 'bg-slate-900 text-white ring-slate-900'
-                      : 'bg-white text-slate-700 ring-slate-200 hover:bg-slate-50',
-                    formDisabled ? 'opacity-60' : '',
-                  ].join(' ')}
-                  aria-pressed={leadSource === 'advertising'}
-                >
-                  Advertising
-                </button>
-                <button
-                  type="button"
-                  disabled={formDisabled}
-                  onClick={() => setLeadSource('referral')}
-                  className={[
-                    'h-8 rounded-full px-3 text-xs font-semibold ring-1 transition',
-                    leadSource === 'referral'
-                      ? 'bg-indigo-600 text-white ring-indigo-600'
-                      : 'bg-white text-slate-700 ring-slate-200 hover:bg-slate-50',
-                    formDisabled ? 'opacity-60' : '',
-                  ].join(' ')}
-                  aria-pressed={leadSource === 'referral'}
-                >
-                  Referral
-                </button>
+
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 shadow-sm">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Customer</div>
+                  <div className="mt-1 text-base font-semibold text-slate-900">
+                    {(detail.customer_id ?? '').trim() ? (
+                      <span className="inline-flex flex-wrap items-center gap-2">
+                        <span>{detail.customer_display}</span>
+                        <Link
+                          to={`/customers/${detail.customer_id}`}
+                          className="text-sm font-semibold text-slate-900 hover:text-slate-950 hover:underline"
+                        >
+                          Customer profile
+                        </Link>
+                      </span>
+                    ) : (
+                      <span>{detail.customer_display?.trim() || 'Prospect'}</span>
+                    )}
+                  </div>
+                  {!(detail.customer_id ?? '').trim() ? (
+                    <div className="mt-1 text-xs font-medium text-slate-500">
+                      Prospect only — saved to Customers when an order is created.
+                    </div>
+                  ) : null}
+                  <div className="mt-3 text-xs font-semibold text-slate-500">Estimate ID</div>
+                  <div className="mt-0.5 font-mono text-sm font-semibold text-slate-700">{estimateId}</div>
+
+                  <div className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Customer source
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      disabled={formDisabled}
+                      onClick={() => setLeadSource('advertising')}
+                      className={[
+                        'h-8 rounded-full px-3 text-xs font-semibold ring-1 transition',
+                        leadSource === 'advertising'
+                          ? 'bg-slate-900 text-white ring-slate-900'
+                          : 'bg-white text-slate-700 ring-slate-200 hover:bg-slate-50',
+                        formDisabled ? 'opacity-60' : '',
+                      ].join(' ')}
+                      aria-pressed={leadSource === 'advertising'}
+                    >
+                      Advertising
+                    </button>
+                    <button
+                      type="button"
+                      disabled={formDisabled}
+                      onClick={() => setLeadSource('referral')}
+                      className={[
+                        'h-8 rounded-full px-3 text-xs font-semibold ring-1 transition',
+                        leadSource === 'referral'
+                          ? 'bg-indigo-600 text-white ring-indigo-600'
+                          : 'bg-white text-slate-700 ring-slate-200 hover:bg-slate-50',
+                        formDisabled ? 'opacity-60' : '',
+                      ].join(' ')}
+                      aria-pressed={leadSource === 'referral'}
+                    >
+                      Referral
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 shadow-sm">
+                  <div className="grid grid-cols-1 gap-3">
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Status</div>
+                      <div className="mt-2">
+                        <select
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:opacity-60"
+                          value={selectedStatusEstiId}
+                          disabled={formDisabled || estimateStatusSelectOptions.length < 1}
+                          onChange={(e) => setSelectedStatusEstiId(e.target.value)}
+                        >
+                          {estimateStatusSelectOptions.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Scheduled</div>
+                        <div className="mt-2">
+                          <VisitStartQuarterPicker
+                            value={visitWallDraft}
+                            onChange={(v) => {
+                              setVisitWallDraft(v)
+                              setSaveErr(null)
+                            }}
+                            disabled={formDisabled}
+                            compact
+                          />
+                        </div>
+                      </div>
+                      <label className="block">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Time zone</div>
+                        <select
+                          required
+                          className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                          value={visitTimeZone}
+                          disabled={formDisabled}
+                          onChange={(e) => setVisitTimeZone(e.target.value)}
+                        >
+                          {!VISIT_TIME_ZONES.includes(visitTimeZone) ? (
+                            <option value={visitTimeZone}>{visitTimeZone}</option>
+                          ) : null}
+                          {VISIT_TIME_ZONES.map((z) => (
+                            <option key={z} value={z}>
+                              {z}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-          </section>
+
+            <div className="px-5 py-5 sm:px-6">
+              {detail.is_deleted ? (
+                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                  <p className="font-medium">This estimate is deleted</p>
+                  <p className="mt-1 text-amber-900/90">
+                    Restore it to make changes or show it in the default list again.
+                  </p>
+                  <button
+                    type="button"
+                    className="mt-3 rounded-lg bg-teal-600 px-3 py-2 text-sm font-medium text-white hover:bg-teal-700"
+                    onClick={() => setRestoreOpen(true)}
+                  >
+                    Restore estimate
+                  </button>
+                </div>
+              ) : null}
 
           {!(detail.customer_id ?? '').trim() ? (
             <section className="rounded-xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm">
@@ -693,59 +783,9 @@ export function EstimateEditPage() {
             </section>
           ) : null}
 
-          <section className="rounded-xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Schedule</h3>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label className="block text-sm font-medium text-slate-700 sm:col-span-2">
-                Status
-                <select
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:opacity-60"
-                  value={selectedStatusEstiId}
-                  disabled={formDisabled || estimateStatusSelectOptions.length < 1}
-                  onChange={(e) => setSelectedStatusEstiId(e.target.value)}
-                >
-                  {estimateStatusSelectOptions.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="block text-sm font-medium text-slate-700">
-                <span className="block">Scheduled</span>
-                <div className="mt-1">
-                  <VisitStartQuarterPicker
-                    value={visitWallDraft}
-                    onChange={(v) => {
-                      setVisitWallDraft(v)
-                      setSaveErr(null)
-                    }}
-                    disabled={formDisabled}
-                  />
-                </div>
-              </div>
-              <label className="block text-sm font-medium text-slate-600">
-                <span>Time zone</span>
-                <select
-                  required
-                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                  value={visitTimeZone}
-                  disabled={formDisabled}
-                  onChange={(e) => setVisitTimeZone(e.target.value)}
-                >
-                  {!VISIT_TIME_ZONES.includes(visitTimeZone) ? (
-                    <option value={visitTimeZone}>{visitTimeZone}</option>
-                  ) : null}
-                  {VISIT_TIME_ZONES.map((z) => (
-                    <option key={z} value={z}>
-                      {z}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </section>
+          {/* Schedule is shown in the header card to match the view layout. */}
 
+          <div className="space-y-5 text-sm text-slate-800">
           <section className="rounded-xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm">
             <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Google Calendar Connections</h3>
             <div className="mt-3 max-h-36 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-700">
@@ -911,6 +951,9 @@ export function EstimateEditPage() {
             >
               {saving ? 'Saving…' : 'Save changes'}
             </button>
+          </div>
+          </div>
+            </div>
           </div>
         </form>
       )}

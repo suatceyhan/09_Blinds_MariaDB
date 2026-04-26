@@ -26,8 +26,8 @@ async function fileToImageBitmap(file: File): Promise<ImageBitmap> {
       el.onerror = () => reject(new Error('Could not read image.'))
       el.src = url
     })
-    // @ts-expect-error - TS doesn't know createImageBitmap may exist late.
-    if (typeof createImageBitmap === 'function') return await createImageBitmap(img)
+    // In some environments TS can't type this overload; runtime check above guards it.
+    if (typeof createImageBitmap === 'function') return await (createImageBitmap as unknown as (x: ImageBitmapSource) => Promise<ImageBitmap>)(img)
     // Last resort: draw from HTMLImageElement below via canvas.
     const canvas = document.createElement('canvas')
     canvas.width = img.naturalWidth

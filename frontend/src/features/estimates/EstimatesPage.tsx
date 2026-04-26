@@ -20,7 +20,7 @@ import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
 type CustomerOpt = { id: string; name: string; surname?: string | null; address?: string | null }
 type BlindsOpt = { id: string; name: string }
 type BlindsLine = { id: string; name: string; window_count?: number | null; line_amount?: number | null }
-type EstimateRow = {
+export type EstimateRow = {
   id: string
   company_id: string
   customer_id?: string | null
