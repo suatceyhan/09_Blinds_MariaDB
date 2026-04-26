@@ -182,7 +182,7 @@ export function OrderEditPage() {
   const [editExpenseTotal, setEditExpenseTotal] = useState(0)
   const [editProfit, setEditProfit] = useState(0)
   const [editExpenseEntries, setEditExpenseEntries] = useState<
-    Array<{ id: string; amount: string | number; note?: string | null }>
+    Array<{ id: string; amount: string | number; note?: string | null; at?: string | null }>
   >([])
   const [editInstallationStart, setEditInstallationStart] = useState('')
   const [editAttachments, setEditAttachments] = useState<OrderAttachmentRow[]>([])
@@ -312,6 +312,12 @@ export function OrderEditPage() {
     return c ? customerLabel(c) : cid
   }, [editCustomerId, customers])
 
+  const paymentSummary = useMemo(() => {
+    const count = editPaymentEntries.length
+    const lastPaidAt = count ? editPaymentEntries[editPaymentEntries.length - 1]?.paid_at ?? null : null
+    return { count, lastPaidAt }
+  }, [editPaymentEntries])
+
   const buildOrderEditBaseline = useCallback((): OrderEditBaseline | null => {
     if (!editDraft) return null
     return {
@@ -406,6 +412,7 @@ export function OrderEditPage() {
         id: e.id,
         amount: e.amount,
         note: e.note ?? null,
+        at: e.spent_at ?? e.created_at ?? null,
       })),
     )
     setEditInstallationStart(installationWallFromIso(detail.installation_scheduled_start_at))
@@ -1421,11 +1428,31 @@ export function OrderEditPage() {
 
             <div className="px-5 py-5 sm:px-6">
               <div className="space-y-5 text-sm text-slate-800">
-                <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-4">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Job totals</h3>
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    Includes the original order + all additional orders.
-                  </p>
+                <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Job totals</h3>
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        Includes the original order + all additional orders.
+                      </p>
+                    </div>
+                    {canEdit ? (
+                      <button
+                        type="button"
+                        disabled={!(editRollupTotals.bal > 0.005) || paymentPending}
+                        title={editRollupTotals.bal > 0.005 ? 'Record a payment' : 'Job balance is already fully paid.'}
+                        className="inline-flex items-center justify-center rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => {
+                          if (!(editRollupTotals.bal > 0.005) || paymentPending) return
+                          setPaymentAmountInput('')
+                          setPaymentModalOpen(true)
+                        }}
+                      >
+                        Payment
+                      </button>
+                    ) : null}
+                  </div>
+
                   <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <div className="block min-w-0 text-sm text-slate-700">
                       <span className="mb-1 block font-medium">Total (incl. tax)</span>
@@ -1450,95 +1477,29 @@ export function OrderEditPage() {
                     paidDisplay={fmtMoney(editRollupTotals.paid)}
                     balance={editRollupTotals.bal}
                     tax={editRollupTotals.tax}
-                    belowBalance={
-                      canEdit ? (
-                        <button
-                          type="button"
-                          disabled={!(editRollupTotals.bal > 0.005) || paymentPending}
-                          title={editRollupTotals.bal > 0.005 ? 'Record a payment' : 'Job balance is already fully paid.'}
-                          className="w-full rounded-lg border border-teal-200 bg-teal-50/60 px-3 py-2 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-teal-50/60"
-                          onClick={() => {
-                            if (!(editRollupTotals.bal > 0.005) || paymentPending) return
-                            setPaymentAmountInput('')
-                            setPaymentModalOpen(true)
-                          }}
-                        >
-                          Payment
-                        </button>
-                      ) : undefined
-                    }
                   />
                 </div>
 
-                <div className="rounded-xl border border-slate-200/80 bg-white p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
-                      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Extra expenses</h3>
-                      <p className="mt-1 text-[11px] text-slate-500">Affects profit only (does not change payments/balance).</p>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={!canEdit || expensePending}
-                      className="rounded-lg border border-teal-200 bg-teal-50/70 px-3 py-2 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50 disabled:opacity-50"
-                      onClick={() => {
-                        setExpenseAmountInput('')
-                        setExpenseNoteInput('')
-                        setExpenseModalOpen(true)
-                      }}
-                    >
-                      Add expense
-                    </button>
-                  </div>
-                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Expense total</div>
-                      <div className="mt-1 text-sm font-semibold tabular-nums text-slate-900">
-                        {fmtMoney(editExpenseTotal)}
-                      </div>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Profit</div>
-                      <div className="mt-1 text-sm font-semibold tabular-nums text-slate-900">
-                        {fmtMoney(editProfit)}
-                      </div>
+                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        Recorded payments
+                      </h3>
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        {paymentSummary.count
+                          ? `${paymentSummary.count} payment${paymentSummary.count === 1 ? '' : 's'} · last ${fmtDisplayDateTime(paymentSummary.lastPaidAt)}`
+                          : 'No payments recorded yet.'}
+                      </p>
                     </div>
                   </div>
-                  {editExpenseEntries.length > 0 ? (
-                    <ul className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200">
-                      {editExpenseEntries.map((e) => (
-                        <li key={e.id} className="flex items-start justify-between gap-3 bg-white px-3 py-2 text-sm">
-                          <div className="min-w-0">
-                            <div className="font-semibold tabular-nums text-slate-900">{fmtMoney(e.amount)}</div>
-                            {e.note?.trim() ? <div className="mt-0.5 text-xs text-slate-600">{e.note.trim()}</div> : null}
-                          </div>
-                          <div className="flex shrink-0 items-center gap-2">
-                            <button
-                              type="button"
-                              title="Remove expense"
-                              className="rounded-lg border border-red-200 p-1.5 text-red-700 hover:bg-red-50"
-                              onClick={() => orderId && setDeleteExpenseTarget({ orderId, expenseId: e.id })}
-                            >
-                              <Trash2 className="h-4 w-4" strokeWidth={2} />
-                            </button>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="mt-3 text-sm text-slate-500">No expenses recorded.</p>
-                  )}
-                </div>
 
-                {editPaymentEntries.length > 0 ? (
-                  <div className="rounded-lg border border-slate-200/80 bg-white px-3 py-3 sm:px-4">
-                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                      Recorded payments
-                    </h3>
-                    <ul className="mt-2 divide-y divide-slate-100">
+                  {editPaymentEntries.length > 0 ? (
+                    <ul className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200">
                       {editPaymentEntries.map((p) => (
                         <li
                           key={`${p.order_id ?? orderId ?? 'order'}:${p.id}`}
-                          className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
+                          className="flex flex-wrap items-center justify-between gap-2 bg-white px-3 py-2 text-sm"
                         >
                           <div className="min-w-0 flex-1">
                             <span className="font-medium tabular-nums text-slate-900">{fmtMoney(p.amount)}</span>
@@ -1575,8 +1536,79 @@ export function OrderEditPage() {
                         </li>
                       ))}
                     </ul>
+                  ) : null}
+                </div>
+
+                <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Extra expenses</h3>
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        Affects profit only (does not change payments/balance).
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!canEdit || expensePending}
+                      className="inline-flex items-center justify-center rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50 disabled:opacity-50"
+                      onClick={() => {
+                        setExpenseAmountInput('')
+                        setExpenseNoteInput('')
+                        setExpenseModalOpen(true)
+                      }}
+                    >
+                      Add expense
+                    </button>
                   </div>
-                ) : null}
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        Expense total
+                      </div>
+                      <div className="mt-1 text-sm font-semibold tabular-nums text-slate-900">
+                        {fmtMoney(editExpenseTotal)}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Profit</div>
+                      <div className="mt-1 text-sm font-semibold tabular-nums text-slate-900">
+                        {fmtMoney(editProfit)}
+                      </div>
+                    </div>
+                  </div>
+                  {editExpenseEntries.length > 0 ? (
+                    <ul className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200">
+                      {editExpenseEntries.map((e) => (
+                        <li
+                          key={e.id}
+                          className="flex flex-wrap items-center justify-between gap-2 bg-white px-3 py-2 text-sm"
+                        >
+                          <div className="min-w-0">
+                            <span className="font-medium tabular-nums text-slate-900">{fmtMoney(e.amount)}</span>
+                            {e.note?.trim() ? (
+                              <span className="ml-2 text-xs font-normal text-slate-500">{e.note.trim()}</span>
+                            ) : null}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            {e.at?.trim() ? (
+                              <span className="text-slate-500">{fmtDisplayDateTime(e.at)}</span>
+                            ) : null}
+                            <button
+                              type="button"
+                              title="Remove expense"
+                              className="rounded-lg border border-red-200 p-1.5 text-red-700 hover:bg-red-50"
+                              onClick={() => orderId && setDeleteExpenseTarget({ orderId, expenseId: e.id })}
+                            >
+                              <Trash2 className="h-4 w-4" strokeWidth={2} />
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-3 text-sm text-slate-500">No expenses recorded.</p>
+                  )}
+                </div>
 
                 {editEstimateId ? (
                   <p className="rounded-lg border border-teal-100 bg-teal-50/80 px-3 py-2 text-xs text-teal-900">
