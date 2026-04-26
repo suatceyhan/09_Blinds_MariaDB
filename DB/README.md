@@ -16,3 +16,4 @@ Yeni migration eklerken mevcut en büyük numaradan bir sonrakini kullanın.
 - `36_order_payment_entries_payment_group_id.sql`: `order_payment_entries` satırına `payment_group_id` ekler; tek bir “record payment” aksiyonunun (anchor + ek siparişlere dağıtılan) UI’de tek satır olarak gruplanmasını sağlar.
 - `37_order_expense_entries.sql`: `order_expense_entries` (order-level masraf defteri) ekler; profit hesaplarında kullanılır, order total/balance/payments değiştirmez (soft delete: `is_deleted`).
 - `38_order_line_photos.sql`: `order_attachments` içine per-blinds-line fotoğraflar için `kind='line_photo'` ve `blinds_type_id` alanını ekler (kumaş fotoğrafları).
+- `39_estimate_lead_source.sql`: `estimate.lead_source` (referral / advertising) alanı ekler; ay-ay müşteri kaynağı raporları için.

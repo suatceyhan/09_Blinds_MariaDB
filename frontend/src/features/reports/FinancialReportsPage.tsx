@@ -30,6 +30,12 @@ type Timeseries = {
   points: Array<{ d: string; revenue: number; collected: number }>
 }
 
+type Monthly = {
+  range_from: string
+  range_to: string
+  points: Array<{ month: string; revenue: number; expense: number; tax: number; profit: number }>
+}
+
 function fmtMoney(v: number | null | undefined): string {
   if (v === null || v === undefined) return '—'
   if (!Number.isFinite(v)) return String(v)
@@ -92,6 +98,7 @@ export function FinancialReportsPage() {
   const [sum, setSum] = useState<FinancialSummary | null>(null)
   const [ar, setAr] = useState<ARSummary | null>(null)
   const [ts, setTs] = useState<Timeseries | null>(null)
+  const [monthly, setMonthly] = useState<Monthly | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -101,15 +108,17 @@ export function FinancialReportsPage() {
       setLoading(true)
       setErr(null)
       try {
-        const [a, b, t] = await Promise.all([
+        const [a, b, t, m] = await Promise.all([
           getJson<FinancialSummary>(`/reports/financial/summary?${qs}`),
           getJson<ARSummary>(`/reports/financial/ar?${qs}`),
           getJson<Timeseries>(`/reports/financial/timeseries?${qs}`),
+          getJson<Monthly>(`/reports/financial/monthly?${qs}`),
         ])
         if (!c) {
           setSum(a)
           setAr(b)
           setTs(t)
+          setMonthly(m)
         }
       } catch (e) {
         if (!c) {
@@ -117,6 +126,7 @@ export function FinancialReportsPage() {
           setSum(null)
           setAr(null)
           setTs(null)
+          setMonthly(null)
         }
       } finally {
         if (!c) setLoading(false)
@@ -300,6 +310,57 @@ export function FinancialReportsPage() {
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-50 text-slate-700">
+            <DollarSign className="h-5 w-5" strokeWidth={2} />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-slate-900">Monthly breakdown</p>
+            <p className="text-xs text-slate-500">Revenue, expenses, tax, and profit grouped by month.</p>
+          </div>
+        </div>
+
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[44rem] text-left text-sm">
+            <thead className="border-b border-slate-100 bg-slate-50/80 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-3 py-2">Month</th>
+                <th className="px-3 py-2">Revenue</th>
+                <th className="px-3 py-2">Expenses</th>
+                <th className="px-3 py-2">Tax</th>
+                <th className="px-3 py-2">Profit</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {loading ? (
+                <tr>
+                  <td className="px-3 py-6 text-slate-500" colSpan={5}>
+                    Loading…
+                  </td>
+                </tr>
+              ) : (monthly?.points ?? []).length === 0 ? (
+                <tr>
+                  <td className="px-3 py-6 text-slate-500" colSpan={5}>
+                    No data in this range.
+                  </td>
+                </tr>
+              ) : (
+                (monthly?.points ?? []).map((p) => (
+                  <tr key={p.month} className="hover:bg-slate-50/60">
+                    <td className="px-3 py-2 font-medium text-slate-800">{p.month}</td>
+                    <td className="px-3 py-2 tabular-nums text-slate-700">{fmtMoney(p.revenue)}</td>
+                    <td className="px-3 py-2 tabular-nums text-slate-700">{fmtMoney(p.expense)}</td>
+                    <td className="px-3 py-2 tabular-nums text-slate-700">{fmtMoney(p.tax)}</td>
+                    <td className="px-3 py-2 tabular-nums text-slate-700">{fmtMoney(p.profit)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

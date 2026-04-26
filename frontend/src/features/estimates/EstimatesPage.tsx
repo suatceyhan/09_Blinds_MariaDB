@@ -278,6 +278,7 @@ export function EstimatesPage() {
   const [visitTimeZone, setVisitTimeZone] = useState(() => coerceTimeZoneForApi(defaultTimeZone()))
   const [guestEmails, setGuestEmails] = useState<string[]>([])
   const [visitNotes, setVisitNotes] = useState('')
+  const [leadSource, setLeadSource] = useState<'referral' | 'advertising'>('advertising')
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 250)
@@ -405,6 +406,7 @@ export function EstimatesPage() {
     setVisitTimeZone(coerceTimeZoneForApi(defaultTimeZone()))
     setGuestEmails([])
     setVisitNotes('')
+    setLeadSource('advertising')
     setEntryMode('prospect')
     setCustomerId('')
     setProspectName('')
@@ -503,6 +505,7 @@ export function EstimatesPage() {
         blinds_lines,
         scheduled_wall: wall,
         visit_time_zone: tz,
+        lead_source: leadSource,
         ...(vaddr ? { visit_address: vaddr } : {}),
         visit_notes: visitNotes.trim() || undefined,
         ...(orgName ? { visit_organizer_name: orgName } : {}),
@@ -638,6 +641,32 @@ export function EstimatesPage() {
         >
           <h2 className="text-sm font-medium text-slate-800">New estimate</h2>
           <div className="mt-3 space-y-2.5">
+            <fieldset className="rounded-md border border-slate-100 bg-slate-50/60 p-2">
+              <legend className="px-1 text-[11px] font-semibold text-slate-600">Customer source</legend>
+              <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-700">
+                <label className="inline-flex cursor-pointer items-center gap-1.5">
+                  <input
+                    type="radio"
+                    name="est-lead"
+                    checked={leadSource === 'advertising'}
+                    onChange={() => setLeadSource('advertising')}
+                    className="h-3.5 w-3.5 border-slate-300 text-teal-600"
+                  />
+                  <span>Advertising</span>
+                </label>
+                <label className="inline-flex cursor-pointer items-center gap-1.5">
+                  <input
+                    type="radio"
+                    name="est-lead"
+                    checked={leadSource === 'referral'}
+                    onChange={() => setLeadSource('referral')}
+                    className="h-3.5 w-3.5 border-slate-300 text-teal-600"
+                  />
+                  <span>Referral</span>
+                </label>
+              </div>
+            </fieldset>
+
             <fieldset className="rounded-md border border-slate-100 bg-slate-50/60 p-2">
               <legend className="px-1 text-[11px] font-semibold text-slate-600">Who is this estimate for?</legend>
               <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-700">

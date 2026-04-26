@@ -382,6 +382,7 @@ CREATE TABLE IF NOT EXISTS estimate (
   blinds_id     VARCHAR(16),
   perde_sayisi  INTEGER,
   tarih_saat    TIMESTAMPTZ,
+  lead_source   TEXT,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (company_id, id),
@@ -396,6 +397,19 @@ CREATE TABLE IF NOT EXISTS estimate (
     ON UPDATE CASCADE
     ON DELETE RESTRICT
 );
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'ck_estimate_lead_source'
+  ) THEN
+    ALTER TABLE estimate
+      ADD CONSTRAINT ck_estimate_lead_source
+      CHECK (lead_source IS NULL OR lead_source IN ('referral', 'advertising'));
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_estimate_company_customer ON estimate (company_id, customer_id);
 CREATE INDEX IF NOT EXISTS idx_estimate_company_tarih ON estimate (company_id, tarih_saat DESC NULLS LAST);

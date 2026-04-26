@@ -43,12 +43,24 @@ type EstimateDetail = {
   visit_organizer_email?: string | null
   visit_guest_emails?: string[]
   visit_recurrence_rrule?: string | null
+  lead_source?: 'referral' | 'advertising' | null
   created_at: string | null
   updated_at: string | null
 }
 
 function formatDt(raw: string | null | undefined): string {
   return formatVisitDateTimeList(raw)
+}
+
+function leadSourceLabel(v: string | null | undefined): 'Advertising' | 'Referral' {
+  const s = (v ?? '').trim().toLowerCase()
+  return s === 'referral' ? 'Referral' : 'Advertising'
+}
+
+function LeadSourceBadge({ value }: Readonly<{ value: string | null | undefined }>) {
+  const label = leadSourceLabel(value)
+  const cls = label === 'Referral' ? 'bg-indigo-50 text-indigo-900 ring-indigo-200' : 'bg-slate-50 text-slate-900 ring-slate-200'
+  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${cls}`}>{label}</span>
 }
 
 function workflowStatusLabel(status: string | null | undefined): string {
@@ -221,6 +233,9 @@ export function EstimateViewPage() {
                     <p className="text-sm font-semibold tracking-tight text-slate-900">Estimate Details</p>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       <WorkflowStatusBadge status={row.status} label={row.status_label} />
+                      <span className="text-xs font-medium text-slate-400">·</span>
+                      <span className="text-xs font-semibold text-slate-500">Customer source</span>
+                      <LeadSourceBadge value={row.lead_source} />
                     </div>
                   </div>
                 </div>

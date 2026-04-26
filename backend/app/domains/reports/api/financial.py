@@ -96,13 +96,16 @@ class ARSummaryOut(BaseModel):
 def get_financial_summary(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Users, Depends(require_permissions("reports.access.view"))],
-    from_date: Annotated[date | None, Query(alias="from")] = None,
-    to_date: Annotated[date | None, Query(alias="to")] = None,
+    # Accept both `from`/`to` and `from_date`/`to_date` (frontend uses *_date).
+    from_date: Annotated[date | None, Query(alias="from_date")] = None,
+    to_date: Annotated[date | None, Query(alias="to_date")] = None,
+    from_q: Annotated[date | None, Query(alias="from")] = None,
+    to_q: Annotated[date | None, Query(alias="to")] = None,
 ):
     cid = effective_company_id(current_user)
     if not cid:
         raise HTTPException(status_code=403, detail=NO_ACTIVE_COMPANY_DETAIL)
-    start, end = _parse_range(from_date, to_date)
+    start, end = _parse_range(from_date or from_q, to_date or to_q)
 
     row = db.execute(
         text(
@@ -190,13 +193,15 @@ def get_financial_summary(
 def get_ar_summary(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Users, Depends(require_permissions("reports.access.view"))],
-    from_date: Annotated[date | None, Query(alias="from")] = None,
-    to_date: Annotated[date | None, Query(alias="to")] = None,
+    from_date: Annotated[date | None, Query(alias="from_date")] = None,
+    to_date: Annotated[date | None, Query(alias="to_date")] = None,
+    from_q: Annotated[date | None, Query(alias="from")] = None,
+    to_q: Annotated[date | None, Query(alias="to")] = None,
 ):
     cid = effective_company_id(current_user)
     if not cid:
         raise HTTPException(status_code=403, detail=NO_ACTIVE_COMPANY_DETAIL)
-    start, end = _parse_range(from_date, to_date)
+    start, end = _parse_range(from_date or from_q, to_date or to_q)
 
     bal_row = db.execute(
         text(
@@ -261,14 +266,16 @@ def get_ar_summary(
 def get_financial_timeseries(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Users, Depends(require_permissions("reports.access.view"))],
-    from_date: Annotated[date | None, Query(alias="from")] = None,
-    to_date: Annotated[date | None, Query(alias="to")] = None,
+    from_date: Annotated[date | None, Query(alias="from_date")] = None,
+    to_date: Annotated[date | None, Query(alias="to_date")] = None,
+    from_q: Annotated[date | None, Query(alias="from")] = None,
+    to_q: Annotated[date | None, Query(alias="to")] = None,
     group: Annotated[Literal["daily", "weekly"], Query()] = "daily",
 ):
     cid = effective_company_id(current_user)
     if not cid:
         raise HTTPException(status_code=403, detail=NO_ACTIVE_COMPANY_DETAIL)
-    start, end = _parse_range(from_date, to_date)
+    start, end = _parse_range(from_date or from_q, to_date or to_q)
 
     # Revenue: order date; Collected: payment entry date + downpayment on order date.
     # Use timestamp-based generate_series for compatibility across PG versions.
@@ -358,6 +365,120 @@ def get_financial_timeseries(
         range_from=start,
         range_to=end - timedelta(days=1),
         group=group,
+        points=points,
+    )
+
+
+class MonthlyPointOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    month: date  # first day of month
+    revenue: float
+    expense: float
+    tax: float
+    profit: float
+
+
+class MonthlyOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    range_from: date
+    range_to: date
+    points: list[MonthlyPointOut]
+
+
+@router.get(
+    "/monthly",
+    response_model=MonthlyOut,
+    responses={400: {"description": "Invalid date range."}, 403: {"description": NO_ACTIVE_COMPANY_DETAIL}},
+)
+def get_financial_monthly(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("reports.access.view"))],
+    from_date: Annotated[date | None, Query(alias="from_date")] = None,
+    to_date: Annotated[date | None, Query(alias="to_date")] = None,
+    from_q: Annotated[date | None, Query(alias="from")] = None,
+    to_q: Annotated[date | None, Query(alias="to")] = None,
+):
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail=NO_ACTIVE_COMPANY_DETAIL)
+    start, end = _parse_range(from_date or from_q, to_date or to_q)
+
+    rows = db.execute(
+        text(
+            """
+            WITH base_orders AS (
+              SELECT
+                o.id,
+                o.company_id,
+                date_trunc('month', COALESCE(o.agreement_date::date, o.created_at::date))::date AS m,
+                COALESCE(o.total_amount, 0)::numeric AS subtotal_ex_tax,
+                COALESCE(o.tax_amount, 0)::numeric AS tax_amount
+              FROM orders o
+              WHERE o.company_id = CAST(:cid AS uuid)
+                AND o.active IS TRUE
+                AND o.parent_order_id IS NULL
+                AND COALESCE(o.agreement_date::date, o.created_at::date) >= :start
+                AND COALESCE(o.agreement_date::date, o.created_at::date) < :end
+            ),
+            expenses AS (
+              SELECT
+                e.company_id,
+                e.order_id,
+                COALESCE(SUM(e.amount), 0)::numeric AS exp_sum
+              FROM order_expense_entries e
+              JOIN base_orders b ON b.company_id = e.company_id AND b.id = e.order_id
+              WHERE COALESCE(e.is_deleted, FALSE) = FALSE
+              GROUP BY 1, 2
+            ),
+            roll AS (
+              SELECT
+                b.m AS month,
+                COALESCE(SUM(b.subtotal_ex_tax + b.tax_amount), 0)::numeric AS revenue,
+                COALESCE(SUM(COALESCE(ex.exp_sum, 0)), 0)::numeric AS expense,
+                COALESCE(SUM(b.tax_amount), 0)::numeric AS tax,
+                COALESCE(SUM((b.subtotal_ex_tax + b.tax_amount) - COALESCE(ex.exp_sum, 0)), 0)::numeric AS profit
+              FROM base_orders b
+              LEFT JOIN expenses ex ON ex.company_id = b.company_id AND ex.order_id = b.id
+              GROUP BY 1
+            ),
+            series AS (
+              SELECT generate_series(
+                date_trunc('month', CAST(:start AS date))::date,
+                date_trunc('month', CAST(:end AS date) - INTERVAL '1 day')::date,
+                INTERVAL '1 month'
+              )::date AS month
+            )
+            SELECT
+              s.month,
+              COALESCE(r.revenue, 0)::numeric AS revenue,
+              COALESCE(r.expense, 0)::numeric AS expense,
+              COALESCE(r.tax, 0)::numeric AS tax,
+              COALESCE(r.profit, 0)::numeric AS profit
+            FROM series s
+            LEFT JOIN roll r ON r.month = s.month
+            ORDER BY s.month ASC
+            """
+        ),
+        {"cid": str(cid), "start": start, "end": end},
+    ).mappings().all()
+
+    points = [
+        MonthlyPointOut(
+            month=r["month"],
+            revenue=float(r["revenue"] or 0),
+            expense=float(r["expense"] or 0),
+            tax=float(r["tax"] or 0),
+            profit=float(r["profit"] or 0),
+        )
+        for r in rows
+        if isinstance(r.get("month"), date)
+    ]
+
+    return MonthlyOut(
+        range_from=start,
+        range_to=end - timedelta(days=1),
         points=points,
     )
 

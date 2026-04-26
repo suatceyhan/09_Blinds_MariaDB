@@ -11,11 +11,22 @@ from zoneinfo import ZoneInfo
 from typing import Any
 from uuid import UUID
 
-from google.auth.transport.requests import Request as GoogleAuthRequest
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
+try:
+    from google.auth.transport.requests import Request as GoogleAuthRequest
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import Flow
+    from googleapiclient.discovery import build
+    from googleapiclient.errors import HttpError
+
+    _GOOGLE_DEPS_OK = True
+except Exception:  # pragma: no cover
+    # Google Calendar integration is optional; app must still start without these packages installed.
+    GoogleAuthRequest = None  # type: ignore[assignment]
+    Credentials = None  # type: ignore[assignment]
+    Flow = None  # type: ignore[assignment]
+    build = None  # type: ignore[assignment]
+    HttpError = Exception  # type: ignore[assignment]
+    _GOOGLE_DEPS_OK = False
 from sqlalchemy import text
 from sqlalchemy.engine import Dialect
 from sqlalchemy.exc import ProgrammingError
@@ -50,6 +61,8 @@ GOOGLE_CAL_SCOPES: list[str] = [
 
 
 def google_calendar_oauth_configured() -> bool:
+    if not _GOOGLE_DEPS_OK:
+        return False
     cid = (settings.google_oauth_client_id or "").strip()
     sec = (settings.google_oauth_client_secret or "").strip()
     return bool(cid and sec)
@@ -68,6 +81,8 @@ def _client_config() -> dict[str, Any]:
 
 
 def build_authorization_url(*, state_token: str) -> str:
+    if not _GOOGLE_DEPS_OK:
+        raise RuntimeError("Google Calendar dependencies are not installed.")
     # Stateless callback uses a new Flow; PKCE verifier would be lost — off for confidential web client.
     flow = Flow.from_client_config(
         _client_config(),
@@ -81,6 +96,11 @@ def build_authorization_url(*, state_token: str) -> str:
         state=state_token,
     )
     return url
+
+
+def _assert_google_deps() -> None:
+    if not _GOOGLE_DEPS_OK:
+        raise RuntimeError("Google Calendar dependencies are not installed.")
 
 
 def create_oauth_state_token(*, user_id: UUID, company_id: UUID) -> str:
@@ -153,6 +173,7 @@ def _set_rls_for_company_user(db: Session, company_id: UUID, user_id: UUID) -> N
 
 
 def complete_oauth_callback(db: Session, *, authorization_response_url: str, state: str) -> None:
+    _assert_google_deps()
     user_id, company_id = _decode_oauth_state(state)
     if not _user_may_link_company_calendar(db, user_id, company_id):
         raise ValueError("membership")
@@ -239,6 +260,7 @@ def complete_oauth_callback(db: Session, *, authorization_response_url: str, sta
 
 
 def delete_company_google_calendar(db: Session, *, company_id: UUID, user_id: UUID) -> bool:
+    _assert_google_deps()
     reset_connection_rls_gucs(db)
     _set_rls_for_company_user(db, company_id, user_id)
     res = db.execute(
@@ -255,6 +277,7 @@ def delete_company_google_calendar(db: Session, *, company_id: UUID, user_id: UU
 def get_connection_status(
     db: Session, *, company_id: UUID, user_id: UUID
 ) -> dict[str, Any]:
+    _assert_google_deps()
     reset_connection_rls_gucs(db)
     _set_rls_for_company_user(db, company_id, user_id)
     row = db.execute(
@@ -313,6 +336,7 @@ def _google_event_start_end(
 
 
 def _calendar_credentials(refresh_token: str) -> Credentials:
+    _assert_google_deps()
     return Credentials(
         token=None,
         refresh_token=refresh_token,
@@ -326,6 +350,8 @@ def _calendar_credentials(refresh_token: str) -> Credentials:
 def try_push_estimate_to_google_calendar(
     db: Session, *, company_id: UUID, estimate_id: str, acting_user_id: UUID
 ) -> None:
+    if not _GOOGLE_DEPS_OK:
+        return
     if not google_calendar_oauth_configured():
         return
     try:
@@ -537,6 +563,8 @@ def try_push_order_installation_to_google_calendar(
     db: Session, *, company_id: UUID, order_id: str, acting_user_id: UUID
 ) -> None:
     """Create/update Google Calendar when installation time is set; delete event when time is cleared or status is cancelled-like."""
+    if not _GOOGLE_DEPS_OK:
+        return
     if not google_calendar_oauth_configured():
         return
     try:

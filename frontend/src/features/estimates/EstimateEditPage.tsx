@@ -52,6 +52,7 @@ type EstimateDetail = {
   status_esti_id?: string | null
   is_deleted?: boolean | null
   linked_order_id?: string | null
+  lead_source?: 'referral' | 'advertising' | null
 }
 
 type CreateContext = {
@@ -111,6 +112,7 @@ type EstimateEditBaseline = {
   prospectEmail: string
   prospectAddress: string
   prospectPostalCode: string
+  leadSource: 'referral' | 'advertising'
 }
 
 export function EstimateEditPage() {
@@ -147,6 +149,7 @@ export function EstimateEditPage() {
   const [prospectEmail, setProspectEmail] = useState('')
   const [prospectAddress, setProspectAddress] = useState('')
   const [prospectPostalCode, setProspectPostalCode] = useState('')
+  const [leadSource, setLeadSource] = useState<'referral' | 'advertising'>('advertising')
   const [estimateFormBaseline, setEstimateFormBaseline] = useState<EstimateEditBaseline | null>(null)
 
   const prospectPostalErr = isCa && prospectPostalCode.trim() !== '' && !isValidCaPostalCode(prospectPostalCode)
@@ -186,6 +189,8 @@ export function EstimateEditPage() {
     setProspectEmail((d.prospect_email ?? '').trim())
     setProspectAddress((d.prospect_address ?? '').trim())
     setProspectPostalCode((d.prospect_postal_code ?? '').trim())
+    const ls = (d.lead_source ?? '').trim().toLowerCase()
+    setLeadSource(ls === 'referral' ? 'referral' : 'advertising')
   }
 
   useEffect(() => {
@@ -306,6 +311,7 @@ export function EstimateEditPage() {
       prospectEmail,
       prospectAddress,
       prospectPostalCode,
+      leadSource,
     }
   }, [
     selectedStatusEstiId,
@@ -324,6 +330,7 @@ export function EstimateEditPage() {
     prospectEmail,
     prospectAddress,
     prospectPostalCode,
+    leadSource,
   ])
 
   const latestEstimateBaselineRef = useRef<EstimateEditBaseline | null>(null)
@@ -361,6 +368,7 @@ export function EstimateEditPage() {
     setProspectEmail(b.prospectEmail)
     setProspectAddress(b.prospectAddress)
     setProspectPostalCode(b.prospectPostalCode)
+    setLeadSource(b.leadSource)
     setSaveErr(null)
   }
 
@@ -441,6 +449,7 @@ export function EstimateEditPage() {
         visit_guest_emails: guestEmails.map((e) => e.trim()).filter(Boolean),
         blinds_lines,
         status_esti_id: statusEstiId,
+        lead_source: leadSource,
       }
       if (!(detail?.customer_id ?? '').trim()) {
         patchBody.prospect_name = prospectName.trim() || null
@@ -560,6 +569,46 @@ export function EstimateEditPage() {
               </button>
             </div>
           ) : null}
+
+          <section className="rounded-xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Customer source</h3>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={formDisabled}
+                  onClick={() => setLeadSource('advertising')}
+                  className={[
+                    'h-8 rounded-full px-3 text-xs font-semibold ring-1 transition',
+                    leadSource === 'advertising'
+                      ? 'bg-slate-900 text-white ring-slate-900'
+                      : 'bg-white text-slate-700 ring-slate-200 hover:bg-slate-50',
+                    formDisabled ? 'opacity-60' : '',
+                  ].join(' ')}
+                  aria-pressed={leadSource === 'advertising'}
+                >
+                  Advertising
+                </button>
+                <button
+                  type="button"
+                  disabled={formDisabled}
+                  onClick={() => setLeadSource('referral')}
+                  className={[
+                    'h-8 rounded-full px-3 text-xs font-semibold ring-1 transition',
+                    leadSource === 'referral'
+                      ? 'bg-indigo-600 text-white ring-indigo-600'
+                      : 'bg-white text-slate-700 ring-slate-200 hover:bg-slate-50',
+                    formDisabled ? 'opacity-60' : '',
+                  ].join(' ')}
+                  aria-pressed={leadSource === 'referral'}
+                >
+                  Referral
+                </button>
+              </div>
+            </div>
+          </section>
 
           {!(detail.customer_id ?? '').trim() ? (
             <section className="rounded-xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm">

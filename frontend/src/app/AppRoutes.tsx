@@ -32,6 +32,7 @@ import { UserViewPage } from '@/features/users/UserViewPage'
 import { DashboardPage } from '@/features/dashboard/DashboardPage'
 import { ReportsHubPage } from '@/features/reports/ReportsPages'
 import { FinancialReportsPage } from '@/features/reports/FinancialReportsPage'
+import { CustomerSourcesReportPage } from '@/features/reports/CustomerSourcesReportPage'
 import { PermissionsHubPage } from '@/features/settings/PermissionsHubPage'
 import { SettingsHubPage } from '@/features/settings/SettingsHubPage'
 import { SettingsRoleMatrixPage } from '@/features/settings/SettingsRoleMatrixPage'
@@ -122,6 +123,7 @@ export function AppRoutes() {
         <Route path="account/password" element={<ChangePasswordPage />} />
         <Route path="reports" element={<ReportsHubPage />} />
         <Route path="reports/financial" element={<FinancialReportsPage />} />
+        <Route path="reports/customer-sources" element={<CustomerSourcesReportPage />} />
         <Route path="schedule" element={<SchedulePage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -70,3 +70,7 @@ Modüler backend ve Vite React ön yüzü için bkz. [docs/PROJECT_STRUCTURE.md]
 - **Reports → Financial** (`/reports/financial`):
   - Tarih aralığı preset + custom range ile **Revenue**, **Collected**, **A/R balance**, **Profit**, **Tax**, **Taxable base**
     ve **Revenue vs Collected** trend (daily/weekly) raporları.
+  - Ek tablo: **Monthly breakdown** (ay-ay revenue/expense/tax/profit).
+- **Reports → Customer sources** (`/reports/customer-sources`):
+  - Ay-ay **Estimates** ve **Orders** için müşteri kaynağı kırılımı: **Referral** / **Advertising** / **Unknown**.
+  - Kaynak işaretleme: Estimate oluşturma/düzenlemede **Customer source** seçimi.

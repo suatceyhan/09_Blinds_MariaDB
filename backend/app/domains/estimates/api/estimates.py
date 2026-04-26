@@ -3,7 +3,7 @@ import re
 import secrets
 from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -228,6 +228,10 @@ class EstimateDetailOut(BaseModel):
     prospect_email: str | None = None
     prospect_address: str | None = None
     prospect_postal_code: str | None = None
+    lead_source: str | None = Field(
+        default=None,
+        description="referral | advertising | null (unknown)",
+    )
     blinds_types: list[EstimateBlindsLineOut]
     perde_sayisi: int | None = None
     scheduled_wall: str | None = Field(
@@ -298,6 +302,10 @@ class EstimateCreateIn(BaseModel):
     visit_organizer_name: str | None = Field(None, max_length=200)
     visit_organizer_email: EmailStr | None = None
     visit_guest_emails: list[EmailStr] = Field(default_factory=list, max_length=20)
+    lead_source: Literal["referral", "advertising"] | None = Field(
+        default=None,
+        description="referral | advertising. Null means unknown.",
+    )
 
     @field_validator("visit_organizer_email", mode="before")
     @classmethod
@@ -426,6 +434,7 @@ class EstimatePatchIn(BaseModel):
     prospect_email: EmailStr | None = None
     prospect_address: str | None = Field(None, max_length=2000)
     prospect_postal_code: str | None = Field(None, max_length=32)
+    lead_source: Literal["referral", "advertising"] | None = None
 
     @field_validator(
         "prospect_name",
@@ -877,6 +886,7 @@ def create_estimate(
                       visit_time_zone, visit_address, visit_postal_code, visit_notes,
                       visit_organizer_name, visit_organizer_email, visit_guest_emails,
                       status_esti_id,
+                      lead_source,
                       prospect_name, prospect_surname, prospect_phone, prospect_email, prospect_address, prospect_postal_code,
                       created_at, updated_at
                     )
@@ -886,6 +896,7 @@ def create_estimate(
                       :vtz, :vaddr, :vpostal, :vnotes,
                       :org_name, :org_email, CAST(:guests AS jsonb),
                       :status_esti_id,
+                      :lead_source,
                       :pname, :psurname, :pphone, :pemail, :paddress, :ppostal,
                       NOW(), NOW()
                     )
@@ -905,6 +916,7 @@ def create_estimate(
                     "org_email": org_email,
                     "guests": guest_json,
                     "status_esti_id": new_status_id,
+                    "lead_source": body.lead_source,
                     "pname": (
                         format_person_name_casing((body.prospect_name or "").strip() or None)
                         if not cust_sql
@@ -1009,6 +1021,7 @@ def get_estimate(
               e.visit_organizer_email,
               e.visit_guest_emails,
               e.visit_recurrence_rrule,
+              e.lead_source,
               se.builtin_kind AS status,
               COALESCE(NULLIF(trim(se.name), ''), '—') AS status_label,
               e.status_esti_id AS status_esti_id,
@@ -1149,6 +1162,10 @@ def patch_estimate(
         if "prospect_postal_code" in patch_dump:
             sets.append("prospect_postal_code = :prospect_postal_code")
             params["prospect_postal_code"] = patch_dump["prospect_postal_code"]
+
+    if "lead_source" in patch_dump:
+        sets.append("lead_source = :lead_source")
+        params["lead_source"] = patch_dump.get("lead_source")
 
     if payload.status_esti_id is not None:
         cur_kind_raw = (cur or {}).get("status_builtin_kind")
