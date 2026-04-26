@@ -80,6 +80,73 @@ class CustomerPatchIn(BaseModel):
     active: bool | None = None
 
 
+class CustomerLookupOut(BaseModel):
+    """Minimal customer info for dropdowns (no customer detail access required)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    surname: str | None = None
+
+
+def require_any_permission(keys: tuple[str, ...]):
+    """Dependency: allow if user has ANY of the given permission keys."""
+
+    def dep(current_user: Annotated[Users, Depends(require_permissions(keys[0]))]):
+        perms = set(getattr(current_user, "permissions", []) or [])
+        if any(k in perms for k in keys):
+            return current_user
+        raise HTTPException(status_code=403, detail=f"Requires one of permissions: {keys}")
+
+    return dep
+
+
+@router.get("/lookup", response_model=list[CustomerLookupOut])
+def customers_lookup(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        Users,
+        Depends(require_any_permission(("customers.view", "orders.edit", "estimates.edit"))),
+    ],
+    limit: int = Query(300, ge=1, le=500),
+    search: str | None = Query(None, max_length=200),
+):
+    """Customer list for selecting a customer while creating/editing orders/estimates.
+
+    This endpoint is intentionally minimal and does NOT imply access to customer detail pages.
+    """
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    term = (search or "").strip()
+    where = ["c.company_id = CAST(:cid AS uuid)", "c.active IS TRUE"]
+    params: dict[str, Any] = {"cid": str(cid), "limit": limit}
+    if term:
+        params["term"] = f"%{term}%"
+        where.append(
+            "("
+            "c.name ILIKE :term OR COALESCE(c.surname,'') ILIKE :term OR COALESCE(c.phone,'') ILIKE :term OR "
+            "COALESCE(c.email,'') ILIKE :term OR COALESCE(c.address,'') ILIKE :term OR "
+            "COALESCE(c.postal_code,'') ILIKE :term"
+            ")"
+        )
+    where_sql = " AND ".join(where)
+    rows = db.execute(
+        text(
+            f"""
+            SELECT c.id, c.name, c.surname
+            FROM customers c
+            WHERE {where_sql}
+            ORDER BY c.name ASC, c.surname ASC, c.id ASC
+            LIMIT :limit
+            """
+        ),
+        params,
+    ).mappings().all()
+    return [CustomerLookupOut(**dict(r)) for r in rows]
+
+
 @router.get("", response_model=list[CustomerListItemOut])
 def list_customers(
     db: Annotated[Session, Depends(get_db)],

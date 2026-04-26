@@ -233,6 +233,7 @@ function TypesAndWindowsCell({ lines }: Readonly<{ lines: BlindsLine[] }>) {
 export function EstimatesPage() {
   const me = useAuthSession()
   const canEdit = Boolean(me?.permissions.includes('estimates.edit'))
+  const canViewCustomers = Boolean(me?.permissions.includes('customers.view'))
   const isCa = ((me?.active_company_country_code ?? '').trim().toUpperCase() || '') === 'CA'
   const canCreateOrder = Boolean(me?.permissions.includes('orders.edit'))
 
@@ -324,11 +325,10 @@ export function EstimatesPage() {
       setLoading(true)
       setLoadErr(null)
       try {
-        const [list, custList, btList] = await Promise.all([
-          getJson<EstimateRow[]>(`/estimates?${listParams}`),
-          getJson<CustomerOpt[]>(`/customers?limit=300`),
-          getJson<BlindsOpt[]>(`/estimates/lookup/blinds-types`),
-        ])
+        const listReq = getJson<EstimateRow[]>(`/estimates?${listParams}`)
+        const btReq = getJson<BlindsOpt[]>(`/estimates/lookup/blinds-types`)
+        const custReq = getJson<CustomerOpt[]>(`/customers/lookup?limit=300`).catch(() => [] as CustomerOpt[])
+        const [list, btList, custList] = await Promise.all([listReq, btReq, custReq])
         if (!cancelled) {
           setRows(list)
           setCustomers(custList)
@@ -1040,12 +1040,18 @@ export function EstimatesPage() {
                   className={`hover:bg-slate-50/80 ${r.is_deleted ? 'bg-slate-50/90 opacity-80' : ''}`.trim()}
                 >
                   <td className="align-top px-2 py-3 text-slate-800 sm:px-4">
-                    <Link
-                      to={`/customers/${r.customer_id}`}
-                      className="font-semibold text-slate-900 hover:text-slate-950 hover:underline"
-                    >
-                      {r.customer_display || r.customer_id}
-                    </Link>
+                    {canViewCustomers && (r.customer_id ?? '').trim() ? (
+                      <Link
+                        to={`/customers/${r.customer_id}`}
+                        className="font-semibold text-slate-900 hover:text-slate-950 hover:underline"
+                      >
+                        {r.customer_display || r.customer_id}
+                      </Link>
+                    ) : (
+                      <span className="font-semibold text-slate-900">
+                        {r.customer_display || r.customer_id || 'Prospect'}
+                      </span>
+                    )}
                     <div className="mt-1">
                       <EstimateStatusBadge status={r.status} label={r.status_label} />
                       {r.is_deleted ? (

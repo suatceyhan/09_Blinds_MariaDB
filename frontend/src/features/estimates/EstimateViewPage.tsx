@@ -82,6 +82,7 @@ export function EstimateViewPage() {
   const { estimateId } = useParams()
   const me = useAuthSession()
   const canEdit = Boolean(me?.permissions.includes('estimates.edit'))
+  const canViewCustomers = Boolean(me?.permissions.includes('customers.view'))
   const canCreateOrder = Boolean(me?.permissions.includes('orders.edit'))
   const canViewOrders = Boolean(me?.permissions.includes('orders.view'))
   const [row, setRow] = useState<EstimateDetail | null | undefined>(undefined)
@@ -291,9 +292,16 @@ export function EstimateViewPage() {
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Customer</div>
                   <div className="mt-1 text-base font-semibold text-slate-900">
                     {(row.customer_id ?? '').trim() ? (
-                      <Link to={`/customers/${row.customer_id}`} className="font-semibold text-slate-900 hover:text-slate-950 hover:underline">
-                        {row.customer_display || row.customer_id}
-                      </Link>
+                      canViewCustomers ? (
+                        <Link
+                          to={`/customers/${row.customer_id}`}
+                          className="font-semibold text-slate-900 hover:text-slate-950 hover:underline"
+                        >
+                          {row.customer_display || row.customer_id}
+                        </Link>
+                      ) : (
+                        <span>{row.customer_display || row.customer_id}</span>
+                      )
                     ) : (
                       <span>{row.customer_display?.trim() || 'Prospect'}</span>
                     )}

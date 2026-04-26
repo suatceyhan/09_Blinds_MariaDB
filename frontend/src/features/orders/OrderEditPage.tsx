@@ -598,7 +598,7 @@ export function OrderEditPage() {
     ;(async () => {
       try {
         const [custList, opts, st] = await Promise.all([
-          getJson<CustomerOpt[]>('/customers?limit=300'),
+          getJson<CustomerOpt[]>('/customers/lookup?limit=300').catch(() => [] as CustomerOpt[]),
           getJson<BlindsOrderOptions>('/orders/lookup/blinds-order-options'),
           getJson<OrderStatusOpt[]>('/orders/lookup/order-statuses').catch(() => [] as OrderStatusOpt[]),
         ])

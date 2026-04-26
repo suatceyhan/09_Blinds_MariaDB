@@ -51,6 +51,7 @@ export function OrdersPage() {
   const me = useAuthSession()
   const canView = Boolean(me?.permissions.includes('orders.view'))
   const canEdit = Boolean(me?.permissions.includes('orders.edit'))
+  const canViewCustomers = Boolean(me?.permissions.includes('customers.view'))
   const canViewCompanies = Boolean(me?.permissions.includes('companies.view'))
   const sessionCompanyId = me?.active_company_id ?? me?.company_id ?? null
   const navigate = useNavigate()
@@ -259,8 +260,9 @@ export function OrdersPage() {
     let c = false
     ;(async () => {
       try {
+        const custReq = getJson<CustomerOpt[]>(`/customers/lookup?limit=300`).catch(() => [] as CustomerOpt[])
         const [custList, opts, st] = await Promise.all([
-          getJson<CustomerOpt[]>(`/customers?limit=300`),
+          custReq,
           getJson<BlindsOrderOptions>(`/orders/lookup/blinds-order-options`),
           getJson<OrderStatusOpt[]>(`/orders/lookup/order-statuses`).catch(() => [] as OrderStatusOpt[]),
         ])
@@ -757,12 +759,16 @@ export function OrdersPage() {
                   >
                     <td className="px-2 py-3 sm:px-4">
                       <div className="flex flex-col gap-1">
-                        <Link
-                          to={`/customers/${r.customer_id}`}
-                          className="font-semibold text-slate-900 hover:text-slate-950 hover:underline"
-                        >
-                          {r.customer_display || r.customer_id}
-                        </Link>
+                        {canViewCustomers ? (
+                          <Link
+                            to={`/customers/${r.customer_id}`}
+                            className="font-semibold text-slate-900 hover:text-slate-950 hover:underline"
+                          >
+                            {r.customer_display || r.customer_id}
+                          </Link>
+                        ) : (
+                          <span className="font-semibold text-slate-900">{r.customer_display || r.customer_id}</span>
+                        )}
                         <div className="flex flex-wrap items-center gap-2">
                           <OrderStatusBadge label={r.status_order_label} />
                           {missingInstallation ? (
