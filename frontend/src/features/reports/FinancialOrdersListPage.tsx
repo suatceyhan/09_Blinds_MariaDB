@@ -94,12 +94,24 @@ export function FinancialOrdersListPage() {
     }
   }, [qs])
 
-  const title =
-    kind === 'ar'
-      ? 'A/R balance — order list'
-      : month
-        ? `Monthly details — ${month}`
-        : 'Financial orders'
+  let title = 'Financial orders'
+  if (kind === 'ar') title = 'A/R balance — order list'
+  else if (month) title = `Monthly details — ${month}`
+
+  const totals = useMemo(() => {
+    const orders = data?.orders ?? []
+    return orders.reduce(
+      (acc, o) => ({
+        revenue: acc.revenue + (Number(o.revenue) || 0),
+        collected: acc.collected + (Number(o.collected) || 0),
+        balance: acc.balance + (Number(o.balance) || 0),
+        tax: acc.tax + (Number(o.tax) || 0),
+        expense: acc.expense + (Number(o.expense) || 0),
+        profit: acc.profit + (Number(o.profit) || 0),
+      }),
+      { revenue: 0, collected: 0, balance: 0, tax: 0, expense: 0, profit: 0 },
+    )
+  }, [data])
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6">
@@ -150,20 +162,26 @@ export function FinancialOrdersListPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {loading ? (
-                  <tr>
-                    <td className="px-3 py-6 text-slate-500" colSpan={9}>
-                      Loading…
-                    </td>
-                  </tr>
-                ) : (data?.orders ?? []).length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-slate-500" colSpan={9}>
-                      No orders in this range.
-                    </td>
-                  </tr>
-                ) : (
-                  (data?.orders ?? []).map((o) => (
+                {(() => {
+                  if (loading) {
+                    return (
+                      <tr>
+                        <td className="px-3 py-6 text-slate-500" colSpan={9}>
+                          Loading…
+                        </td>
+                      </tr>
+                    )
+                  }
+                  if ((data?.orders ?? []).length === 0) {
+                    return (
+                      <tr>
+                        <td className="px-3 py-6 text-slate-500" colSpan={9}>
+                          No orders in this range.
+                        </td>
+                      </tr>
+                    )
+                  }
+                  return (data?.orders ?? []).map((o) => (
                     <tr key={o.order_id} className="hover:bg-slate-50/60">
                       <td className="px-3 py-2 font-medium text-slate-800">{o.d}</td>
                       <td className="px-3 py-2 text-slate-800">{o.customer_display}</td>
@@ -183,8 +201,23 @@ export function FinancialOrdersListPage() {
                       <td className="px-3 py-2 tabular-nums text-slate-700">{fmtMoney(o.profit)}</td>
                     </tr>
                   ))
-                )}
+                })()}
               </tbody>
+              {!loading && (data?.orders ?? []).length > 0 ? (
+                <tfoot className="border-t border-slate-200 bg-slate-50/60">
+                  <tr>
+                    <td className="px-3 py-2 font-semibold text-slate-900" colSpan={3}>
+                      Total
+                    </td>
+                    <td className="px-3 py-2 tabular-nums font-semibold text-slate-900">{fmtMoney(totals.revenue)}</td>
+                    <td className="px-3 py-2 tabular-nums font-semibold text-slate-900">{fmtMoney(totals.collected)}</td>
+                    <td className="px-3 py-2 tabular-nums font-semibold text-slate-900">{fmtMoney(totals.balance)}</td>
+                    <td className="px-3 py-2 tabular-nums font-semibold text-slate-900">{fmtMoney(totals.tax)}</td>
+                    <td className="px-3 py-2 tabular-nums font-semibold text-slate-900">{fmtMoney(totals.expense)}</td>
+                    <td className="px-3 py-2 tabular-nums font-semibold text-slate-900">{fmtMoney(totals.profit)}</td>
+                  </tr>
+                </tfoot>
+              ) : null}
             </table>
           </div>
         </div>

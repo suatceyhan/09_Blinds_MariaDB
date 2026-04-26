@@ -243,37 +243,62 @@ export function FinancialReportsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {loading ? (
-                <tr>
-                  <td className="px-3 py-6 text-slate-500" colSpan={5}>
-                    Loading…
-                  </td>
-                </tr>
-              ) : (monthly?.points ?? []).length === 0 ? (
-                <tr>
-                  <td className="px-3 py-6 text-slate-500" colSpan={5}>
-                    No data in this range.
-                  </td>
-                </tr>
-              ) : (
-                (monthly?.points ?? []).map((p) => (
-                  <tr key={p.month} className="hover:bg-slate-50/60">
-                    <td className="px-3 py-2 font-medium text-slate-800">
-                      <Link
-                        to={`/reports/financial/month?month=${encodeURIComponent(p.month)}`}
-                        className="font-semibold text-slate-900 hover:text-slate-950 hover:underline"
-                        title="Open month details"
-                      >
-                        {p.month}
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2 tabular-nums text-slate-700">{fmtMoney(p.revenue)}</td>
-                    <td className="px-3 py-2 tabular-nums text-slate-700">{fmtMoney(p.expense)}</td>
-                    <td className="px-3 py-2 tabular-nums text-slate-700">{fmtMoney(p.tax)}</td>
-                    <td className="px-3 py-2 tabular-nums text-slate-700">{fmtMoney(p.profit)}</td>
-                  </tr>
-                ))
-              )}
+              {(() => {
+                if (loading) {
+                  return (
+                    <tr>
+                      <td className="px-3 py-6 text-slate-500" colSpan={5}>
+                        Loading…
+                      </td>
+                    </tr>
+                  )
+                }
+                if ((monthly?.points ?? []).length === 0) {
+                  return (
+                    <tr>
+                      <td className="px-3 py-6 text-slate-500" colSpan={5}>
+                        No data in this range.
+                      </td>
+                    </tr>
+                  )
+                }
+                return (monthly?.points ?? []).map((p) => {
+                  const href = `/reports/financial/month?month=${encodeURIComponent(p.month)}`
+                  return (
+                    <tr key={p.month} className="hover:bg-slate-50/60">
+                      <td className="px-3 py-0 font-medium text-slate-800">
+                        <Link
+                          to={href}
+                          className="block px-0 py-2 font-semibold text-slate-900 hover:text-slate-950 hover:underline"
+                          title="Open month details"
+                        >
+                          {p.month}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-0 tabular-nums text-slate-700">
+                        <Link to={href} className="block px-0 py-2 text-slate-700 no-underline" aria-label={`Open ${p.month} details`}>
+                          {fmtMoney(p.revenue)}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-0 tabular-nums text-slate-700">
+                        <Link to={href} className="block px-0 py-2 text-slate-700 no-underline" aria-label={`Open ${p.month} details`}>
+                          {fmtMoney(p.expense)}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-0 tabular-nums text-slate-700">
+                        <Link to={href} className="block px-0 py-2 text-slate-700 no-underline" aria-label={`Open ${p.month} details`}>
+                          {fmtMoney(p.tax)}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-0 tabular-nums text-slate-700">
+                        <Link to={href} className="block px-0 py-2 text-slate-700 no-underline" aria-label={`Open ${p.month} details`}>
+                          {fmtMoney(p.profit)}
+                        </Link>
+                      </td>
+                    </tr>
+                  )
+                })
+              })()}
             </tbody>
           </table>
         </div>
