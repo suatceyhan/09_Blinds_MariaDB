@@ -244,22 +244,30 @@ export function DashboardPage() {
             </div>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3">
-            <div className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-3 py-2">
+            <Link
+              to="/estimates?status=new"
+              className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-3 py-2 transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-200"
+              title="View New estimates"
+            >
               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">New</div>
               <div className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">
                 <StatValue err={sumErr} loading={isLoadingSummary}>
                   {sum?.new_estimates_count ?? 0}
                 </StatValue>
               </div>
-            </div>
-            <div className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-3 py-2">
+            </Link>
+            <Link
+              to="/estimates?status=pending"
+              className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-3 py-2 transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-200"
+              title="View Pending estimates"
+            >
               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Pending</div>
               <div className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">
                 <StatValue err={sumErr} loading={isLoadingSummary}>
                   {sum?.pending_estimates_count ?? 0}
                 </StatValue>
               </div>
-            </div>
+            </Link>
           </div>
         </div>
 
@@ -274,22 +282,30 @@ export function DashboardPage() {
             </div>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3">
-            <div className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-3 py-2">
+            <Link
+              to="/orders?ready_install=with_date"
+              className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-3 py-2 transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-200"
+              title="View ready-for-installation orders with installation date"
+            >
               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">With date</div>
               <div className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">
                 <StatValue err={sumErr} loading={isLoadingSummary}>
                   {sum?.ready_install_with_date_count ?? 0}
                 </StatValue>
               </div>
-            </div>
-            <div className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-3 py-2">
+            </Link>
+            <Link
+              to="/orders?ready_install=missing_date"
+              className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-3 py-2 transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-200"
+              title="View ready-for-installation orders missing installation date"
+            >
               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Missing date</div>
               <div className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">
                 <StatValue err={sumErr} loading={isLoadingSummary}>
                   {sum?.ready_install_missing_date_count ?? 0}
                 </StatValue>
               </div>
-            </div>
+            </Link>
           </div>
         </div>
       </div>
@@ -310,13 +326,15 @@ export function DashboardPage() {
 
           <div className="mt-4 space-y-2">
             {(sum?.order_age_buckets ?? []).map((b) => (
-              <div
+              <Link
                 key={b.label}
+                to={`/orders?age_bucket=${encodeURIComponent(b.label)}`}
                 className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-slate-50/40 px-3 py-2"
+                title={`View orders created ${b.label}`}
               >
                 <p className="text-xs font-medium text-slate-600">{b.label}</p>
                 <p className="text-sm font-semibold tabular-nums text-slate-900">{b.count}</p>
-              </div>
+              </Link>
             ))}
             {isLoadingSummary ? <div className="text-sm text-slate-400">Loading…</div> : null}
             {sumErr ? <div className="text-sm text-red-600">{sumErr}</div> : null}
@@ -337,9 +355,11 @@ export function DashboardPage() {
               <div className="text-sm text-slate-500">No installations scheduled.</div>
             ) : null}
             {upcomingTop.map((r) => (
-              <div
+              <Link
                 key={r.id}
-                className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-white px-3 py-2"
+                to={`/orders?viewOrder=${encodeURIComponent(r.id)}`}
+                className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-white px-3 py-2 transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-200"
+                title="Open order"
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-slate-900">
@@ -349,11 +369,8 @@ export function DashboardPage() {
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="text-sm text-slate-700">{fmtDateTime(r.installation_scheduled_start_at ?? null)}</p>
-                  <Link to={`/orders?viewOrder=${r.id}`} className="text-xs font-medium text-teal-700 hover:underline">
-                    View
-                  </Link>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         </div>
@@ -369,9 +386,11 @@ export function DashboardPage() {
               <div className="text-sm text-slate-500">No upcoming estimates scheduled.</div>
             ) : null}
             {upcomingEstTop.map((e) => (
-              <div
+              <Link
                 key={e.id}
-                className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-white px-3 py-2"
+                to={`/estimates/${encodeURIComponent(e.id)}`}
+                className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-white px-3 py-2 transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-200"
+                title="Open estimate"
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-slate-900">
@@ -381,11 +400,8 @@ export function DashboardPage() {
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="text-sm text-slate-700">{fmtDateTime(e.scheduled_start_at ?? e.tarih_saat ?? null)}</p>
-                  <Link to={`/estimates/${e.id}`} className="text-xs font-medium text-teal-700 hover:underline">
-                    View
-                  </Link>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         </div>

@@ -101,6 +101,34 @@ export function OrdersPage() {
   } | null>(null)
 
   const fromEstimateQ = useMemo(() => searchParams.get('fromEstimate')?.trim() ?? '', [searchParams])
+  const readyInstallQ = useMemo(() => (searchParams.get('ready_install') ?? '').trim().toLowerCase(), [searchParams])
+  const ageBucketQ = useMemo(() => (searchParams.get('age_bucket') ?? '').trim().toLowerCase(), [searchParams])
+
+  function ageBucketMatch(createdAtIso: string | null | undefined): boolean {
+    if (!ageBucketQ) return true
+    const d = createdAtIso ? new Date(createdAtIso) : null
+    if (!d || Number.isNaN(d.getTime())) return false
+    const days = Math.floor((Date.now() - d.getTime()) / 86400000)
+    if (ageBucketQ === '0-6d') return days >= 0 && days <= 6
+    if (ageBucketQ === '7-13d') return days >= 7 && days <= 13
+    if (ageBucketQ === '14-20d') return days >= 14 && days <= 20
+    if (ageBucketQ === '21-27d') return days >= 21 && days <= 27
+    if (ageBucketQ === '28d+' || ageBucketQ === '28d%2b') return days >= 28
+    return true
+  }
+  const filteredRows = useMemo(() => {
+    if (!rows) return rows
+    return rows.filter((r) => {
+      if (!ageBucketMatch(r.created_at ?? null)) return false
+      if (readyInstallQ !== 'with_date' && readyInstallQ !== 'missing_date') return true
+      const statusCodeReady = (r.status_code ?? '').trim().toLowerCase() === 'ready_for_install'
+      const statusLabelBucket = orderStatusWorkflowBucketFromName((r.status_order_label ?? '').trim())
+      const statusLabelReady = statusLabelBucket === 'rfi'
+      if (!statusCodeReady && !statusLabelReady) return false
+      const hasDate = Boolean(String(r.installation_scheduled_start_at ?? '').trim())
+      return readyInstallQ === 'with_date' ? hasDate : !hasDate
+    })
+  }, [rows, readyInstallQ, ageBucketQ])
   const lineSubtotalParsed = useMemo(() => sumBlindsLineAmounts(blindsLines), [blindsLines])
   const taxBaseParsed = useMemo(() => parseOptionalDecimal(taxBaseAmount), [taxBaseAmount])
   const dpParsed = useMemo(() => parseOptionalDecimal(downpayment), [downpayment])
@@ -727,20 +755,20 @@ export function OrdersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-800">
-              {loading || rows === null ? (
+              {loading || filteredRows === null ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
                     Loading…
                   </td>
                 </tr>
-              ) : rows.length === 0 ? (
+              ) : filteredRows.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
                     No orders yet. Use New order or Make order from an estimate.
                   </td>
                 </tr>
               ) : (
-                rows.map((r) => {
+                filteredRows.map((r) => {
                   const advance = resolveOrderAdvanceAction(r, orderStatuses)
                   const doneSyncedHighlight = orderListRowDoneSyncedHighlight(r)
                   const bucket = orderStatusWorkflowBucketFromName((r.status_order_label ?? '').trim())

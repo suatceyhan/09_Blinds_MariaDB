@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { CalendarDays, Check, Eye, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
 import { getJson, postJson, patchJson, deleteJson } from '@/lib/api'
@@ -250,6 +250,14 @@ export function EstimatesPage() {
   const [estimateStatusOpts, setEstimateStatusOpts] = useState<EstimateStatusFilterOpt[] | null>(null)
   const [showDeleted, setShowDeleted] = useState(false)
   const [filterCustomerId] = useState('')
+  const [searchParams] = useSearchParams()
+
+  const statusQ = useMemo(() => (searchParams.get('status') ?? '').trim().toLowerCase(), [searchParams])
+  const filteredRows = useMemo(() => {
+    if (!rows) return rows
+    if (statusQ !== 'new' && statusQ !== 'pending') return rows
+    return rows.filter((r) => (r.status ?? '').trim().toLowerCase() === statusQ)
+  }, [rows, statusQ])
 
   const [deleteTarget, setDeleteTarget] = useState<EstimateRow | null>(null)
   const [deletePending, setDeletePending] = useState(false)
@@ -1049,7 +1057,7 @@ export function EstimatesPage() {
         <div className="w-full overflow-x-auto overscroll-x-contain">
         {loading ? (
           <p className="p-6 text-sm text-slate-500">Loading…</p>
-        ) : !rows?.length ? (
+        ) : !filteredRows?.length ? (
           <p className="p-6 text-sm text-slate-500">No estimates match the current filters.</p>
         ) : (
           <table className="w-full min-w-[960px] text-left text-sm [word-break:break-word]">
@@ -1063,7 +1071,7 @@ export function EstimatesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {rows.map((r) => (
+              {filteredRows.map((r) => (
                 <tr
                   key={r.id}
                   className={`hover:bg-slate-50/80 ${r.is_deleted ? 'bg-slate-50/90 opacity-80' : ''}`.trim()}
