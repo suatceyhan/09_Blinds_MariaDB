@@ -47,6 +47,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
   - `GET /reports/financial/ar` — outstanding balance totals + top balances (date range)
   - `GET /reports/financial/timeseries` — revenue vs collected trend (`group=daily|weekly`)
   - `GET /reports/financial/monthly` — month-by-month revenue/expense/tax/profit (date range)
+  - `GET /reports/financial/orders` — order list with revenue/collected/balance/tax/expense/profit (date range; `only_positive_balance=true` for A/R)
   - `GET /reports/customer-sources/estimates-monthly` — month-by-month unique estimate customers by source (referral/advertising/unknown)
   - `GET /reports/customer-sources/orders-monthly` — month-by-month unique order customers by source (derived from linked estimate when available)
 

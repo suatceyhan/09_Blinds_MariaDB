@@ -369,6 +369,131 @@ def get_financial_timeseries(
     )
 
 
+class FinancialOrderRowOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    order_id: str
+    d: date
+    customer_display: str
+    revenue: float
+    collected: float
+    balance: float
+    tax: float
+    expense: float
+    profit: float
+
+
+class FinancialOrdersOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    range_from: date
+    range_to: date
+    only_positive_balance: bool
+    orders: list[FinancialOrderRowOut]
+
+
+@router.get(
+    "/orders",
+    response_model=FinancialOrdersOut,
+    responses={400: {"description": "Invalid date range."}, 403: {"description": NO_ACTIVE_COMPANY_DETAIL}},
+)
+def list_financial_orders(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("reports.access.view"))],
+    from_date: Annotated[date | None, Query(alias="from_date")] = None,
+    to_date: Annotated[date | None, Query(alias="to_date")] = None,
+    from_q: Annotated[date | None, Query(alias="from")] = None,
+    to_q: Annotated[date | None, Query(alias="to")] = None,
+    only_positive_balance: Annotated[bool, Query()] = False,
+):
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail=NO_ACTIVE_COMPANY_DETAIL)
+    start, end = _parse_range(from_date or from_q, to_date or to_q)
+
+    where_extra = "AND COALESCE(o.balance, 0) > 0" if only_positive_balance else ""
+    rows = db.execute(
+        text(
+            f"""
+            WITH base_orders AS (
+              SELECT
+                o.id,
+                o.company_id,
+                COALESCE(o.agreement_date::date, o.created_at::date) AS d,
+                COALESCE(o.total_amount, 0)::numeric AS subtotal_ex_tax,
+                COALESCE(o.tax_amount, 0)::numeric AS tax_amount,
+                COALESCE(o.downpayment, 0)::numeric AS downpayment,
+                COALESCE(o.balance, 0)::numeric AS balance,
+                trim(concat_ws(' ', c.name, c.surname)) AS customer_display
+              FROM orders o
+              JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
+              WHERE o.company_id = CAST(:cid AS uuid)
+                AND o.active IS TRUE
+                AND o.parent_order_id IS NULL
+                {where_extra}
+                AND COALESCE(o.agreement_date::date, o.created_at::date) >= :start
+                AND COALESCE(o.agreement_date::date, o.created_at::date) < :end
+            ),
+            payments AS (
+              SELECT
+                p.company_id,
+                p.order_id,
+                COALESCE(SUM(p.amount), 0)::numeric AS pay_sum
+              FROM order_payment_entries p
+              JOIN base_orders b ON b.company_id = p.company_id AND b.id = p.order_id
+              WHERE COALESCE(p.is_deleted, FALSE) = FALSE
+              GROUP BY 1, 2
+            ),
+            expenses AS (
+              SELECT
+                e.company_id,
+                e.order_id,
+                COALESCE(SUM(e.amount), 0)::numeric AS exp_sum
+              FROM order_expense_entries e
+              JOIN base_orders b ON b.company_id = e.company_id AND b.id = e.order_id
+              WHERE COALESCE(e.is_deleted, FALSE) = FALSE
+              GROUP BY 1, 2
+            )
+            SELECT
+              b.id::text AS order_id,
+              b.d,
+              b.customer_display,
+              (b.subtotal_ex_tax + b.tax_amount)::numeric AS revenue,
+              (b.downpayment + COALESCE(pm.pay_sum, 0))::numeric AS collected,
+              GREATEST(b.balance, 0)::numeric AS balance,
+              b.tax_amount::numeric AS tax,
+              COALESCE(ex.exp_sum, 0)::numeric AS expense,
+              ((b.subtotal_ex_tax + b.tax_amount) - COALESCE(ex.exp_sum, 0))::numeric AS profit
+            FROM base_orders b
+            LEFT JOIN payments pm ON pm.company_id = b.company_id AND pm.order_id = b.id
+            LEFT JOIN expenses ex ON ex.company_id = b.company_id AND ex.order_id = b.id
+            ORDER BY b.d DESC, b.id DESC
+            """
+        ),
+        {"cid": str(cid), "start": start, "end": end},
+    ).mappings().all()
+
+    return FinancialOrdersOut(
+        range_from=start,
+        range_to=end - timedelta(days=1),
+        only_positive_balance=only_positive_balance,
+        orders=[
+            FinancialOrderRowOut(
+                order_id=str(r["order_id"]),
+                d=r["d"],
+                customer_display=str(r["customer_display"] or "").strip() or str(r["order_id"]),
+                revenue=float(r["revenue"] or 0),
+                collected=float(r["collected"] or 0),
+                balance=float(r["balance"] or 0),
+                tax=float(r["tax"] or 0),
+                expense=float(r["expense"] or 0),
+                profit=float(r["profit"] or 0),
+            )
+            for r in rows
+        ],
+    )
+
+
 class MonthlyPointOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

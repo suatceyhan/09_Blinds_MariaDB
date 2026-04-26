@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BarChart3, CalendarDays, DollarSign, LineChart } from 'lucide-react'
+import { BarChart3, CalendarDays, DollarSign } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { getJson } from '@/lib/api'
 
 type FinancialSummary = {
@@ -21,13 +22,6 @@ type ARSummary = {
   balance_total: number
   positive_balance_orders: number
   top: Array<{ order_id: string; customer_display: string; balance: number }>
-}
-
-type Timeseries = {
-  range_from: string
-  range_to: string
-  group: 'daily' | 'weekly'
-  points: Array<{ d: string; revenue: number; collected: number }>
 }
 
 type Monthly = {
@@ -79,7 +73,6 @@ export function FinancialReportsPage() {
   const [preset, setPreset] = useState<Preset>('last_30')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
-  const [group, setGroup] = useState<'daily' | 'weekly'>('daily')
 
   const range = useMemo(() => {
     if (preset !== 'custom') return computePreset(preset)
@@ -91,13 +84,11 @@ export function FinancialReportsPage() {
     const p = new URLSearchParams()
     p.set('from_date', range.from)
     p.set('to_date', range.to)
-    p.set('group', group)
     return p.toString()
-  }, [range.from, range.to, group])
+  }, [range.from, range.to])
 
   const [sum, setSum] = useState<FinancialSummary | null>(null)
   const [ar, setAr] = useState<ARSummary | null>(null)
-  const [ts, setTs] = useState<Timeseries | null>(null)
   const [monthly, setMonthly] = useState<Monthly | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -108,16 +99,14 @@ export function FinancialReportsPage() {
       setLoading(true)
       setErr(null)
       try {
-        const [a, b, t, m] = await Promise.all([
+        const [a, b, m] = await Promise.all([
           getJson<FinancialSummary>(`/reports/financial/summary?${qs}`),
           getJson<ARSummary>(`/reports/financial/ar?${qs}`),
-          getJson<Timeseries>(`/reports/financial/timeseries?${qs}`),
           getJson<Monthly>(`/reports/financial/monthly?${qs}`),
         ])
         if (!c) {
           setSum(a)
           setAr(b)
-          setTs(t)
           setMonthly(m)
         }
       } catch (e) {
@@ -125,7 +114,6 @@ export function FinancialReportsPage() {
           setErr(e instanceof Error ? e.message : 'Could not load reports')
           setSum(null)
           setAr(null)
-          setTs(null)
           setMonthly(null)
         }
       } finally {
@@ -210,19 +198,6 @@ export function FinancialReportsPage() {
               </div>
             )}
 
-            <div className="ml-auto flex items-end gap-2">
-              <label className="block">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Trend</div>
-                <select
-                  className="mt-1 h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                  value={group}
-                  onChange={(e) => setGroup(e.target.value === 'weekly' ? 'weekly' : 'daily')}
-                >
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                </select>
-              </label>
-            </div>
           </div>
         </div>
       </div>
@@ -232,85 +207,17 @@ export function FinancialReportsPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <MetricCard icon={DollarSign} title="Revenue" subtitle="Total (incl. tax)" loading={loading} value={fmtMoney(sum?.revenue_total ?? 0)} />
         <MetricCard icon={DollarSign} title="Collected" subtitle="Down + payments" loading={loading} value={fmtMoney(sum?.collected_total ?? 0)} />
-        <MetricCard icon={DollarSign} title="A/R balance" subtitle="Outstanding" loading={loading} value={fmtMoney(ar?.balance_total ?? 0)} />
+        <MetricCardLink
+          to={`/reports/financial/ar?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`}
+          icon={DollarSign}
+          title="A/R balance"
+          subtitle="Outstanding (click to view list)"
+          loading={loading}
+          value={fmtMoney(ar?.balance_total ?? 0)}
+        />
         <MetricCard icon={DollarSign} title="Profit" subtitle="Revenue − expenses" loading={loading} value={fmtMoney(sum?.profit_total ?? 0)} />
         <MetricCard icon={DollarSign} title="Tax" subtitle="Tax amount total" loading={loading} value={fmtMoney(sum?.tax_total ?? 0)} />
         <MetricCard icon={DollarSign} title="Taxable base" subtitle="Tax base total" loading={loading} value={fmtMoney(sum?.taxable_base_total ?? 0)} />
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm lg:col-span-2">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
-              <LineChart className="h-5 w-5" strokeWidth={2} />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-slate-900">Trend</p>
-              <p className="text-xs text-slate-500">Revenue vs collected ({group})</p>
-            </div>
-          </div>
-
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[34rem] text-left text-sm">
-              <thead className="border-b border-slate-100 bg-slate-50/80 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-3 py-2">Date</th>
-                  <th className="px-3 py-2">Revenue</th>
-                  <th className="px-3 py-2">Collected</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {loading ? (
-                  <tr>
-                    <td className="px-3 py-6 text-slate-500" colSpan={3}>
-                      Loading…
-                    </td>
-                  </tr>
-                ) : (
-                  (ts?.points ?? []).slice(-24).map((p) => (
-                    <tr key={p.d} className="hover:bg-slate-50/60">
-                      <td className="px-3 py-2 font-medium text-slate-800">{p.d}</td>
-                      <td className="px-3 py-2 tabular-nums text-slate-700">{fmtMoney(p.revenue)}</td>
-                      <td className="px-3 py-2 tabular-nums text-slate-700">{fmtMoney(p.collected)}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-            {!loading && (ts?.points ?? []).length > 24 ? (
-              <p className="mt-2 text-[11px] text-slate-500">Showing the last 24 points in the selected range.</p>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <p className="text-sm font-medium text-slate-900">Top outstanding balances</p>
-              <p className="mt-1 text-xs text-slate-500">
-                {loading ? '—' : `${ar?.positive_balance_orders ?? 0} orders with positive balance`}
-              </p>
-            </div>
-          </div>
-          <div className="mt-4 space-y-2">
-            {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
-            {!loading && (ar?.top ?? []).length === 0 ? <p className="text-sm text-slate-500">No balances due.</p> : null}
-            {(ar?.top ?? []).map((r) => (
-              <div
-                key={r.order_id}
-                className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-slate-50/40 px-3 py-2"
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-slate-900">{r.customer_display}</div>
-                  <div className="text-[11px] text-slate-500">Order {r.order_id}</div>
-                </div>
-                <div className="shrink-0 text-right">
-                  <div className="text-sm font-semibold tabular-nums text-slate-900">{fmtMoney(r.balance)}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
 
       <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
@@ -351,7 +258,15 @@ export function FinancialReportsPage() {
               ) : (
                 (monthly?.points ?? []).map((p) => (
                   <tr key={p.month} className="hover:bg-slate-50/60">
-                    <td className="px-3 py-2 font-medium text-slate-800">{p.month}</td>
+                    <td className="px-3 py-2 font-medium text-slate-800">
+                      <Link
+                        to={`/reports/financial/month?month=${encodeURIComponent(p.month)}`}
+                        className="font-semibold text-slate-900 hover:text-slate-950 hover:underline"
+                        title="Open month details"
+                      >
+                        {p.month}
+                      </Link>
+                    </td>
                     <td className="px-3 py-2 tabular-nums text-slate-700">{fmtMoney(p.revenue)}</td>
                     <td className="px-3 py-2 tabular-nums text-slate-700">{fmtMoney(p.expense)}</td>
                     <td className="px-3 py-2 tabular-nums text-slate-700">{fmtMoney(p.tax)}</td>
@@ -390,6 +305,33 @@ function MetricCard(props: Readonly<{
         {props.loading ? <span className="text-slate-400">Loading…</span> : props.value}
       </div>
     </div>
+  )
+}
+
+function MetricCardLink(props: Readonly<{
+  to: string
+  icon: typeof DollarSign
+  title: string
+  subtitle: string
+  value: string
+  loading: boolean
+}>) {
+  const Icon = props.icon
+  return (
+    <Link to={props.to} className="group rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm hover:border-teal-200">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-50 text-slate-700">
+          <Icon className="h-5 w-5" strokeWidth={2} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-slate-900 group-hover:text-slate-950">{props.title}</p>
+          <p className="text-xs text-slate-500">{props.subtitle}</p>
+        </div>
+      </div>
+      <div className="mt-4 text-2xl font-semibold tracking-tight text-slate-900">
+        {props.loading ? <span className="text-slate-400">Loading…</span> : props.value}
+      </div>
+    </Link>
   )
 }
 
