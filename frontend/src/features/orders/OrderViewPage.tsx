@@ -45,6 +45,13 @@ export function OrderViewPage() {
     return fmtMoney(safeRound2(down + extra))
   }, [viewOrder])
 
+  const paymentSummary = useMemo(() => {
+    const list = viewOrder?.payment_entries ?? []
+    const count = list.length
+    const lastPaidAt = count ? list[list.length - 1]?.paid_at ?? null : null
+    return { count, lastPaidAt }
+  }, [viewOrder])
+
   useEffect(() => {
     if (!me || !canView || !orderId) return
     let cancelled = false
@@ -233,11 +240,20 @@ export function OrderViewPage() {
                 </p>
               ) : null}
 
-              <div className="space-y-3">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Job totals</h3>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Includes the original order + all additional orders.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div className="block min-w-0 text-sm text-slate-700">
                     <span className="mb-1 block font-medium">Total (incl. tax)</span>
-                    <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+                    <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900">
                       {fmtTotalIncludingTax(
                         viewOrder.financial_totals?.subtotal_ex_tax ?? viewOrder.total_amount,
                         viewOrder.financial_totals?.tax_amount ?? viewOrder.tax_amount,
@@ -246,13 +262,13 @@ export function OrderViewPage() {
                   </div>
                   <div className="block min-w-0 text-sm text-slate-700">
                     <span className="mb-1 block font-medium">Down payment</span>
-                    <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+                    <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900">
                       {fmtMoney(viewOrder.financial_totals?.downpayment ?? viewOrder.downpayment)}
                     </p>
                   </div>
                   <div className="block min-w-0 text-sm text-slate-700">
                     <span className="mb-1 block font-medium">Taxable base</span>
-                    <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+                    <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900">
                       {fmtMoney(viewOrder.financial_totals?.taxable_base ?? viewOrder.tax_uygulanacak_miktar)}
                     </p>
                   </div>
@@ -264,52 +280,26 @@ export function OrderViewPage() {
                 />
               </div>
 
-              <div className="rounded-xl border border-slate-200/80 bg-white p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Extra expenses</h3>
-                    <p className="mt-1 text-[11px] text-slate-500">Affects profit only (does not change payments/balance).</p>
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Recorded payments
+                    </h3>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      {paymentSummary.count
+                        ? `${paymentSummary.count} payment${paymentSummary.count === 1 ? '' : 's'} · last ${fmtDisplayDateTime(paymentSummary.lastPaidAt)}`
+                        : 'No payments recorded yet.'}
+                    </p>
                   </div>
                 </div>
-                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Expense total</div>
-                    <div className="mt-1 text-sm font-semibold tabular-nums text-slate-900">
-                      {fmtMoney(viewOrder.expense_total ?? 0)}
-                    </div>
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Profit</div>
-                    <div className="mt-1 text-sm font-semibold tabular-nums text-slate-900">{fmtMoney(viewOrder.profit ?? 0)}</div>
-                  </div>
-                </div>
-                {(viewOrder.expense_entries?.length ?? 0) > 0 ? (
-                  <ul className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200">
-                    {(viewOrder.expense_entries ?? []).map((e) => (
-                      <li key={e.id} className="flex items-start justify-between gap-3 bg-white px-3 py-2 text-sm">
-                        <div className="min-w-0">
-                          <div className="font-semibold tabular-nums text-slate-900">{fmtMoney(e.amount)}</div>
-                          {e.note?.trim() ? <div className="mt-0.5 text-xs text-slate-600">{e.note.trim()}</div> : null}
-                        </div>
-                        {/* View-only: no mutations here */}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-3 text-sm text-slate-500">No expenses recorded.</p>
-                )}
-              </div>
 
-              {viewOrder.payment_entries && viewOrder.payment_entries.length > 0 ? (
-                <div className="rounded-lg border border-slate-200/80 bg-white px-3 py-3 sm:px-4">
-                  <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Recorded payments
-                  </h3>
-                  <ul className="mt-2 divide-y divide-slate-100">
-                    {viewOrder.payment_entries.map((p) => (
+                {(viewOrder.payment_entries?.length ?? 0) > 0 ? (
+                  <ul className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200">
+                    {(viewOrder.payment_entries ?? []).map((p) => (
                       <li
                         key={p.id}
-                        className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
+                        className="flex flex-wrap items-center justify-between gap-2 bg-white px-3 py-2 text-sm"
                       >
                         <div className="min-w-0 flex-1">
                           <span className="font-medium tabular-nums text-slate-900">{fmtMoney(p.amount)}</span>
@@ -323,8 +313,58 @@ export function OrderViewPage() {
                       </li>
                     ))}
                   </ul>
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Extra expenses</h3>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Affects profit only (does not change payments/balance).
+                    </p>
+                  </div>
                 </div>
-              ) : null}
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Expense total
+                    </div>
+                    <div className="mt-1 text-sm font-semibold tabular-nums text-slate-900">
+                      {fmtMoney(viewOrder.expense_total ?? 0)}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Profit</div>
+                    <div className="mt-1 text-sm font-semibold tabular-nums text-slate-900">
+                      {fmtMoney(viewOrder.profit ?? 0)}
+                    </div>
+                  </div>
+                </div>
+                {(viewOrder.expense_entries?.length ?? 0) > 0 ? (
+                  <ul className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200">
+                    {(viewOrder.expense_entries ?? []).map((e) => {
+                      const at = e.spent_at ?? e.created_at ?? null
+                      return (
+                        <li
+                          key={e.id}
+                          className="flex flex-wrap items-center justify-between gap-2 bg-white px-3 py-2 text-sm"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <span className="font-medium tabular-nums text-slate-900">{fmtMoney(e.amount)}</span>
+                            {e.note?.trim() ? (
+                              <span className="ml-2 text-xs font-normal text-slate-500">{e.note.trim()}</span>
+                            ) : null}
+                          </div>
+                          {at?.trim() ? <span className="text-slate-500">{fmtDisplayDateTime(at)}</span> : null}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : (
+                  <p className="mt-3 text-sm text-slate-500">No expenses recorded.</p>
+                )}
+              </div>
 
               <details className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm" open>
                 <summary className="cursor-pointer select-none text-sm font-semibold text-slate-900">
