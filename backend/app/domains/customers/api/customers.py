@@ -8,9 +8,10 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from typing_extensions import Annotated
 
+from app.core.authorization import has_permission
 from app.core.database import get_db
 from app.core.person_names import format_person_name_casing
-from app.dependencies.auth import effective_company_id, require_permissions, resolve_tenant_company_id
+from app.dependencies.auth import effective_company_id, get_current_user, require_permissions, resolve_tenant_company_id
 from app.domains.user.models.users import Users
 
 
@@ -90,13 +91,20 @@ class CustomerLookupOut(BaseModel):
     surname: str | None = None
 
 
-def require_any_permission(keys: tuple[str, ...]):
-    """Dependency: allow if user has ANY of the given permission keys."""
+def require_any_permission(*keys: str):
+    """Dependency: allow if user has ANY of the given permission keys.
 
-    def dep(current_user: Annotated[Users, Depends(require_permissions(keys[0]))]):
-        perms = set(getattr(current_user, "permissions", []) or [])
-        if any(k in perms for k in keys):
-            return current_user
+    Uses the same RBAC check as `require_permissions`, but without forcing the first key.
+    """
+
+    def dep(
+        db: Annotated[Session, Depends(get_db)],
+        current_user: Annotated[Users, Depends(get_current_user)],
+    ) -> Users:
+        active = getattr(current_user, "active_role", None)
+        for k in keys:
+            if has_permission(db, current_user.id, k, active_role=active):
+                return current_user
         raise HTTPException(status_code=403, detail=f"Requires one of permissions: {keys}")
 
     return dep
@@ -107,7 +115,7 @@ def customers_lookup(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
         Users,
-        Depends(require_any_permission(("customers.view", "orders.edit", "estimates.edit"))),
+        Depends(require_any_permission("customers.view", "orders.edit", "estimates.edit")),
     ],
     limit: int = Query(300, ge=1, le=500),
     search: str | None = Query(None, max_length=200),
