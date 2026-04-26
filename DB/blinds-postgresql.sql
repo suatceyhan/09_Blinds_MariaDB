@@ -1,8 +1,8 @@
--- blinds.sql — Auth / RBAC + kiracı iskeleti + blinds iş alanı şeması
+-- blinds-postgresql.sql — Auth / RBAC + kiracı iskeleti + blinds iş alanı şeması
 -- PostgreSQL 13+ (gen_random_uuid).
 --
 -- Idempotent: Mevcut tablolar korunur; dosyayı tekrar çalıştırmak güvenlidir.
---   psql -U <kullanıcı> -d <veritabanı> -f DB/blinds.sql
+--   psql -U <kullanıcı> -d <veritabanı> -f DB/blinds-postgresql.sql
 -- Not: CREATE TABLE IF NOT EXISTS yeni kolon eklemez; şema değişince ayrı ALTER migration gerekir.
 --
 -- Tam sıfırlama (tüm veriyi siler):
@@ -1333,7 +1333,7 @@ COMMIT;
 -- CONSOLIDATED MIGRATIONS (01 → 29)
 -- -----------------------------------------------------------------------------
 -- NOTE: These were previously separate `DB/NN_*.sql` files. They are inlined here
--- so a fresh install can run a single script (`DB/blinds.sql`).
+-- so a fresh install can run a single script (`DB/blinds-postgresql.sql`).
 --
 -- Some blocks use their own BEGIN/COMMIT; they are kept as-is.
 
@@ -1473,7 +1473,7 @@ CREATE TABLE IF NOT EXISTS attachments (
 
 CREATE INDEX IF NOT EXISTS idx_attachments_company_entity ON attachments (company_id, entity_type, entity_id) WHERE is_deleted = FALSE;
 
--- updated_at triggers (reuse public.set_updated_at() from blinds.sql)
+-- updated_at triggers (reuse public.set_updated_at() from this schema)
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'set_updated_at') THEN
@@ -2803,5 +2803,5 @@ $mig32$;
 -- -----------------------------------------------------------------------------
 -- • Idempotent çalıştırma: mevcut tablolar atlanır; FK’ler yoksa eklenir.
 -- • Bu dosya DB/01..32 içeriklerini de kapsar; yeni şema değişiklikleri için yine ayrı migration ekleyin.
--- • Tam blinds şeması için DB/blinds.sql; FastAPI create_all ile çift şema oluşturmayın.
+-- • Tam blinds şeması için DB/blinds-postgresql.sql; FastAPI create_all ile çift şema oluşturmayın.
 -- • Employee/company başvurusu için pending_*_self_registrations tabloları; PUBLIC_REGISTRATION_ENABLED yalnızca POST /auth/register (anında kayıt) anahtarıdır.

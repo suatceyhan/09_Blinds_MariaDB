@@ -31,7 +31,7 @@ GOOGLE_OAUTH_REDIRECT_URI=http://127.0.0.1:8000/integrations/google/callback
 
 ## Adım 2 — Veritabanı migration
 
-`company_google_calendar` tablosu güncel `DB/blinds.sql` ile de gelir. Ayrı yalnızca bu tabloyu eklemek için `DB/05_company_google_calendar.sql` dosyasını çalıştır:
+`company_google_calendar` tablosu güncel `DB/blinds-postgresql.sql` ile de gelir. Ayrı yalnızca bu tabloyu eklemek için `DB/05_company_google_calendar.sql` dosyasını çalıştır:
 
 ```bash
 psql -U postgres -d 09_Blinds -f DB/05_company_google_calendar.sql

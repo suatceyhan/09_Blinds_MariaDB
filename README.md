@@ -20,7 +20,8 @@ Bu proje, **giriş, kayıt, şifre değiştirme, şifremi unuttum / sıfırlama*
 ## Hızlı başlangıç
 
 **1. Veritabanı**  
-PostgreSQL oluşturun. Şema için repodaki `DB/blinds.sql` veya `create_all_tables()` kullanın; ikisini aynı DB’de karıştırmayın.
+PostgreSQL oluşturun. Şema için repodaki `DB/blinds-postgresql.sql` veya `create_all_tables()` kullanın; ikisini aynı DB’de karıştırmayın.
+MariaDB için ayrı şema: `DB/blinds-mariadb.sql`.
 
 **2. Backend** (`backend/`)
 
