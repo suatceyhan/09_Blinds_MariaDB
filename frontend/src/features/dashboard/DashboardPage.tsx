@@ -135,7 +135,7 @@ function CustomerSourcesWidget(props: Readonly<{ sum: DashboardSummary | null; e
 
         {!loading && !err ? (
           <div className="mt-3 overflow-hidden rounded-xl border border-slate-200/70">
-            <div className="grid grid-cols-3 bg-slate-50/60 px-3 py-2">
+            <div className="grid grid-cols-3 bg-slate-50/60 px-3 py-2 text-center">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Month</div>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Advertising</div>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Referral</div>
@@ -148,7 +148,7 @@ function CustomerSourcesWidget(props: Readonly<{ sum: DashboardSummary | null; e
                 <div
                   key={r.month}
                   className={[
-                    'grid grid-cols-3 px-3 py-2',
+                    'grid grid-cols-3 px-3 py-2 text-center',
                     idx === 0 ? '' : 'border-t border-slate-200/70',
                     'bg-white',
                   ].join(' ')}
@@ -246,7 +246,7 @@ export function DashboardPage() {
           <div className="mt-4 grid grid-cols-2 gap-3">
             <Link
               to="/estimates?status=new"
-              className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-3 py-2 transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-200"
+              className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-3 py-2 text-center transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-200"
               title="View New estimates"
             >
               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">New</div>
@@ -258,7 +258,7 @@ export function DashboardPage() {
             </Link>
             <Link
               to="/estimates?status=pending"
-              className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-3 py-2 transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-200"
+              className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-3 py-2 text-center transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-200"
               title="View Pending estimates"
             >
               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Pending</div>
@@ -284,7 +284,7 @@ export function DashboardPage() {
           <div className="mt-4 grid grid-cols-2 gap-3">
             <Link
               to="/orders?ready_install=with_date"
-              className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-3 py-2 transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-200"
+              className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-3 py-2 text-center transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-200"
               title="View ready-for-installation orders with installation date"
             >
               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">With date</div>
@@ -296,7 +296,7 @@ export function DashboardPage() {
             </Link>
             <Link
               to="/orders?ready_install=missing_date"
-              className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-3 py-2 transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-200"
+              className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-3 py-2 text-center transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-200"
               title="View ready-for-installation orders missing installation date"
             >
               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Missing date</div>
