@@ -141,15 +141,6 @@ export const appPages: PageConfig[] = [
     showInNav: true,
   },
   {
-    id: 'reports-customer-sources',
-    name: 'Customer sources',
-    basePath: '/reports/customer-sources',
-    parent: 'reports-root',
-    module: 'reports',
-    permissions: { view: 'reports.access.view', edit: 'reports.access.edit' },
-    showInNav: true,
-  },
-  {
     id: 'settings-group',
     name: 'Settings',
     basePath: '/settings',

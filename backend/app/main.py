@@ -29,7 +29,6 @@ from app.domains.auth.api import (
 )
 from app.domains.dashboard.api import dashboard_router
 from app.domains.reports.api.financial import router as financial_reports_router
-from app.domains.reports.api.customer_sources import router as customer_sources_reports_router
 from app.domains.customers.api import customers_router
 from app.domains.estimates.api import estimates_router
 from app.domains.orders.api import orders_router
@@ -123,7 +122,6 @@ app.include_router(switch_role_router)
 app.include_router(switch_company_router)
 app.include_router(dashboard_router)
 app.include_router(financial_reports_router)
-app.include_router(customer_sources_reports_router)
 app.include_router(customers_router)
 app.include_router(estimates_router)
 app.include_router(orders_router)
