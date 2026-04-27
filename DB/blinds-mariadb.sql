@@ -389,6 +389,7 @@ CREATE TABLE IF NOT EXISTS estimate (
   blinds_id             VARCHAR(16) NULL,
   perde_sayisi          INT,
   tarih_saat            TIMESTAMP NULL,
+  lead_source           VARCHAR(32) NULL,
   lead_id               CHAR(36) NULL,
   scheduled_start_at    TIMESTAMP NULL,
   scheduled_end_at      TIMESTAMP NULL,
@@ -417,11 +418,13 @@ CREATE TABLE IF NOT EXISTS estimate (
   PRIMARY KEY (company_id, id),
   KEY idx_estimate_company_customer (company_id, customer_id),
   KEY idx_estimate_company_tarih (company_id, tarih_saat),
+  KEY idx_estimate_company_lead_source (company_id, lead_source),
   KEY idx_estimate_company_status (company_id, status_esti_id),
   CONSTRAINT fk_estimate_company FOREIGN KEY (company_id) REFERENCES companies (id) ON DELETE CASCADE,
   CONSTRAINT fk_estimate_customer FOREIGN KEY (company_id, customer_id) REFERENCES customers (company_id, id) ON DELETE RESTRICT,
   CONSTRAINT fk_estimate_lead FOREIGN KEY (lead_id) REFERENCES leads (id) ON DELETE SET NULL,
-  CONSTRAINT fk_estimate_status_estimate FOREIGN KEY (company_id, status_esti_id) REFERENCES status_estimate (company_id, id) ON DELETE RESTRICT
+  CONSTRAINT fk_estimate_status_estimate FOREIGN KEY (company_id, status_esti_id) REFERENCES status_estimate (company_id, id) ON DELETE RESTRICT,
+  CONSTRAINT ck_estimate_lead_source CHECK (lead_source IS NULL OR lead_source IN ('referral', 'advertising'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS estimate_blinds (

@@ -413,6 +413,7 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS idx_estimate_company_customer ON estimate (company_id, customer_id);
 CREATE INDEX IF NOT EXISTS idx_estimate_company_tarih ON estimate (company_id, tarih_saat DESC NULLS LAST);
+CREATE INDEX IF NOT EXISTS idx_estimate_company_lead_source ON estimate (company_id, lead_source);
 
 -- Many blinds types per estimate (preferred); estimate.blinds_id is optional legacy pointer.
 CREATE TABLE IF NOT EXISTS estimate_blinds (
