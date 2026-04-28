@@ -2484,8 +2484,8 @@ ALTER TABLE estimate ADD COLUMN IF NOT EXISTS prospect_address TEXT;
 ALTER TABLE estimate ADD COLUMN IF NOT EXISTS prospect_postal_code TEXT;
 ALTER TABLE estimate_blinds ADD COLUMN IF NOT EXISTS line_amount NUMERIC(14, 2);
 -- Stable id: md5('global:ord:builtin:ready_for_install') first 16 hex = 4827ac7d03a3c7ae
-INSERT INTO public.status_order (id, name, active, sort_order)
-VALUES ('4827ac7d03a3c7ae', 'Ready for installation', TRUE, 10)
+INSERT INTO public.status_order (id, name, active, sort_order, builtin_kind)
+VALUES ('4827ac7d03a3c7ae', 'Ready for installation', TRUE, 10, 'ready_for_install')
 ON CONFLICT (id) DO NOTHING;
 INSERT INTO public.company_status_order_matrix (company_id, status_order_id)
 SELECT c.id, '4827ac7d03a3c7ae'
@@ -2836,12 +2836,12 @@ $mig32$;
 -- Kullanım notları
 -- -----------------------------------------------------------------------------
 -- • Idempotent çalıştırma: mevcut tablolar atlanır; FK’ler yoksa eklenir.
--- • Bu dosya DB/01..32 içeriklerini de kapsar; yeni şema değişiklikleri için yine ayrı migration ekleyin.
+-- • Bu dosya DB/01..32 ve workflow/status migration’ları (40–45) içeriğini kapsar; yeni şema değişiklikleri için buraya veya ayrı migration ile ekleyin.
 -- • Tam blinds şeması için DB/blinds-postgresql.sql; FastAPI create_all ile çift şema oluşturmayın.
 -- • Employee/company başvurusu için pending_*_self_registrations tabloları; PUBLIC_REGISTRATION_ENABLED yalnızca POST /auth/register (anında kayıt) anahtarıdır.
 
 -- -----------------------------------------------------------------------------
--- Migration: DB/40_workflow_engine.sql (workflow engine)
+-- Migration 40 — workflow engine (eski DB/40_workflow_engine.sql)
 -- -----------------------------------------------------------------------------
 DO $mig40$
 BEGIN
@@ -3029,7 +3029,7 @@ BEGIN
 END
 $mig40$;
 
--- Migration 42: workflow_transitions.soft_delete (same logic as DB/42_workflow_transitions_soft_delete.sql)
+-- Migration 42 — workflow_transitions.soft_delete (eski DB/42_workflow_transitions_soft_delete.sql)
 DO $mig42$
 BEGIN
   IF EXISTS (
@@ -3052,3 +3052,199 @@ BEGIN
   END IF;
 END
 $mig42$;
+
+-- Migration 41 — Settings / Order workflow permissions (eski DB/41_permissions_order_workflow.sql)
+DO $mig41$
+DECLARE
+  p_view uuid;
+  p_edit uuid;
+  r_super uuid;
+BEGIN
+  INSERT INTO permissions (key, name, parent_key, target_type, target_id, action, module_name, sort_index, is_deleted)
+  SELECT 'settings.order_workflow.view', 'Order workflow — view', NULL, 'module', 'settings', 'access', 'settings', 72, FALSE
+  WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE key = 'settings.order_workflow.view');
+
+  INSERT INTO permissions (key, name, parent_key, target_type, target_id, action, module_name, sort_index, is_deleted)
+  SELECT 'settings.order_workflow.edit', 'Order workflow — edit', NULL, 'module', 'settings', 'access', 'settings', 73, FALSE
+  WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE key = 'settings.order_workflow.edit');
+
+  SELECT id INTO p_view FROM permissions WHERE key = 'settings.order_workflow.view' LIMIT 1;
+  SELECT id INTO p_edit FROM permissions WHERE key = 'settings.order_workflow.edit' LIMIT 1;
+  SELECT id INTO r_super FROM roles WHERE name = 'superadmin' AND is_deleted IS NOT TRUE LIMIT 1;
+
+  IF r_super IS NOT NULL AND p_view IS NOT NULL THEN
+    INSERT INTO role_permissions (role_id, permission_id, is_granted, is_deleted)
+    SELECT r_super, p_view, TRUE, FALSE
+    WHERE NOT EXISTS (
+      SELECT 1 FROM role_permissions WHERE role_id = r_super AND permission_id = p_view
+    );
+  END IF;
+
+  IF r_super IS NOT NULL AND p_edit IS NOT NULL THEN
+    INSERT INTO role_permissions (role_id, permission_id, is_granted, is_deleted)
+    SELECT r_super, p_edit, TRUE, FALSE
+    WHERE NOT EXISTS (
+      SELECT 1 FROM role_permissions WHERE role_id = r_super AND permission_id = p_edit
+    );
+  END IF;
+END
+$mig41$;
+
+-- Migration 43 — global Estimate workflow seed (eski DB/43_estimate_workflow_engine_seed.sql)
+DO $mig43$
+DECLARE
+  def_id uuid;
+  st_new varchar(16);
+  st_pending varchar(16);
+  st_converted varchar(16);
+  st_cancelled varchar(16);
+BEGIN
+  SELECT id INTO st_new FROM public.status_estimate WHERE builtin_kind = 'new' LIMIT 1;
+  SELECT id INTO st_pending FROM public.status_estimate WHERE builtin_kind = 'pending' LIMIT 1;
+  SELECT id INTO st_converted FROM public.status_estimate WHERE builtin_kind = 'converted' LIMIT 1;
+  SELECT id INTO st_cancelled FROM public.status_estimate WHERE builtin_kind = 'cancelled' LIMIT 1;
+
+  IF st_new IS NULL OR st_pending IS NULL OR st_converted IS NULL OR st_cancelled IS NULL THEN
+    RAISE NOTICE 'built-in status_estimate rows missing; skipping estimate workflow seed.';
+    RETURN;
+  END IF;
+
+  INSERT INTO public.workflow_definitions (company_id, entity_type, code, name, version, is_active)
+  SELECT NULL, 'estimate', 'default_estimate', 'Global estimate workflow', 1, TRUE
+  WHERE NOT EXISTS (
+    SELECT 1 FROM public.workflow_definitions wd
+    WHERE wd.company_id IS NULL AND wd.entity_type = 'estimate' AND wd.code = 'default_estimate' AND wd.version = 1
+  );
+
+  SELECT id INTO def_id
+  FROM public.workflow_definitions
+  WHERE company_id IS NULL AND entity_type = 'estimate' AND code = 'default_estimate' AND version = 1
+  ORDER BY created_at ASC
+  LIMIT 1;
+
+  IF def_id IS NULL THEN
+    RAISE NOTICE 'workflow_definitions missing for estimate; skipping seed.';
+    RETURN;
+  END IF;
+
+  INSERT INTO public.workflow_transitions (workflow_definition_id, from_status_id, to_status_id, sort_order, deleted_at)
+  SELECT def_id, st_new, st_pending, 10, NULL
+  WHERE NOT EXISTS (
+    SELECT 1 FROM public.workflow_transitions t
+    WHERE t.workflow_definition_id = def_id
+      AND COALESCE(t.from_status_id,'') = COALESCE(st_new,'')
+      AND t.to_status_id = st_pending
+  );
+
+  INSERT INTO public.workflow_transitions (workflow_definition_id, from_status_id, to_status_id, sort_order, deleted_at)
+  SELECT def_id, st_pending, st_converted, 20, NULL
+  WHERE NOT EXISTS (
+    SELECT 1 FROM public.workflow_transitions t
+    WHERE t.workflow_definition_id = def_id
+      AND COALESCE(t.from_status_id,'') = COALESCE(st_pending,'')
+      AND t.to_status_id = st_converted
+  );
+
+  INSERT INTO public.workflow_transitions (workflow_definition_id, from_status_id, to_status_id, sort_order, deleted_at)
+  SELECT def_id, st_pending, st_cancelled, 30, NULL
+  WHERE NOT EXISTS (
+    SELECT 1 FROM public.workflow_transitions t
+    WHERE t.workflow_definition_id = def_id
+      AND COALESCE(t.from_status_id,'') = COALESCE(st_pending,'')
+      AND t.to_status_id = st_cancelled
+  );
+
+  INSERT INTO public.workflow_transitions (workflow_definition_id, from_status_id, to_status_id, sort_order, deleted_at)
+  SELECT def_id, st_new, st_cancelled, 40, NULL
+  WHERE NOT EXISTS (
+    SELECT 1 FROM public.workflow_transitions t
+    WHERE t.workflow_definition_id = def_id
+      AND COALESCE(t.from_status_id,'') = COALESCE(st_new,'')
+      AND t.to_status_id = st_cancelled
+  );
+END
+$mig43$;
+
+-- Migration 44 — Settings / Estimate workflow permissions (eski DB/44_permissions_estimate_workflow.sql)
+DO $mig44$
+DECLARE
+  p_view uuid;
+  p_edit uuid;
+  r_super uuid;
+BEGIN
+  INSERT INTO permissions (key, name, parent_key, target_type, target_id, action, module_name, sort_index, is_deleted)
+  SELECT 'settings.estimate_workflow.view', 'Estimate workflow — view', NULL, 'module', 'settings', 'access', 'settings', 74, FALSE
+  WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE key = 'settings.estimate_workflow.view');
+
+  INSERT INTO permissions (key, name, parent_key, target_type, target_id, action, module_name, sort_index, is_deleted)
+  SELECT 'settings.estimate_workflow.edit', 'Estimate workflow — edit', NULL, 'module', 'settings', 'access', 'settings', 75, FALSE
+  WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE key = 'settings.estimate_workflow.edit');
+
+  SELECT id INTO p_view FROM permissions WHERE key = 'settings.estimate_workflow.view' LIMIT 1;
+  SELECT id INTO p_edit FROM permissions WHERE key = 'settings.estimate_workflow.edit' LIMIT 1;
+  SELECT id INTO r_super FROM roles WHERE name = 'superadmin' AND is_deleted IS NOT TRUE LIMIT 1;
+
+  IF r_super IS NOT NULL AND p_view IS NOT NULL THEN
+    INSERT INTO role_permissions (role_id, permission_id, is_granted, is_deleted)
+    SELECT r_super, p_view, TRUE, FALSE
+    WHERE NOT EXISTS (
+      SELECT 1 FROM role_permissions WHERE role_id = r_super AND permission_id = p_view
+    );
+  END IF;
+
+  IF r_super IS NOT NULL AND p_edit IS NOT NULL THEN
+    INSERT INTO role_permissions (role_id, permission_id, is_granted, is_deleted)
+    SELECT r_super, p_edit, TRUE, FALSE
+    WHERE NOT EXISTS (
+      SELECT 1 FROM role_permissions WHERE role_id = r_super AND permission_id = p_edit
+    );
+  END IF;
+END
+$mig44$;
+
+-- Migration 45 — status_order.builtin_kind backfill (eski DB/45_status_order_builtin_kind.sql)
+DO $mig45$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'status_order'
+  ) THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'status_order' AND column_name = 'builtin_kind'
+    ) THEN
+      ALTER TABLE public.status_order ADD COLUMN builtin_kind TEXT NULL;
+    END IF;
+
+    ALTER TABLE public.status_order DROP CONSTRAINT IF EXISTS ck_status_order_builtin_kind_global;
+    ALTER TABLE public.status_order ADD CONSTRAINT ck_status_order_builtin_kind_global CHECK (
+      builtin_kind IS NULL
+      OR builtin_kind IN ('new', 'ready_for_install', 'in_production', 'done')
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_status_order_global_builtin_nn
+      ON public.status_order (builtin_kind)
+      WHERE builtin_kind IS NOT NULL;
+
+    UPDATE public.status_order
+    SET builtin_kind = 'ready_for_install'
+    WHERE builtin_kind IS NULL
+      AND id = substring(md5('global:ord:builtin:ready_for_install') for 16);
+
+    UPDATE public.status_order
+    SET builtin_kind = 'in_production'
+    WHERE builtin_kind IS NULL
+      AND id = substring(md5('global:ord:builtin:in_production') for 16);
+
+    UPDATE public.status_order
+    SET builtin_kind = 'done'
+    WHERE builtin_kind IS NULL
+      AND id = substring(md5('global:ord:builtin:done') for 16);
+
+    UPDATE public.status_order
+    SET builtin_kind = 'new'
+    WHERE builtin_kind IS NULL
+      AND lower(trim(name)) = 'new order';
+  END IF;
+END
+$mig45$;

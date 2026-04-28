@@ -1,6 +1,6 @@
 """Order workflow editor (company-scoped).
 
-The workflow engine tables live in DB/40_workflow_engine.sql.
+The workflow engine tables are defined in DB/blinds-postgresql.sql (migration 40).
 This API allows editing the active company's order workflow definition (company override).
 """
 

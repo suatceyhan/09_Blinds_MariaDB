@@ -774,7 +774,9 @@ def list_templates(
     current_user: Annotated[Users, Depends(require_permissions("settings.contract_invoice.view"))],
 ):
     cid = effective_company_id(current_user)
-    if not cid and not is_effective_superadmin(current_user):
+    if not cid and not is_effective_superadmin(
+        db, current_user.id, getattr(current_user, "active_role", None)
+    ):
         raise HTTPException(status_code=403, detail="No active company.")
     if not cid:
         raise HTTPException(status_code=400, detail="Select a company first.")
@@ -784,10 +786,13 @@ def list_templates(
 @router.get("/presets", response_model=list[PresetCatalogItem])
 def list_preset_catalog(
     kind: Annotated[str, Query(min_length=1)],
+    db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Users, Depends(require_permissions("settings.contract_invoice.view"))],
 ):
     cid = effective_company_id(current_user)
-    if not cid and not is_effective_superadmin(current_user):
+    if not cid and not is_effective_superadmin(
+        db, current_user.id, getattr(current_user, "active_role", None)
+    ):
         raise HTTPException(status_code=403, detail="No active company.")
     if not cid:
         raise HTTPException(status_code=400, detail="Select a company first.")
@@ -817,7 +822,9 @@ def preview_deposit_contract_html(
 ):
     """Exact same HTML/CSS as PDF generation (`_html_page`), with fixed sample placeholder values."""
     cid = effective_company_id(current_user)
-    if not cid and not is_effective_superadmin(current_user):
+    if not cid and not is_effective_superadmin(
+        db, current_user.id, getattr(current_user, "active_role", None)
+    ):
         raise HTTPException(status_code=403, detail="No active company.")
     if not cid:
         raise HTTPException(status_code=400, detail="Select a company first.")
@@ -839,7 +846,9 @@ def preview_final_invoice_html(
 ):
     """Same HTML/CSS stack as PDF; body comes from draft `body_html` or company template / default preset."""
     cid = effective_company_id(current_user)
-    if not cid and not is_effective_superadmin(current_user):
+    if not cid and not is_effective_superadmin(
+        db, current_user.id, getattr(current_user, "active_role", None)
+    ):
         raise HTTPException(status_code=403, detail="No active company.")
     if not cid:
         raise HTTPException(status_code=400, detail="Select a company first.")
@@ -866,7 +875,9 @@ def save_template(
     current_user: Annotated[Users, Depends(require_permissions("settings.contract_invoice.edit"))],
 ):
     cid = effective_company_id(current_user)
-    if not cid and not is_effective_superadmin(current_user):
+    if not cid and not is_effective_superadmin(
+        db, current_user.id, getattr(current_user, "active_role", None)
+    ):
         raise HTTPException(status_code=403, detail="No active company.")
     if not cid:
         raise HTTPException(status_code=400, detail="Select a company first.")
@@ -892,7 +903,9 @@ def deposit_invoice_contract(
     current_user: Annotated[Users, Depends(require_permissions("settings.contract_invoice.view"))],
 ):
     cid = effective_company_id(current_user)
-    if not cid and not is_effective_superadmin(current_user):
+    if not cid and not is_effective_superadmin(
+        db, current_user.id, getattr(current_user, "active_role", None)
+    ):
         raise HTTPException(status_code=403, detail="No active company.")
     if not cid:
         raise HTTPException(status_code=400, detail="Select a company first.")
@@ -956,7 +969,9 @@ def final_invoice(
     current_user: Annotated[Users, Depends(require_permissions("settings.contract_invoice.view"))],
 ):
     cid = effective_company_id(current_user)
-    if not cid and not is_effective_superadmin(current_user):
+    if not cid and not is_effective_superadmin(
+        db, current_user.id, getattr(current_user, "active_role", None)
+    ):
         raise HTTPException(status_code=403, detail="No active company.")
     if not cid:
         raise HTTPException(status_code=400, detail="Select a company first.")
