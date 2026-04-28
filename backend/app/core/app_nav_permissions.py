@@ -46,6 +46,8 @@ APP_PERMISSION_SEEDS: list[tuple[str, str, str, int]] = [
     ("settings.order_status_matrix.edit", "Order statuses — edit", "settings", 77),
     ("settings.order_workflow.view", "Order workflow — view", "settings", 72),
     ("settings.order_workflow.edit", "Order workflow — edit", "settings", 73),
+    ("settings.estimate_workflow.view", "Estimate workflow — view", "settings", 74),
+    ("settings.estimate_workflow.edit", "Estimate workflow — edit", "settings", 75),
     ("settings.pending_applications.view", "Pending applications — view", "settings", 78),
     ("settings.pending_applications.edit", "Pending applications — edit", "settings", 79),
     ("settings.company_info.view", "Settings — Company info — view", "settings", 80),

@@ -47,6 +47,7 @@ import { SettingsIntegrationsPage } from '@/features/settings/SettingsIntegratio
 import { SettingsContractInvoicePage } from '@/features/settings/SettingsContractInvoicePage'
 import { SettingsUserRolesPage } from '@/features/settings/SettingsUserRolesPage'
 import { SettingsOrderWorkflowPage } from '@/features/settings/SettingsOrderWorkflowPage'
+import { SettingsEstimateWorkflowPage } from '@/features/settings/SettingsEstimateWorkflowPage'
 import { getAccessToken } from '@/lib/authStorage'
 import { SchedulePage } from '@/features/schedule/SchedulePage'
 
@@ -104,6 +105,7 @@ export function AppRoutes() {
         <Route path="settings/integrations" element={<SettingsIntegrationsPage />} />
         <Route path="settings/contract-invoice" element={<SettingsContractInvoicePage />} />
         <Route path="settings/order-workflow" element={<SettingsOrderWorkflowPage />} />
+        <Route path="settings/estimate-workflow" element={<SettingsEstimateWorkflowPage />} />
         <Route path="settings/blinds-line-matrices" element={<SettingsBlindsLineMatricesPage />} />
         <Route path="settings/blinds-category-matrix" element={<Navigate to="/settings/blinds-line-matrices" replace />} />
         <Route

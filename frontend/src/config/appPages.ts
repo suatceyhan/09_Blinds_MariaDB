@@ -167,6 +167,15 @@ export const appPages: PageConfig[] = [
     showInNav: true,
   },
   {
+    id: 'settings-estimate-workflow',
+    name: 'Estimate workflow',
+    basePath: '/settings/estimate-workflow',
+    parent: 'settings-group',
+    module: 'settings',
+    permissions: { view: 'settings.estimate_workflow.view', edit: 'settings.estimate_workflow.edit' },
+    showInNav: true,
+  },
+  {
     id: 'permissions-group',
     name: 'Permissions',
     basePath: '/permissions',

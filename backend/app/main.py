@@ -40,6 +40,7 @@ from app.domains.settings.api.blinds_type_matrix import router as blinds_type_ma
 from app.domains.settings.api.contract_invoice_docs import router as contract_invoice_docs_router
 from app.domains.settings.api.product_category_matrix import router as product_category_matrix_router
 from app.domains.settings.api.order_workflow import router as order_workflow_router
+from app.domains.settings.api.estimate_workflow import router as estimate_workflow_router
 from app.domains.shared.api.workflow_action_types import router as workflow_action_types_router
 from app.domains.shared.api.schema_fields import router as schema_fields_router
 from app.domains.settings.api.status_matrices import router as status_matrices_router
@@ -137,6 +138,7 @@ app.include_router(product_category_matrix_router)
 app.include_router(blinds_type_matrix_router)
 app.include_router(contract_invoice_docs_router)
 app.include_router(order_workflow_router)
+app.include_router(estimate_workflow_router)
 app.include_router(workflow_action_types_router)
 app.include_router(schema_fields_router)
 app.include_router(user_audit_logs_router)

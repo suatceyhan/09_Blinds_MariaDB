@@ -33,6 +33,170 @@ from app.utils.email import send_html_email
 router = APIRouter(prefix="/estimates", tags=["Estimates"])
 
 
+# -----------------------------------------------------------------------------
+# Workflow engine (runtime): allowed transitions + interactive actions
+# -----------------------------------------------------------------------------
+
+
+class WorkflowFieldOut(BaseModel):
+    key: str
+    label: str | None = None
+    kind: str | None = None
+    required: bool = True
+
+
+class WorkflowActionOut(BaseModel):
+    type: str
+    title: str | None = None
+    description: str | None = None
+    fields: list[WorkflowFieldOut] = Field(default_factory=list)
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class EstimateWorkflowTransitionOut(BaseModel):
+    id: str
+    to_status_esti_id: str
+    to_status_label: str
+    actions: list[WorkflowActionOut] = Field(default_factory=list)
+
+
+class EstimateWorkflowOut(BaseModel):
+    current_status_esti_id: str | None = None
+    current_status_label: str | None = None
+    allowed_transitions: list[EstimateWorkflowTransitionOut] = Field(default_factory=list)
+
+
+class EstimateWorkflowTransitionIn(BaseModel):
+    to_status_esti_id: str = Field(..., min_length=1, max_length=16)
+    data: dict[str, Any] | None = None
+
+
+class EstimateWorkflowTransitionResultOut(BaseModel):
+    applied: bool = False
+    estimate: Any | None = None
+    pending_actions: list[WorkflowActionOut] = Field(default_factory=list)
+
+
+def _active_workflow_definition_id(db: Session, company_id: UUID, entity_type: str) -> UUID | None:
+    row = db.execute(
+        text(
+            """
+            SELECT wd.id
+            FROM workflow_definitions wd
+            WHERE wd.is_active IS TRUE
+              AND wd.entity_type = :et
+              AND (wd.company_id = CAST(:cid AS uuid) OR wd.company_id IS NULL)
+            ORDER BY (wd.company_id IS NOT NULL) DESC, wd.version DESC, wd.created_at DESC
+            LIMIT 1
+            """
+        ),
+        {"cid": str(company_id), "et": entity_type},
+    ).mappings().first()
+    return row["id"] if row else None
+
+
+def _status_estimate_label_by_id(db: Session, company_id: UUID, status_esti_id: str | None) -> str:
+    sid = (status_esti_id or "").strip()
+    if not sid:
+        return "—"
+    row = db.execute(
+        text(
+            """
+            SELECT se.name
+            FROM status_estimate se
+            INNER JOIN company_status_estimate_matrix m
+              ON m.status_estimate_id = se.id AND m.company_id = CAST(:cid AS uuid)
+            WHERE se.id = :sid
+            LIMIT 1
+            """
+        ),
+        {"cid": str(company_id), "sid": sid},
+    ).mappings().first()
+    name = str((row["name"] if row else "") or "").strip()
+    return name or sid
+
+
+def _workflow_actions_for_transition(db: Session, transition_id: str) -> list[WorkflowActionOut]:
+    rows = db.execute(
+        text(
+            """
+            SELECT type, config
+            FROM workflow_transition_actions
+            WHERE transition_id = CAST(:tid AS uuid)
+            ORDER BY sort_order ASC, created_at ASC, id ASC
+            """
+        ),
+        {"tid": transition_id},
+    ).mappings().all()
+    out: list[WorkflowActionOut] = []
+    for r in rows:
+        t = str(r.get("type") or "").strip()
+        cfg = r.get("config") or {}
+        if not isinstance(cfg, dict):
+            cfg = {}
+        title = (cfg.get("title") if isinstance(cfg.get("title"), str) else None) or None
+        desc = (cfg.get("description") if isinstance(cfg.get("description"), str) else None) or None
+        fields_raw = cfg.get("fields")
+        fields: list[WorkflowFieldOut] = []
+        if isinstance(fields_raw, list):
+            for f in fields_raw:
+                if not isinstance(f, dict):
+                    continue
+                key = str(f.get("key") or "").strip()
+                if not key:
+                    continue
+                fields.append(
+                    WorkflowFieldOut(
+                        key=key,
+                        label=(str(f.get("label")).strip() if isinstance(f.get("label"), str) else None),
+                        kind=(str(f.get("kind")).strip() if isinstance(f.get("kind"), str) else None),
+                        required=bool(f.get("required", True)),
+                    )
+                )
+        out.append(WorkflowActionOut(type=t, title=title, description=desc, fields=fields, config=cfg))
+    return out
+
+
+def _required_fields_from_actions(actions: list[WorkflowActionOut]) -> set[str]:
+    required: set[str] = set()
+    for a in actions:
+        if a.type != "ask_form":
+            continue
+        for f in a.fields:
+            if f.required:
+                required.add(f.key)
+    return required
+
+
+def _apply_transition_data_to_estimate_patch(
+    actions: list[WorkflowActionOut],
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    """Best-effort mapping: only supports ask_form fields targeting estimate columns.
+
+    Current mapping relies on config.fields[].target / target_field. Unsupported targets are ignored.
+    """
+    patch: dict[str, Any] = {}
+    for a in actions:
+        if a.type != "ask_form":
+            continue
+        cfg = a.config or {}
+        fields_raw = cfg.get("fields")
+        if not isinstance(fields_raw, list):
+            continue
+        for f in fields_raw:
+            if not isinstance(f, dict):
+                continue
+            key = str(f.get("key") or "").strip()
+            if not key or key not in data:
+                continue
+            target = str(f.get("target") or "").strip().lower()
+            target_field = str(f.get("target_field") or "").strip()
+            if target in ("estimate", "estimates") and target_field:
+                patch[target_field] = data.get(key)
+    return patch
+
+
 def _new_estimate_id() -> str:
     return secrets.token_hex(8)
 
@@ -1541,3 +1705,150 @@ def soft_delete_estimate(
     if res.rowcount != 1:
         raise HTTPException(status_code=404, detail="Estimate not found.")
     db.commit()
+
+
+@router.get("/{estimate_id}/workflow", response_model=EstimateWorkflowOut)
+def estimate_workflow(
+    estimate_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("estimates.view"))],
+):
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    eid = estimate_id.strip()
+    cur = db.execute(
+        text(
+            """
+            SELECT e.status_esti_id::text AS status_esti_id
+            FROM estimate e
+            WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid AND e.is_deleted IS NOT TRUE
+            LIMIT 1
+            """
+        ),
+        {"cid": str(cid), "eid": eid},
+    ).mappings().first()
+    if not cur:
+        raise HTTPException(status_code=404, detail="Estimate not found.")
+    from_sid = (cur.get("status_esti_id") or "").strip() or None
+    wid = _active_workflow_definition_id(db, cid, "estimate")
+    if not wid:
+        return EstimateWorkflowOut(
+            current_status_esti_id=from_sid,
+            current_status_label=_status_estimate_label_by_id(db, cid, from_sid),
+            allowed_transitions=[],
+        )
+    trans = db.execute(
+        text(
+            """
+            SELECT id::text AS id, to_status_id::text AS to_status_id
+            FROM workflow_transitions
+            WHERE workflow_definition_id = CAST(:wid AS uuid)
+              AND COALESCE(from_status_id,'') = COALESCE(:from_sid,'')
+              AND deleted_at IS NULL
+            ORDER BY sort_order ASC, created_at ASC, id ASC
+            """
+        ),
+        {"wid": str(wid), "from_sid": from_sid or ""},
+    ).mappings().all()
+    allowed: list[EstimateWorkflowTransitionOut] = []
+    for t in trans:
+        tid = str(t.get("id") or "").strip()
+        to_sid = str(t.get("to_status_id") or "").strip()
+        if not tid or not to_sid:
+            continue
+        actions = _workflow_actions_for_transition(db, tid)
+        allowed.append(
+            EstimateWorkflowTransitionOut(
+                id=tid,
+                to_status_esti_id=to_sid,
+                to_status_label=_status_estimate_label_by_id(db, cid, to_sid),
+                actions=actions,
+            )
+        )
+    return EstimateWorkflowOut(
+        current_status_esti_id=from_sid,
+        current_status_label=_status_estimate_label_by_id(db, cid, from_sid),
+        allowed_transitions=allowed,
+    )
+
+
+@router.post("/{estimate_id}/workflow/transition", response_model=EstimateWorkflowTransitionResultOut)
+def estimate_workflow_transition(
+    estimate_id: str,
+    body: EstimateWorkflowTransitionIn,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("estimates.edit"))],
+):
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    eid = estimate_id.strip()
+    cur = db.execute(
+        text(
+            """
+            SELECT e.status_esti_id::text AS status_esti_id, se.builtin_kind AS status_builtin_kind
+            FROM estimate e
+            LEFT JOIN status_estimate se ON se.id = e.status_esti_id
+            WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid AND e.is_deleted IS NOT TRUE
+            LIMIT 1
+            """
+        ),
+        {"cid": str(cid), "eid": eid},
+    ).mappings().first()
+    if not cur:
+        raise HTTPException(status_code=404, detail="Estimate not found.")
+    cur_kind_raw = (cur or {}).get("status_builtin_kind")
+    cur_kind = str(cur_kind_raw).strip().lower() if cur_kind_raw else None
+    if cur_kind == "converted":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This estimate is linked to an order; its status cannot be edited here. "
+                "Cancel the linked order to set this estimate to Cancelled."
+            ),
+        )
+
+    from_sid = (cur.get("status_esti_id") or "").strip() or None
+    to_sid = body.to_status_esti_id.strip()
+    wid = _active_workflow_definition_id(db, cid, "estimate")
+    if not wid:
+        raise HTTPException(status_code=400, detail="No active workflow is configured for estimates.")
+
+    tr = db.execute(
+        text(
+            """
+            SELECT id::text AS id
+            FROM workflow_transitions
+            WHERE workflow_definition_id = CAST(:wid AS uuid)
+              AND COALESCE(from_status_id,'') = COALESCE(:from_sid,'')
+              AND to_status_id = :to_sid
+              AND deleted_at IS NULL
+            LIMIT 1
+            """
+        ),
+        {"wid": str(wid), "from_sid": from_sid or "", "to_sid": to_sid},
+    ).mappings().first()
+    if not tr:
+        raise HTTPException(status_code=400, detail="Transition is not allowed from the current status.")
+
+    actions = _workflow_actions_for_transition(db, str(tr["id"]))
+    required_fields = _required_fields_from_actions(actions)
+    data = body.data or {}
+    missing = [k for k in sorted(required_fields) if k not in data or data.get(k) in (None, "", [])]
+    if missing:
+        return EstimateWorkflowTransitionResultOut(applied=False, estimate=None, pending_actions=actions)
+
+    patch_dict = _apply_transition_data_to_estimate_patch(actions, data)
+    patch_dict["status_esti_id"] = to_sid
+    try:
+        payload = EstimatePatchIn(**patch_dict)
+    except Exception:
+        payload = EstimatePatchIn(status_esti_id=to_sid)
+
+    _ = patch_estimate(estimate_id=eid, payload=payload, db=db, current_user=current_user)
+    return EstimateWorkflowTransitionResultOut(
+        applied=True,
+        estimate=get_estimate(db=db, estimate_id=eid, current_user=current_user),
+        pending_actions=[],
+    )

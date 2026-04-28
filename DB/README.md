@@ -12,3 +12,5 @@ Yeni migration eklerken mevcut en büyük numaradan bir sonrakini kullanın.
 - `40_workflow_engine.sql`: Konfigüre edilebilir workflow engine tabloları (workflow definition + transitions + actions) ve Order için varsayılan akış seed’i.
 - `41_permissions_order_workflow.sql`: Settings → Order workflow ekranı için permission key backfill (permissions + superadmin grants).
 - `42_workflow_transitions_soft_delete.sql`: `workflow_transitions.deleted_at` — ayarlardan silinen geçişler kalır; **Show deleted / Restore** ile geri alınır; runtime yalnızca aktif (`deleted_at IS NULL`) geçişleri kullanır.
+- `43_estimate_workflow_engine_seed.sql`: Global **Estimate workflow** varsayılanı (New → Pending → Converted/Cancelled) seed.
+- `44_permissions_estimate_workflow.sql`: Settings → Estimate workflow ekranı için permission key backfill (permissions + superadmin grants).
