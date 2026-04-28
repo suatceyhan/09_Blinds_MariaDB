@@ -29,6 +29,10 @@ READY_FOR_INSTALL_ORDER_STATUS_ID = hashlib.md5(
     b"global:ord:builtin:ready_for_install"
 ).hexdigest()[:16]
 
+# Additional built-in order workflow statuses (requested defaults)
+IN_PRODUCTION_ORDER_STATUS_ID = hashlib.md5(b"global:ord:builtin:in_production").hexdigest()[:16]
+DONE_ORDER_STATUS_ID = hashlib.md5(b"global:ord:builtin:done").hexdigest()[:16]
+
 
 def custom_estimate_status_id(normalized_name_lower: str) -> str:
     return hashlib.md5(f"global:est:custom:{normalized_name_lower}".encode("utf-8")).hexdigest()[:16]
@@ -84,6 +88,26 @@ def ensure_global_order_catalog_seeded(db: Session) -> None:
             """
         ),
         {"id": READY_FOR_INSTALL_ORDER_STATUS_ID},
+    )
+    db.execute(
+        text(
+            """
+            INSERT INTO status_order (id, name, active, sort_order)
+            SELECT :id, 'In Production', TRUE, 20
+            WHERE NOT EXISTS (SELECT 1 FROM status_order WHERE id = :id)
+            """
+        ),
+        {"id": IN_PRODUCTION_ORDER_STATUS_ID},
+    )
+    db.execute(
+        text(
+            """
+            INSERT INTO status_order (id, name, active, sort_order)
+            SELECT :id, 'Done', TRUE, 30
+            WHERE NOT EXISTS (SELECT 1 FROM status_order WHERE id = :id)
+            """
+        ),
+        {"id": DONE_ORDER_STATUS_ID},
     )
 
 
@@ -148,11 +172,17 @@ def ensure_company_order_matrix_defaults(db: Session, company_id: UUID) -> None:
             INSERT INTO company_status_order_matrix (company_id, status_order_id)
             SELECT CAST(:cid AS uuid), so.id
             FROM status_order so
-            WHERE so.active IS TRUE AND so.id IN (:new_id, :ready_id)
+            WHERE so.active IS TRUE AND so.id IN (:new_id, :ready_id, :prod_id, :done_id)
             ON CONFLICT (company_id, status_order_id) DO NOTHING
             """
         ),
-        {"cid": cid, "new_id": DEFAULT_ORDER_STATUS_ID, "ready_id": READY_FOR_INSTALL_ORDER_STATUS_ID},
+        {
+            "cid": cid,
+            "new_id": DEFAULT_ORDER_STATUS_ID,
+            "ready_id": READY_FOR_INSTALL_ORDER_STATUS_ID,
+            "prod_id": IN_PRODUCTION_ORDER_STATUS_ID,
+            "done_id": DONE_ORDER_STATUS_ID,
+        },
     )
 
 

@@ -14,6 +14,8 @@ type Assignment = {
   role_name: string
   created_at: string
   is_deleted: boolean
+  /** false for SUPER_ADMIN_EMAIL + superadmin row from bootstrap */
+  removable?: boolean
 }
 
 export function SettingsUserRolesPage() {
@@ -30,6 +32,38 @@ export function SettingsUserRolesPage() {
   const [showDeleted, setShowDeleted] = useState(false)
   const [restoreId, setRestoreId] = useState<string | null>(null)
 
+  const renderRowAction = (a: Assignment) => {
+    const inactive = a.is_deleted
+    if (inactive) {
+      return (
+        <button
+          type="button"
+          onClick={() => setRestoreId(a.id)}
+          className="inline-flex items-center gap-1 rounded-lg border border-teal-200 bg-white px-2 py-1 text-xs font-medium text-teal-800 hover:bg-teal-50"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          Restore
+        </button>
+      )
+    }
+    if (a.removable === false) {
+      return (
+        <span className="text-xs font-medium text-slate-400" title="Protected bootstrap assignment">
+          Protected
+        </span>
+      )
+    }
+    return (
+      <button
+        type="button"
+        onClick={() => setRemoveId(a.id)}
+        className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+      >
+        Remove
+      </button>
+    )
+  }
+
   async function load() {
     setLoading(true)
     setError(null)
@@ -44,7 +78,8 @@ export function SettingsUserRolesPage() {
       ])
       setAssignments(a)
       setUsers(u)
-      setRoles(r)
+      // Superadmin is a bootstrap/system role; do not allow manual assignment from UI.
+      setRoles(r.filter((x) => x.name.toLowerCase() !== 'superadmin'))
       if (!userId && u.length > 0) setUserId(u[0].id)
       if (!roleId && r.length > 0) {
         const pick = r.find((x) => x.name.toLowerCase() !== 'superadmin') ?? r[0]
@@ -70,7 +105,7 @@ export function SettingsUserRolesPage() {
     )
   }, [assignments, assignmentSearch])
 
-  async function onAssign(e: React.FormEvent) {
+  async function onAssign(e: React.SyntheticEvent) {
     e.preventDefault()
     if (!userId || !roleId) return
     setSaving(true)
@@ -250,24 +285,7 @@ export function SettingsUserRolesPage() {
                       </span>
                     ) : null}
                   </div>
-                  {inactive ? (
-                    <button
-                      type="button"
-                      onClick={() => setRestoreId(a.id)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-teal-200 bg-white px-2 py-1 text-xs font-medium text-teal-800 hover:bg-teal-50"
-                    >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                      Restore
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setRemoveId(a.id)}
-                      className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
-                    >
-                      Remove
-                    </button>
-                  )}
+                  {renderRowAction(a)}
                 </li>
               )
             })}

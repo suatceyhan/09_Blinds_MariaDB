@@ -4,13 +4,14 @@ import { AlertTriangle, Eye, FolderKanban, Pencil, RotateCcw, Trash2 } from 'luc
 import { useAuthSession } from '@/app/authSession'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
-import { deleteJson, getJson, patchJson, postJson, postMultipartJson } from '@/lib/api'
+import { deleteJson, getJson, postJson, postMultipartJson } from '@/lib/api'
 import {
   BlindsLineState,
   BlindsOrderOptions,
   BlindsTypesGrid,
   customerLabel,
   CustomerOpt,
+  datetimeLocalToIso,
   fmtDisplayDate,
   fmtDisplayDateTime,
   fmtMoney,
@@ -19,7 +20,6 @@ import {
   hydrateBlindsLinesDefaults,
   newBlindsLineForType,
   normalizeBlindsLineFromApi,
-  OrderAdvanceAction,
   OrderAttachmentsBlock,
   OrderDetail,
   OrderFinancialSecondRow,
@@ -33,19 +33,41 @@ import {
   parseOptionalDecimal,
   parseTaxRatePercent,
   blindsLineToPayload,
-  orderAdvanceButtonLabel,
-  orderAdvanceStage,
-  orderAdvanceTextButtonClass,
   orderListPaidDisplay,
   orderListRowDoneSyncedHighlight,
   orderStatusWorkflowBucketFromName,
-  resolveOrderAdvanceAction,
   safeRound2,
   sanitizeLineAmountInput,
   statusColorClasses,
   sumBlindsLineAmounts,
   todayDateInput,
 } from './ordersShared'
+import { VisitStartQuarterPicker } from '@/components/ui/VisitStartQuarterPicker'
+import { snapWallToQuarterMinutes } from '@/lib/visitSchedule'
+
+type WorkflowField = { key: string; label: string; kind: string; required: boolean }
+type WorkflowAction = { type: string; title?: string | null; description?: string | null; fields?: WorkflowField[] }
+type OrderWorkflowTransition = {
+  id: string
+  to_status_orde_id: string
+  to_status_label: string
+  actions: WorkflowAction[]
+}
+type OrderWorkflow = {
+  current_status_orde_id: string | null
+  current_status_label: string | null
+  allowed_transitions: OrderWorkflowTransition[]
+}
+type OrderWorkflowTransitionResult = {
+  applied: boolean
+  order?: OrderDetail | null
+  pending_actions?: WorkflowAction[]
+}
+
+type ActionType = {
+  type: string
+  ui_secondary?: { label: string; kind: 'navigate_edit' | 'open_expense' } | null
+}
 
 export function OrdersPage() {
   const me = useAuthSession()
@@ -89,11 +111,16 @@ export function OrdersPage() {
   const [attachmentUploadBusy, setAttachmentUploadBusy] = useState(false)
 
   const [orderStatuses, setOrderStatuses] = useState<OrderStatusOpt[] | null>(null)
-  const [advanceConfirm, setAdvanceConfirm] = useState<{
-    row: OrderRow
-    act: Extract<OrderAdvanceAction, { kind: 'patch' }>
-  } | null>(null)
+  const [actionTypes, setActionTypes] = useState<ActionType[] | null>(null)
+  const [advanceConfirm, setAdvanceConfirm] = useState<{ row: OrderRow; transition: OrderWorkflowTransition } | null>(
+    null,
+  )
   const [advanceConfirmPending, setAdvanceConfirmPending] = useState(false)
+  const [advanceOptionalText, setAdvanceOptionalText] = useState('')
+  /** Wall clock string for VisitStartQuarterPicker (`YYYY-MM-DDTHH:mm`). */
+  const [advanceOptionalWall, setAdvanceOptionalWall] = useState('')
+  /** True after user changes the installation picker (empty initial display must not auto-save). */
+  const [advanceDateTimeTouched, setAdvanceDateTimeTouched] = useState(false)
   const [orderBalanceInfo, setOrderBalanceInfo] = useState<{
     orderId: string
     customerDisplay: string
@@ -201,35 +228,70 @@ export function OrdersPage() {
     }
   }
 
-  function openAdvanceStatusFromRow(row: OrderRow) {
-    const act = resolveOrderAdvanceAction(row, orderStatuses)
-    if (!act || !canEdit) return
-    if (act.kind === 'done_info') {
-      navigate(`/orders/${row.id}`)
-      setOrderBalanceInfo({
-        orderId: row.id,
-        customerDisplay: row.customer_display || row.customer_id,
-        balance: row.balance,
-      })
-      return
+  async function openAdvanceStatusFromRow(row: OrderRow) {
+    if (!canEdit) return
+    setErr(null)
+    try {
+      const wf = await getJson<OrderWorkflow>(`/orders/${row.id}/workflow`)
+      const next = (wf.allowed_transitions ?? [])[0] ?? null
+      if (!next) return
+      setAdvanceConfirm({ row, transition: next })
+      setAdvanceOptionalText('')
+      setAdvanceOptionalWall('')
+      setAdvanceDateTimeTouched(false)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not load workflow for this order')
     }
-    setAdvanceConfirm({ row, act })
+  }
+
+  function nextOptionalAskField(tr: OrderWorkflowTransition | null | undefined): WorkflowField | null {
+    if (!tr) return null
+    const ask = (tr.actions ?? []).find((a) => a.type === 'ask_form') ?? null
+    const f = (ask?.fields ?? [])[0] ?? null
+    return f ?? null
   }
 
   async function confirmAdvanceOrderStatus(opts?: { navigateToEdit?: boolean }) {
     if (!advanceConfirm || !canEdit) return
-    const { row, act } = advanceConfirm
+    const { row, transition } = advanceConfirm
     const navigateToEdit = Boolean(opts?.navigateToEdit)
     if (navigateToEdit) {
-      // Do not mutate status yet. Preselect it in Edit and auto-open installation picker.
+      // Do not mutate status yet. Preselect it in Edit and auto-open any required form.
       setAdvanceConfirm(null)
-      navigate(`/orders/${row.id}/edit?prefillStatus=${encodeURIComponent(act.status_orde_id)}&openInstallation=1`)
+      navigate(
+        `/orders/${row.id}/edit?prefillStatus=${encodeURIComponent(transition.to_status_orde_id)}&openInstallation=1`,
+      )
       return
     }
     setAdvanceConfirmPending(true)
     setErr(null)
     try {
-      await patchJson(`/orders/${row.id}`, { status_orde_id: act.status_orde_id })
+      const optField = nextOptionalAskField(transition)
+      const data: Record<string, unknown> = {}
+      if (optField) {
+        const kind = (optField.kind ?? '').toLowerCase()
+        if (kind === 'datetime' || kind === 'date') {
+          if (advanceDateTimeTouched) {
+            const iso = datetimeLocalToIso(advanceOptionalWall.trim())
+            if (iso) data[optField.key] = iso
+          }
+        } else {
+          const raw = advanceOptionalText.trim()
+          if (raw) data[optField.key] = raw
+        }
+      }
+      const res = await postJson<OrderWorkflowTransitionResult>(`/orders/${row.id}/workflow/transition`, {
+        to_status_orde_id: transition.to_status_orde_id,
+        data,
+      })
+      if (!res?.applied) {
+        // If the transition requires user input (ask_form), go to edit and open the existing picker/modal flow.
+        setAdvanceConfirm(null)
+        navigate(
+          `/orders/${row.id}/edit?prefillStatus=${encodeURIComponent(transition.to_status_orde_id)}&openInstallation=1`,
+        )
+        return
+      }
       setAdvanceConfirm(null)
       await reloadList()
     } catch (e) {
@@ -241,11 +303,21 @@ export function OrdersPage() {
 
   async function confirmAdvanceOrderStatusAndOpenExpense() {
     if (!advanceConfirm || !canEdit) return
-    const { row, act } = advanceConfirm
+    const { row, transition } = advanceConfirm
     setAdvanceConfirmPending(true)
     setErr(null)
     try {
-      await patchJson(`/orders/${row.id}`, { status_orde_id: act.status_orde_id })
+      const res = await postJson<OrderWorkflowTransitionResult>(`/orders/${row.id}/workflow/transition`, {
+        to_status_orde_id: transition.to_status_orde_id,
+        data: {},
+      })
+      if (!res?.applied) {
+        setAdvanceConfirm(null)
+        navigate(
+          `/orders/${row.id}/edit?prefillStatus=${encodeURIComponent(transition.to_status_orde_id)}&openExpense=1&expenseNote=${encodeURIComponent('Production cost')}`,
+        )
+        return
+      }
       setAdvanceConfirm(null)
       await reloadList()
       navigate(
@@ -304,6 +376,22 @@ export function OrdersPage() {
           setCustomers([])
           setBlindsOrderOptions(null)
         }
+      }
+    })()
+    return () => {
+      c = true
+    }
+  }, [me, canView])
+
+  useEffect(() => {
+    if (!me || !canView) return
+    let c = false
+    ;(async () => {
+      try {
+        const at = await getJson<ActionType[]>('/workflow/action-types').catch(() => [] as ActionType[])
+        if (!c) setActionTypes(at)
+      } catch {
+        if (!c) setActionTypes([])
       }
     })()
     return () => {
@@ -769,7 +857,6 @@ export function OrdersPage() {
                 </tr>
               ) : (
                 filteredRows.map((r) => {
-                  const advance = resolveOrderAdvanceAction(r, orderStatuses)
                   const doneSyncedHighlight = orderListRowDoneSyncedHighlight(r)
                   const bucket = orderStatusWorkflowBucketFromName((r.status_order_label ?? '').trim())
                   const missingInstallation =
@@ -863,21 +950,17 @@ export function OrdersPage() {
                     <td className="px-2 py-3 sm:px-4">{fmtMoney(r.balance)}</td>
                     <td className="align-top px-2 py-3 text-right sm:px-4">
                       <div className="flex flex-col items-end gap-1 sm:flex-row sm:flex-wrap sm:justify-end sm:gap-x-2">
-                        {canEdit && r.active !== false && advance ? (
+                        {canEdit && r.active !== false && orderStatusWorkflowBucketFromName((r.status_order_label ?? '').trim()) !== 'done' ? (
                           <button
                             type="button"
-                            title={
-                              advance.kind === 'done_info'
-                                ? 'Open order details and show balance due (mark Done from Edit when ready)'
-                                : `Set status to ${advance.nextLabel}`
-                            }
+                            title="Advance status"
                             disabled={advanceConfirmPending && advanceConfirm?.row.id === r.id}
-                            className={`inline-flex items-center justify-center whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-semibold shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 disabled:cursor-not-allowed disabled:opacity-60 ${orderAdvanceTextButtonClass[orderAdvanceStage(advance)]}`}
-                            onClick={() => openAdvanceStatusFromRow(r)}
+                            className="inline-flex items-center justify-center whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
+                            onClick={() => void openAdvanceStatusFromRow(r)}
                           >
                             {advanceConfirmPending && advanceConfirm?.row.id === r.id
                               ? 'Updating…'
-                              : orderAdvanceButtonLabel(advance)}
+                              : 'Next'}
                           </button>
                         ) : null}
                         <button
@@ -957,30 +1040,97 @@ export function OrdersPage() {
         title="Change order status?"
         description={
           advanceConfirm
-            ? advanceConfirm.act.kind === 'patch' && advanceConfirm.act.stage === 'to_rfi'
-              ? `Set this order's status to "${advanceConfirm.act.nextLabel}"? Installation date and time are optional. Use "Enter installation date now" to open Edit order and set them, or "Confirm" to change status only and add them later.`
-              : `Set this order's status to "${advanceConfirm.act.nextLabel}"?`
+            ? `Set this order's status to "${advanceConfirm.transition.to_status_label}"?`
             : ''
         }
         confirmLabel="Confirm"
         cancelLabel="Cancel"
         secondaryAction={
-          advanceConfirm?.act.kind === 'patch' && advanceConfirm.act.stage === 'to_rfi'
-            ? {
-                label: 'Enter installation date now',
-                onClick: () => void confirmAdvanceOrderStatus({ navigateToEdit: true }),
+          (() => {
+            const tr = advanceConfirm?.transition
+            if (!tr) return undefined
+            const byType = new Map((actionTypes ?? []).map((a) => [a.type, a.ui_secondary ?? null]))
+            for (const a of tr.actions ?? []) {
+              const sec = byType.get(a.type) ?? null
+              if (!sec) continue
+              if (sec.kind === 'navigate_edit') {
+                return { label: sec.label, onClick: () => void confirmAdvanceOrderStatus({ navigateToEdit: true }) }
               }
-            : advanceConfirm?.act.kind === 'patch' && advanceConfirm.act.stage === 'to_production'
-              ? {
-                  label: 'Add production cost',
-                  onClick: () => void confirmAdvanceOrderStatusAndOpenExpense(),
-                }
-              : undefined
+              if (sec.kind === 'open_expense') {
+                return { label: sec.label, onClick: () => void confirmAdvanceOrderStatusAndOpenExpense() }
+              }
+            }
+            return undefined
+          })()
         }
         pending={advanceConfirmPending}
         onConfirm={() => void confirmAdvanceOrderStatus()}
         onCancel={() => !advanceConfirmPending && setAdvanceConfirm(null)}
-      />
+      >
+        {(() => {
+          const f = nextOptionalAskField(advanceConfirm?.transition)
+          if (!f) return null
+          const kind = (f.kind ?? '').toLowerCase()
+          if (kind === 'datetime' || kind === 'date') {
+            return (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-slate-700">Optional</div>
+                <div className="text-sm font-medium text-slate-900">{f.label || f.key}</div>
+                <VisitStartQuarterPicker
+                  compact
+                  disabled={advanceConfirmPending}
+                  value={advanceOptionalWall}
+                  onChange={(wall) => {
+                    setAdvanceDateTimeTouched(true)
+                    setAdvanceOptionalWall(snapWallToQuarterMinutes(wall))
+                  }}
+                />
+                <p className="text-xs text-slate-500">
+                  Optional: choose a date/time only if you want to save it with this status change.
+                </p>
+              </div>
+            )
+          }
+          if (kind === 'textarea') {
+            return (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-slate-700">Optional</div>
+                <label className="block">
+                  <div className="text-sm font-medium text-slate-900">{f.label || f.key}</div>
+                  <textarea
+                    disabled={advanceConfirmPending}
+                    value={advanceOptionalText}
+                    onChange={(e) => setAdvanceOptionalText(e.target.value)}
+                    rows={3}
+                    className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:bg-slate-100 disabled:text-slate-400"
+                    placeholder="Leave empty to skip"
+                  />
+                </label>
+              </div>
+            )
+          }
+          const inputType = kind === 'number' ? 'text' : 'text'
+          const inputMode = kind === 'number' ? 'decimal' : undefined
+          return (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-slate-700">Optional</div>
+              <label className="block">
+                <div className="text-sm font-medium text-slate-900">{f.label || f.key}</div>
+                <input
+                  disabled={advanceConfirmPending}
+                  value={advanceOptionalText}
+                  onChange={(e) => setAdvanceOptionalText(e.target.value)}
+                  type={inputType}
+                  inputMode={inputMode}
+                  autoComplete="off"
+                  className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:bg-slate-100 disabled:text-slate-400"
+                  placeholder="Leave empty to skip"
+                />
+              </label>
+            </div>
+          )
+        })()}
+      </ConfirmModal>
 
       <OrderInfoModal
         open={orderBalanceInfo !== null}

@@ -234,12 +234,12 @@ export function SchedulePage() {
         <div className="ml-auto flex flex-wrap items-center gap-2 sm:pt-1">
           <div className="mr-1 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-700">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-teal-200 bg-teal-50 px-2.5 py-1 text-teal-900">
-              <span className="h-2.5 w-2.5 rounded-full bg-teal-500" aria-hidden></span>
-              Estimate
+              <span className="h-2.5 w-2.5 rounded-full bg-teal-500" aria-hidden="true" />
+              <span>Estimate</span>
             </span>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-indigo-900">
-              <span className="h-2.5 w-2.5 rounded-full bg-indigo-500" aria-hidden></span>
-              Installation
+              <span className="h-2.5 w-2.5 rounded-full bg-indigo-500" aria-hidden="true" />
+              <span>Installation</span>
             </span>
           </div>
           <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-sm">
@@ -312,7 +312,7 @@ export function SchedulePage() {
                   {days.map((d) => {
                     const inMonth = d.getMonth() === month
                     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-                    const dayEvents = eventsByDayKey[key] ?? []
+                    const dayEvents = inMonth ? eventsByDayKey[key] ?? [] : []
                     return (
                       <div
                         key={key}
@@ -322,7 +322,9 @@ export function SchedulePage() {
                         ].join(' ')}
                       >
                         <div className="flex items-center justify-between">
-                          <div className="text-xs font-semibold text-slate-700">{d.getDate()}</div>
+                          <div className={['text-xs font-semibold', inMonth ? 'text-slate-700' : 'text-slate-400'].join(' ')}>
+                            {d.getDate()}
+                          </div>
                         </div>
                         <div className="mt-1 space-y-1">
                           {dayEvents.slice(0, 3).map((e) => (

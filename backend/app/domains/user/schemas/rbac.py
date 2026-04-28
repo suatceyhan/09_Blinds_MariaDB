@@ -26,6 +26,7 @@ class UserRoleAssignmentListOut(BaseModel):
     role_name: str
     created_at: datetime
     is_deleted: bool
+    removable: bool = True
 
 
 class UserRoleAssignmentCreate(BaseModel):

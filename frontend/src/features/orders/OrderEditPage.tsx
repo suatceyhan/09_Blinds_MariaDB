@@ -187,6 +187,7 @@ export function OrderEditPage() {
   const [companyTaxRatePercent, setCompanyTaxRatePercent] = useState<number | null>(null)
   const [orderStatuses, setOrderStatuses] = useState<OrderStatusOpt[] | null>(null)
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null)
+  const [loadedStatusId, setLoadedStatusId] = useState<string>('')
   const [editCustomerId, setEditCustomerId] = useState('')
   const [editEstimateId, setEditEstimateId] = useState<string | null>(null)
   const [editLeadSource, setEditLeadSource] = useState<string | null>(null)
@@ -407,6 +408,7 @@ export function OrderEditPage() {
       status_orde_id: detail.status_orde_id?.trim() ?? '',
       status_order_label_fallback: detail.status_order_label?.trim() ?? null,
     }
+    setLoadedStatusId(detail.status_orde_id?.trim() ?? '')
     const pre = pendingPrefillStatusIdRef.current ?? pendingPrefillStatusId
     const openInst = pendingOpenInstallationRef.current || pendingOpenInstallation
     if (pre) {
@@ -863,15 +865,35 @@ export function OrderEditPage() {
           const n = editDraft.order_note.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
           return n ? n.slice(0, 4000) : null
         })(),
-        status_orde_id: stSel,
         blinds_lines: editBlindsLines.map((b) => blindsLineToPayload(b, blindsOrderOptions)),
       }
-      if (isReadyForInstallationStatus(stSel, orderStatuses ?? [])) {
-        const startIso = datetimeLocalToIso(editInstallationStart)
-        if (startIso) body.installation_scheduled_start_at = startIso
-        body.installation_scheduled_end_at = null
-      }
       await patchJson(`/orders/${orderId}`, body)
+
+      // Apply status transition through the configurable workflow engine (may require ask_form fields).
+      if (stSel && stSel !== loadedStatusId.trim()) {
+        const data: Record<string, unknown> = {}
+        const startIso = datetimeLocalToIso(editInstallationStart)
+        if (startIso) data.installation_scheduled_start_at = startIso
+        const res = await postJson<{ applied: boolean; pending_actions?: unknown[] }>(
+          `/orders/${orderId}/workflow/transition`,
+          {
+            to_status_orde_id: stSel,
+            data,
+          },
+        )
+        if (!res?.applied) {
+          setErr('This status change requires additional information. Please use the guided status action from the Orders list.')
+          return
+        }
+      } else if (isReadyForInstallationStatus(stSel, orderStatuses ?? [])) {
+        // Keep legacy UX: allow editing installation date-time when status is Ready for installation.
+        const startIso = datetimeLocalToIso(editInstallationStart)
+        await patchJson(`/orders/${orderId}`, {
+          installation_scheduled_start_at: startIso || null,
+          installation_scheduled_end_at: null,
+        })
+      }
+
       await loadOrderPageData(false)
       scheduleOrderFormBaselineCapture()
     } catch (e) {

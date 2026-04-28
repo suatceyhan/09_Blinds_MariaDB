@@ -1306,6 +1306,165 @@ class OrderStatusLookupOut(BaseModel):
     sort_order: int = 0
 
 
+class WorkflowFieldOut(BaseModel):
+    key: str
+    label: str
+    kind: str = Field(..., description="datetime | date | text | number | ...")
+    required: bool = True
+    target: str | None = Field(
+        default=None,
+        description="order | expenses | order_notes | invoice | ... (engine-driven targets)",
+    )
+    target_field: str | None = None
+    target_meta: dict[str, Any] | None = None
+
+
+class WorkflowActionOut(BaseModel):
+    type: str
+    title: str | None = None
+    description: str | None = None
+    fields: list[WorkflowFieldOut] = Field(default_factory=list)
+
+
+class OrderWorkflowTransitionOut(BaseModel):
+    id: str
+    to_status_orde_id: str
+    to_status_label: str
+    actions: list[WorkflowActionOut] = Field(default_factory=list)
+
+
+class OrderWorkflowOut(BaseModel):
+    current_status_orde_id: str | None = None
+    current_status_label: str | None = None
+    allowed_transitions: list[OrderWorkflowTransitionOut] = Field(default_factory=list)
+
+
+class OrderWorkflowTransitionIn(BaseModel):
+    to_status_orde_id: str = Field(..., min_length=1, max_length=32)
+    data: dict[str, Any] | None = None
+
+
+class OrderWorkflowTransitionResultOut(BaseModel):
+    """Either transition applied, or pending interactive actions required."""
+
+    applied: bool = False
+    order: OrderDetailOut | None = None
+    pending_actions: list[WorkflowActionOut] = Field(default_factory=list)
+
+
+def _active_workflow_definition_id(db: Session, company_id: UUID, entity_type: str) -> UUID | None:
+    row = db.execute(
+        text(
+            """
+            SELECT wd.id
+            FROM workflow_definitions wd
+            WHERE wd.is_active IS TRUE
+              AND wd.entity_type = :et
+              AND (wd.company_id = CAST(:cid AS uuid) OR wd.company_id IS NULL)
+            ORDER BY (wd.company_id IS NOT NULL) DESC, wd.version DESC, wd.created_at DESC
+            LIMIT 1
+            """
+        ),
+        {"cid": str(company_id), "et": entity_type},
+    ).mappings().first()
+    return row["id"] if row else None
+
+
+def _status_order_label_by_id(db: Session, company_id: UUID, status_orde_id: str | None) -> str:
+    sid = (status_orde_id or "").strip()
+    if not sid:
+        return "—"
+    row = db.execute(
+        text(
+            """
+            SELECT so.name
+            FROM status_order so
+            INNER JOIN company_status_order_matrix m
+              ON m.status_order_id = so.id AND m.company_id = CAST(:cid AS uuid)
+            WHERE so.id = :sid
+            LIMIT 1
+            """
+        ),
+        {"cid": str(company_id), "sid": sid},
+    ).mappings().first()
+    name = str((row["name"] if row else "") or "").strip()
+    return name or sid
+
+
+def _workflow_actions_for_transition(db: Session, transition_id: str) -> list[WorkflowActionOut]:
+    rows = db.execute(
+        text(
+            """
+            SELECT type, config
+            FROM workflow_transition_actions
+            WHERE transition_id = CAST(:tid AS uuid)
+            ORDER BY sort_order ASC, created_at ASC, id ASC
+            """
+        ),
+        {"tid": transition_id},
+    ).mappings().all()
+    out: list[WorkflowActionOut] = []
+    for r in rows:
+        t = str(r.get("type") or "").strip()
+        cfg = r.get("config") or {}
+        if not isinstance(cfg, dict):
+            cfg = {}
+        title = (cfg.get("title") if isinstance(cfg.get("title"), str) else None) or None
+        desc = (cfg.get("description") if isinstance(cfg.get("description"), str) else None) or None
+        fields_raw = cfg.get("fields")
+        fields: list[WorkflowFieldOut] = []
+        if isinstance(fields_raw, list):
+            for f in fields_raw:
+                if not isinstance(f, dict):
+                    continue
+                key = str(f.get("key") or "").strip()
+                if not key:
+                    continue
+                label = str(f.get("label") or key).strip()
+                kind = str(f.get("kind") or "text").strip()
+                req = f.get("required")
+                required = True if req is None else bool(req)
+                target = str(f.get("target") or "").strip() or None
+                target_field = str(f.get("target_field") or "").strip() or None
+                tm = f.get("target_meta")
+                target_meta = tm if isinstance(tm, dict) else None
+                fields.append(
+                    WorkflowFieldOut(
+                        key=key,
+                        label=label,
+                        kind=kind,
+                        required=required,
+                        target=target,
+                        target_field=target_field,
+                        target_meta=target_meta,
+                    )
+                )
+        out.append(WorkflowActionOut(type=t, title=title, description=desc, fields=fields))
+    return out
+
+
+def _workflow_write_table_name(raw: str | None) -> str:
+    """Normalize legacy shorthand targets to real table names."""
+
+    s = (raw or "").strip().lower()
+    if not s or s in ("order", "orders"):
+        return "orders"
+    if s in ("expenses", "expense", "order_expense_entries"):
+        return "order_expense_entries"
+    return (raw or "").strip()
+
+
+def _required_fields_from_actions(actions: list[WorkflowActionOut]) -> set[str]:
+    required: set[str] = set()
+    for a in actions:
+        if a.type != "ask_form":
+            continue
+        for f in a.fields:
+            if f.required:
+                required.add(f.key)
+    return required
+
+
 class BlindsOrderTypeOpt(BaseModel):
     id: str
     name: str
@@ -1423,6 +1582,198 @@ def list_order_statuses_for_orders(
         {"cid": str(cid)},
     ).mappings().all()
     return [OrderStatusLookupOut(**dict(r)) for r in rows]
+
+
+@router.get("/{order_id}/workflow", response_model=OrderWorkflowOut)
+def order_workflow(
+    order_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("orders.view"))],
+):
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    oid = order_id.strip()
+    cur = db.execute(
+        text(
+            """
+            SELECT o.status_orde_id::text AS status_orde_id
+            FROM orders o
+            WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid
+            LIMIT 1
+            """
+        ),
+        {"cid": str(cid), "oid": oid},
+    ).mappings().first()
+    if not cur:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    from_sid = (cur.get("status_orde_id") or "").strip() or None
+    wid = _active_workflow_definition_id(db, cid, "order")
+    if not wid:
+        return OrderWorkflowOut(
+            current_status_orde_id=from_sid,
+            current_status_label=_status_order_label_by_id(db, cid, from_sid),
+            allowed_transitions=[],
+        )
+    trans = db.execute(
+        text(
+            """
+            SELECT id::text AS id, to_status_id::text AS to_status_id
+            FROM workflow_transitions
+            WHERE workflow_definition_id = CAST(:wid AS uuid)
+              AND COALESCE(from_status_id,'') = COALESCE(:from_sid,'')
+            ORDER BY sort_order ASC, created_at ASC, id ASC
+            """
+        ),
+        {"wid": str(wid), "from_sid": from_sid or ""},
+    ).mappings().all()
+    allowed: list[OrderWorkflowTransitionOut] = []
+    for t in trans:
+        tid = str(t.get("id") or "").strip()
+        to_sid = str(t.get("to_status_id") or "").strip()
+        if not tid or not to_sid:
+            continue
+        actions = _workflow_actions_for_transition(db, tid)
+        allowed.append(
+            OrderWorkflowTransitionOut(
+                id=tid,
+                to_status_orde_id=to_sid,
+                to_status_label=_status_order_label_by_id(db, cid, to_sid),
+                actions=actions,
+            )
+        )
+    return OrderWorkflowOut(
+        current_status_orde_id=from_sid,
+        current_status_label=_status_order_label_by_id(db, cid, from_sid),
+        allowed_transitions=allowed,
+    )
+
+
+@router.post("/{order_id}/workflow/transition", response_model=OrderWorkflowTransitionResultOut)
+def order_workflow_transition(
+    order_id: str,
+    body: OrderWorkflowTransitionIn,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("orders.edit"))],
+):
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    oid = order_id.strip()
+    cur = db.execute(
+        text(
+            """
+            SELECT o.status_orde_id::text AS status_orde_id
+            FROM orders o
+            WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid AND o.active IS TRUE
+            LIMIT 1
+            """
+        ),
+        {"cid": str(cid), "oid": oid},
+    ).mappings().first()
+    if not cur:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    from_sid = (cur.get("status_orde_id") or "").strip() or None
+    to_sid = body.to_status_orde_id.strip()
+    wid = _active_workflow_definition_id(db, cid, "order")
+    if not wid:
+        raise HTTPException(status_code=400, detail="No active workflow is configured for orders.")
+
+    tr = db.execute(
+        text(
+            """
+            SELECT id::text AS id
+            FROM workflow_transitions
+            WHERE workflow_definition_id = CAST(:wid AS uuid)
+              AND COALESCE(from_status_id,'') = COALESCE(:from_sid,'')
+              AND to_status_id = :to_sid
+            LIMIT 1
+            """
+        ),
+        {"wid": str(wid), "from_sid": from_sid or "", "to_sid": to_sid},
+    ).mappings().first()
+    if not tr:
+        raise HTTPException(status_code=400, detail="Transition is not allowed from the current status.")
+
+    actions = _workflow_actions_for_transition(db, str(tr["id"]))
+    required_fields = _required_fields_from_actions(actions)
+    data = body.data or {}
+    missing = [k for k in sorted(required_fields) if k not in data or data.get(k) in (None, "", [])]
+    if missing:
+        return OrderWorkflowTransitionResultOut(applied=False, order=None, pending_actions=actions)
+
+    # Target-based writes:
+    # - order: write to OrderPatchIn fields (e.g. installation_scheduled_start_at)
+    # - expenses: create an order_expense_entries row (uses existing table)
+    patch_payload: dict[str, Any] = {"status_orde_id": to_sid}
+    for a in actions:
+        if a.type != "ask_form":
+            continue
+        for f in a.fields:
+            if f.key not in data:
+                continue
+            val = data.get(f.key)
+            if val in (None, "", []):
+                continue
+            tbl = _workflow_write_table_name(f.target)
+            tgt_field = (f.target_field or f.key).strip()
+            if tbl == "order_expense_entries":
+                # Currently supports expense.amount + optional note/spent_at in target_meta.
+                q = Decimal("0.01")
+                try:
+                    amt = Decimal(str(val)).quantize(q, rounding=ROUND_HALF_UP)
+                except Exception:
+                    raise HTTPException(status_code=400, detail=f"Invalid expense amount for {f.key}.") from None
+                if amt <= 0:
+                    raise HTTPException(status_code=400, detail="Expense amount must be positive.")
+                meta = f.target_meta or {}
+                note = str(meta.get("note") or meta.get("category") or f.label or "").strip()
+                note = note.replace("\r\n", "\n").replace("\r", "\n").strip()
+                note = note[:4000] if note else None
+                spent_at = meta.get("spent_at") if meta.get("spent_at") is not None else None
+                db.execute(
+                    text(
+                        """
+                        INSERT INTO order_expense_entries (company_id, order_id, amount, note, spent_at, created_by_user_id)
+                        VALUES (CAST(:cid AS uuid), :oid, :amt, :note, :spent_at, :uid)
+                        """
+                    ),
+                    {
+                        "cid": str(cid),
+                        "oid": oid,
+                        "amt": amt,
+                        "note": note,
+                        "spent_at": spent_at,
+                        "uid": str(current_user.id),
+                    },
+                )
+            elif tbl == "orders":
+                # `balance` on `orders` is computed from totals/payments — workflow "pay balance" must record
+                # payment entries (same rules as POST /record-payment), not PATCH a column.
+                if tgt_field.strip().lower() == "balance":
+                    qpay = Decimal("0.01")
+                    try:
+                        pamt = Decimal(str(val)).quantize(qpay, rounding=ROUND_HALF_UP)
+                    except Exception:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Invalid payment amount for {f.key}.",
+                        ) from None
+                    _apply_order_record_payment(db, cid, oid, pamt)
+                else:
+                    patch_payload[tgt_field] = val
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"This workflow transition cannot write to table '{tbl}'. "
+                        "Supported targets: orders, order_expense_entries."
+                    ),
+                )
+
+    patch = OrderPatchIn(**patch_payload)
+    updated = patch_order(order_id=oid, body=patch, db=db, current_user=current_user)
+    return OrderWorkflowTransitionResultOut(applied=True, order=updated, pending_actions=[])
 
 
 @router.get("/lookup/blinds-order-options", response_model=BlindsOrderOptionsOut)
@@ -1598,20 +1949,17 @@ def _financial_row_for_rollup(m: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@router.post("/{order_id}/record-payment", response_model=OrderDetailOut)
-def record_order_payment(
-    order_id: str,
-    body: OrderRecordPaymentIn,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("orders.edit"))],
-):
-    """Add to cumulative post-down payment total (`final_payment`) and refresh `balance`."""
-    cid = effective_company_id(current_user)
-    if not cid:
-        raise HTTPException(status_code=403, detail="No active company.")
+def _apply_order_record_payment(db: Session, company_id: UUID, order_id: str, pay_amt: Decimal) -> str:
+    """Core of POST /record-payment: allocate `pay_amt` across job rows via `order_payment_entries`.
+
+    Does not commit (caller commits), except `_rebalance_job_overpayments` may commit when it makes
+    adjustments. Returns anchor order id used for refreshes.
+
+    """
+
     oid = order_id.strip()
     q = Decimal("0.01")
-    pay_amt = Decimal(str(body.amount)).quantize(q, rounding=ROUND_HALF_UP)
+    pay_amt = pay_amt.quantize(q, rounding=ROUND_HALF_UP)
     if pay_amt <= 0:
         raise HTTPException(status_code=400, detail="Amount must be positive.")
     row = db.execute(
@@ -1630,7 +1978,7 @@ def record_order_payment(
             LIMIT 1
             """
         ),
-        {"cid": str(cid), "oid": oid},
+        {"cid": str(company_id), "oid": oid},
     ).mappings().first()
     if not row:
         raise HTTPException(status_code=404, detail="Order not found.")
@@ -1644,10 +1992,10 @@ def record_order_payment(
 
     # Fix historic overpayments on earlier rows by moving payment entries forward.
     # This prevents negative balances like "-125.25" on the original when additions still owe money.
-    if _rebalance_job_overpayments(db, cid, anchor_oid):
+    if _rebalance_job_overpayments(db, company_id, anchor_oid):
         db.commit()
 
-    job_rem = _job_remaining_balance_sum(db, cid, anchor_oid)
+    job_rem = _job_remaining_balance_sum(db, company_id, anchor_oid)
     # Cap additional installments by rolled-up job remaining (not only this row's balance).
     effective_cap = job_rem if job_rem > _DONE_BALANCE_EPS else Decimal("0").quantize(q)
     if pay_amt > effective_cap:
@@ -1670,7 +2018,7 @@ def record_order_payment(
             ORDER BY CASE WHEN o.id = :aid THEN 0 ELSE 1 END, o.created_at ASC NULLS LAST
             """
         ),
-        {"cid": str(cid), "aid": anchor_oid},
+        {"cid": str(company_id), "aid": anchor_oid},
     ).mappings().all()
 
     remaining = pay_amt
@@ -1692,7 +2040,7 @@ def record_order_payment(
                 VALUES (CAST(:cid AS uuid), :oid, :amt, CAST(:gid AS uuid), :paid_at)
                 """
             ),
-            {"cid": str(cid), "oid": rid, "amt": take, "gid": group_id, "paid_at": paid_at},
+            {"cid": str(company_id), "oid": rid, "amt": take, "gid": group_id, "paid_at": paid_at},
         )
         touched.add(rid)
         remaining = (remaining - take).quantize(q, rounding=ROUND_HALF_UP)
@@ -1701,7 +2049,25 @@ def record_order_payment(
         raise HTTPException(status_code=400, detail="Payment exceeds remaining job balance.")
 
     for rid in touched:
-        _sync_order_final_payment_from_entries(db, cid, rid)
+        _sync_order_final_payment_from_entries(db, company_id, rid)
+    return anchor_oid
+
+
+@router.post("/{order_id}/record-payment", response_model=OrderDetailOut)
+def record_order_payment(
+    order_id: str,
+    body: OrderRecordPaymentIn,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("orders.edit"))],
+):
+    """Add to cumulative post-down payment total (`final_payment`) and refresh `balance`."""
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    oid = order_id.strip()
+    q = Decimal("0.01")
+    pay_amt = Decimal(str(body.amount)).quantize(q, rounding=ROUND_HALF_UP)
+    anchor_oid = _apply_order_record_payment(db, cid, oid, pay_amt)
     db.commit()
     return get_order(order_id=anchor_oid, db=db, current_user=current_user)
 

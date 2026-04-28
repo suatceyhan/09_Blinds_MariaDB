@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.domains.lookup.models.roles import Roles
 from app.domains.user.models.user_roles import UserRoles
 from app.domains.user.models.users import Users
@@ -45,6 +46,20 @@ def list_assignments_with_labels(
 
 def get_assignment(db: Session, assignment_id: UUID) -> Optional[UserRoles]:
     return db.query(UserRoles).filter(UserRoles.id == assignment_id).first()
+
+
+def is_bootstrap_superadmin_assignment(db: Session, ur: UserRoles) -> bool:
+    """True when this row is the seeded superadmin user + superadmin role (SUPER_ADMIN_EMAIL)."""
+    configured = (settings.super_admin_email or "").strip().lower()
+    if not configured:
+        return False
+    user = db.query(Users).filter(Users.id == ur.user_id).first()
+    role = db.query(Roles).filter(Roles.id == ur.role_id).first()
+    if not user or not role:
+        return False
+    if (role.name or "").strip().lower() != "superadmin":
+        return False
+    return (user.email or "").strip().lower() == configured
 
 
 def assign_role(

@@ -158,6 +158,15 @@ export const appPages: PageConfig[] = [
     showInNav: true,
   },
   {
+    id: 'settings-order-workflow',
+    name: 'Order workflow',
+    basePath: '/settings/order-workflow',
+    parent: 'settings-group',
+    module: 'settings',
+    permissions: { view: 'settings.order_workflow.view', edit: 'settings.order_workflow.edit' },
+    showInNav: true,
+  },
+  {
     id: 'permissions-group',
     name: 'Permissions',
     basePath: '/permissions',

@@ -162,7 +162,8 @@ export function VisitStartQuarterPicker({
       left,
       top,
       width: panelW,
-      zIndex: 80,
+      // Must appear above ConfirmModal overlay (z-[100]) when used inside modals.
+      zIndex: 130,
       display: 'block',
     })
   }, [open, compact])

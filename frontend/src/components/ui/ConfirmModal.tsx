@@ -1,9 +1,11 @@
-import { useEffect, useRef } from 'react'
+import { type ReactNode, useEffect, useRef } from 'react'
 
 export type ConfirmModalProps = {
   open: boolean
   title: string
   description: string
+  /** Optional custom content rendered between description and actions. */
+  children?: ReactNode
   confirmLabel?: string
   cancelLabel?: string
   /** Optional third action (e.g. branch after confirm). Placed between cancel and primary confirm. */
@@ -20,6 +22,7 @@ export function ConfirmModal({
   open,
   title,
   description,
+  children,
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   secondaryAction,
@@ -29,16 +32,23 @@ export function ConfirmModal({
   onCancel,
 }: ConfirmModalProps) {
   const cancelRef = useRef<HTMLButtonElement>(null)
+  const onCancelRef = useRef(onCancel)
+  onCancelRef.current = onCancel
 
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel()
+      if (e.key === 'Escape') onCancelRef.current()
     }
     globalThis.addEventListener('keydown', onKey)
-    queueMicrotask(() => cancelRef.current?.focus())
+    // Only depend on `open`: if `children` were in deps, each keystroke would re-run this effect
+    // (new ReactElement identity) and steal focus back to Cancel.
+    if (!children) {
+      queueMicrotask(() => cancelRef.current?.focus())
+    }
     return () => globalThis.removeEventListener('keydown', onKey)
-  }, [open, onCancel])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: stable focus/open only
+  }, [open])
 
   if (!open) return null
 
@@ -64,6 +74,7 @@ export function ConfirmModal({
         <p id="confirm-modal-desc" className="mt-2 text-sm text-slate-600">
           {description}
         </p>
+        {children ? <div className="mt-4">{children}</div> : null}
         <div className="mt-6 flex flex-wrap justify-end gap-2">
           <button
             ref={cancelRef}

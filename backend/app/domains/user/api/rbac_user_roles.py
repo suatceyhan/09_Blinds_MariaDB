@@ -38,6 +38,7 @@ def list_user_role_assignments(
             role_name=role_name,
             created_at=ur.created_at,
             is_deleted=ur.is_deleted,
+            removable=not rbac_crud.is_bootstrap_superadmin_assignment(db, ur),
         )
         for ur, email, role_name in rows
     ]
@@ -97,6 +98,11 @@ def delete_user_role_assignment(
     row = rbac_crud.get_assignment(db, assignment_id)
     if not row:
         raise HTTPException(status_code=404, detail="Assignment not found.")
+    if rbac_crud.is_bootstrap_superadmin_assignment(db, row):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The bootstrap superadmin role assignment cannot be removed.",
+        )
     before = jsonable_encoder(row)
     deleted = rbac_crud.soft_delete_assignment(db, assignment_id, actor_id=current_user.id)
     if not deleted:
