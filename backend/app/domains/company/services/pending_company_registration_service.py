@@ -13,6 +13,9 @@ from app.core.security import hash_password
 from app.domains.business_lookups.services.estimate_status_defaults import (
     ensure_default_estimate_statuses_for_company,
 )
+from app.domains.settings.api.contract_invoice_docs import (
+    seed_default_contract_invoice_templates_for_company,
+)
 from app.domains.company.models.company import Companies
 from app.domains.company.models.pending_company_self_registrations import (
     PendingCompanySelfRegistrations,
@@ -159,6 +162,7 @@ class PendingCompanyRegistrationService:
         db.add(company)
         db.flush()
         ensure_default_estimate_statuses_for_company(db, company.id)
+        seed_default_contract_invoice_templates_for_company(db, company.id)
 
         user = Users(
             first_name=row.first_name,

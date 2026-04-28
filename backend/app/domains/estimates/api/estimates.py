@@ -1023,8 +1023,11 @@ def create_estimate(
         ).mappings().first()
     if not new_row:
         raise HTTPException(
-            status_code=500,
-            detail="Could not resolve default estimate status (new) for this company.",
+            status_code=400,
+            detail=(
+                "No enabled estimate status “new” for this company. "
+                "Enable built-in statuses in Settings → Estimate status matrix (or set BOOTSTRAP_PREFILL_COMPANY_LOOKUP_MATRICES=true for legacy auto-fill)."
+            ),
         )
     new_status_id = str(new_row["id"])
 

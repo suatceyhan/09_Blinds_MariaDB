@@ -1,6 +1,7 @@
 """Global estimate/order status catalogs and per-company matrix rows.
 
-Ids match **DB/27_global_status_tables_and_matrix.sql** (md5 prefixes).
+This module must NOT rely on hardcoded status ids. All runtime logic should resolve
+built-ins via `builtin_kind` and matrix enablement.
 """
 
 from __future__ import annotations
@@ -11,27 +12,19 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.domains.business_lookups.services.blinds_catalog import (
-    ensure_company_product_category_matrix_defaults,
-)
+from app.core.config import settings
+from app.domains.business_lookups.services.blinds_catalog import ensure_company_product_category_matrix_defaults
 
-ESTIMATE_BUILTIN_IDS: dict[str, str] = {
-    "new": "86de9fe2784b1d0e",
-    "pending": "c9dacb6c04910d38",
-    "converted": "d75df7e9d38dce9a",
-    "cancelled": "c840548f67545846",
-}
+def builtin_estimate_status_id(builtin_kind: str) -> str:
+    """Deterministic id suggestion for new installs.
 
-DEFAULT_ORDER_STATUS_ID = "88efe5e3d3512afe"
+    Existing databases may already have different ids; we always de-dupe by builtin_kind.
+    """
+    return hashlib.md5(f"seed:status_estimate:builtin:{builtin_kind}".encode("utf-8")).hexdigest()[:16]
 
-# md5('global:ord:builtin:ready_for_install')[:16] — matches DB/28_*.sql
-READY_FOR_INSTALL_ORDER_STATUS_ID = hashlib.md5(
-    b"global:ord:builtin:ready_for_install"
-).hexdigest()[:16]
 
-# Additional built-in order workflow statuses (requested defaults)
-IN_PRODUCTION_ORDER_STATUS_ID = hashlib.md5(b"global:ord:builtin:in_production").hexdigest()[:16]
-DONE_ORDER_STATUS_ID = hashlib.md5(b"global:ord:builtin:done").hexdigest()[:16]
+def builtin_order_status_id(builtin_kind: str) -> str:
+    return hashlib.md5(f"seed:status_order:builtin:{builtin_kind}".encode("utf-8")).hexdigest()[:16]
 
 
 def custom_estimate_status_id(normalized_name_lower: str) -> str:
@@ -45,14 +38,12 @@ def custom_order_status_id(normalized_name_lower: str) -> str:
 def ensure_global_estimate_catalog_seeded(db: Session) -> None:
     """Idempotent: built-in global estimate rows."""
     rows = [
-        (ESTIMATE_BUILTIN_IDS["new"], "New Estimate", -1, "new"),
-        (ESTIMATE_BUILTIN_IDS["pending"], "Pending", 0, "pending"),
-        (ESTIMATE_BUILTIN_IDS["converted"], "Converted to order", 1, "converted"),
-        (ESTIMATE_BUILTIN_IDS["cancelled"], "Cancelled", 2, "cancelled"),
+        ("new", "New Estimate", -1),
+        ("pending", "Pending", 0),
+        ("converted", "Converted to order", 1),
+        ("cancelled", "Cancelled", 2),
     ]
-    for sid, name, so, bk in rows:
-        # Match on id OR builtin_kind: migrated DBs may use different ids but uq_status_estimate_global_builtin_nn
-        # still blocks a second row with the same builtin_kind.
+    for bk, name, so in rows:
         db.execute(
             text(
                 """
@@ -60,55 +51,35 @@ def ensure_global_estimate_catalog_seeded(db: Session) -> None:
                 SELECT :id, :name, TRUE, :so, :bk
                 WHERE NOT EXISTS (
                   SELECT 1 FROM status_estimate se
-                  WHERE se.id = :id OR se.builtin_kind = :bk
+                  WHERE se.builtin_kind = :bk
                 )
                 """
             ),
-            {"id": sid, "name": name, "so": so, "bk": bk},
+            {"id": builtin_estimate_status_id(bk), "name": name, "so": so, "bk": bk},
         )
 
 
 def ensure_global_order_catalog_seeded(db: Session) -> None:
-    db.execute(
-        text(
-            """
-            INSERT INTO status_order (id, name, active, sort_order)
-            SELECT :id, 'New order', TRUE, 0
-            WHERE NOT EXISTS (SELECT 1 FROM status_order WHERE id = :id)
-            """
-        ),
-        {"id": DEFAULT_ORDER_STATUS_ID},
-    )
-    db.execute(
-        text(
-            """
-            INSERT INTO status_order (id, name, active, sort_order)
-            SELECT :id, 'Ready for installation', TRUE, 10
-            WHERE NOT EXISTS (SELECT 1 FROM status_order WHERE id = :id)
-            """
-        ),
-        {"id": READY_FOR_INSTALL_ORDER_STATUS_ID},
-    )
-    db.execute(
-        text(
-            """
-            INSERT INTO status_order (id, name, active, sort_order)
-            SELECT :id, 'In Production', TRUE, 20
-            WHERE NOT EXISTS (SELECT 1 FROM status_order WHERE id = :id)
-            """
-        ),
-        {"id": IN_PRODUCTION_ORDER_STATUS_ID},
-    )
-    db.execute(
-        text(
-            """
-            INSERT INTO status_order (id, name, active, sort_order)
-            SELECT :id, 'Done', TRUE, 30
-            WHERE NOT EXISTS (SELECT 1 FROM status_order WHERE id = :id)
-            """
-        ),
-        {"id": DONE_ORDER_STATUS_ID},
-    )
+    rows = [
+        ("new", "New order", 0),
+        ("ready_for_install", "Ready for installation", 10),
+        ("in_production", "In Production", 20),
+        ("done", "Done", 30),
+    ]
+    for bk, name, so in rows:
+        db.execute(
+            text(
+                """
+                INSERT INTO status_order (id, name, active, sort_order, builtin_kind)
+                SELECT :id, :name, TRUE, :so, :bk
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM status_order so
+                  WHERE so.builtin_kind = :bk
+                )
+                """
+            ),
+            {"id": builtin_order_status_id(bk), "name": name, "so": so, "bk": bk},
+        )
 
 
 def ensure_global_catalog_seeded(db: Session) -> None:
@@ -122,6 +93,8 @@ def ensure_company_estimate_matrix_defaults(db: Session, company_id: UUID) -> No
     Important: do NOT auto-enable newly created custom statuses for existing companies.
     """
     ensure_global_catalog_seeded(db)
+    if not settings.bootstrap_prefill_company_lookup_matrices:
+        return
     cid = str(company_id)
     any_row = db.execute(
         text(
@@ -152,6 +125,8 @@ def ensure_company_estimate_matrix_defaults(db: Session, company_id: UUID) -> No
 
 def ensure_company_order_matrix_defaults(db: Session, company_id: UUID) -> None:
     ensure_global_catalog_seeded(db)
+    if not settings.bootstrap_prefill_company_lookup_matrices:
+        return
     cid = str(company_id)
     any_row = db.execute(
         text(
@@ -172,17 +147,11 @@ def ensure_company_order_matrix_defaults(db: Session, company_id: UUID) -> None:
             INSERT INTO company_status_order_matrix (company_id, status_order_id)
             SELECT CAST(:cid AS uuid), so.id
             FROM status_order so
-            WHERE so.active IS TRUE AND so.id IN (:new_id, :ready_id, :prod_id, :done_id)
+            WHERE so.active IS TRUE AND so.builtin_kind IN ('new', 'ready_for_install', 'in_production', 'done')
             ON CONFLICT (company_id, status_order_id) DO NOTHING
             """
         ),
-        {
-            "cid": cid,
-            "new_id": DEFAULT_ORDER_STATUS_ID,
-            "ready_id": READY_FOR_INSTALL_ORDER_STATUS_ID,
-            "prod_id": IN_PRODUCTION_ORDER_STATUS_ID,
-            "done_id": DONE_ORDER_STATUS_ID,
-        },
+        {"cid": cid},
     )
 
 
@@ -191,6 +160,8 @@ def ensure_company_blinds_type_matrix_defaults(db: Session, company_id: UUID) ->
 
     Important: do NOT auto-enable newly created types for existing companies.
     """
+    if not settings.bootstrap_prefill_company_lookup_matrices:
+        return
     cid = str(company_id)
     any_row = db.execute(
         text(
@@ -220,7 +191,7 @@ def ensure_company_blinds_type_matrix_defaults(db: Session, company_id: UUID) ->
 
 
 def ensure_default_estimate_statuses_for_company(db: Session, company_id: UUID) -> None:
-    """Backward-compatible name: seed globals + matrix rows for a new or existing company."""
+    """Ensure global status catalogs exist; optionally prefill tenant matrices (see bootstrap_prefill_company_lookup_matrices)."""
     ensure_global_catalog_seeded(db)
     ensure_company_estimate_matrix_defaults(db, company_id)
     ensure_company_order_matrix_defaults(db, company_id)

@@ -133,8 +133,8 @@ BEGIN
   -- ---------------------------------------------------------------------------
   -- Seed minimal default workflow for Orders (global)
   -- ---------------------------------------------------------------------------
-  -- Status IDs match `app/domains/business_lookups/services/global_status_seed.py`:
-  -- - New order: 88efe5e3d3512afe
+  -- Status IDs are resolved without hardcoding:
+  -- - New order: by canonical label (lower(trim(name)) = 'new order')
   -- - Ready for installation: md5('global:ord:builtin:ready_for_install')[:16]
   -- - In Production: md5('global:ord:builtin:in_production')[:16]
   -- - Done: md5('global:ord:builtin:done')[:16]
@@ -156,7 +156,7 @@ BEGIN
   ),
   ids AS (
     SELECT
-      '88efe5e3d3512afe'::varchar(32) AS st_new,
+      (SELECT so.id FROM public.status_order so WHERE lower(trim(so.name)) = 'new order' LIMIT 1)::varchar(32) AS st_new,
       substring(md5('global:ord:builtin:in_production') for 16)::varchar(32) AS st_prod,
       substring(md5('global:ord:builtin:ready_for_install') for 16)::varchar(32) AS st_rfi,
       substring(md5('global:ord:builtin:done') for 16)::varchar(32) AS st_done
@@ -165,7 +165,8 @@ BEGIN
     INSERT INTO public.workflow_transitions (workflow_definition_id, from_status_id, to_status_id, sort_order)
     SELECT def.id, ids.st_new, ids.st_prod, 10
     FROM def, ids
-    WHERE NOT EXISTS (
+    WHERE ids.st_new IS NOT NULL
+      AND NOT EXISTS (
       SELECT 1 FROM public.workflow_transitions t
       WHERE t.workflow_definition_id = def.id AND COALESCE(t.from_status_id,'') = COALESCE(ids.st_new,'') AND t.to_status_id = ids.st_prod
     )

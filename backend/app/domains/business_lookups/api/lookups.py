@@ -330,6 +330,10 @@ class OrderStatusOut(BaseModel):
     name: str
     active: bool
     sort_order: int = 0
+    code: str | None = Field(
+        default=None,
+        description="builtin_kind when set (e.g. new|ready_for_install|in_production|done); null for custom labels.",
+    )
 
 
 @router.get("/order-statuses", response_model=list[OrderStatusOut])
@@ -364,7 +368,7 @@ def list_order_statuses(
     rows = db.execute(
         text(
             f"""
-            SELECT so.id, so.name, so.active, so.sort_order
+            SELECT so.id, so.name, so.active, so.sort_order, so.builtin_kind
             FROM status_order so
             WHERE {w}
             ORDER BY so.sort_order ASC, so.active DESC, so.name ASC
@@ -373,7 +377,13 @@ def list_order_statuses(
         ),
         params,
     ).mappings().all()
-    return [OrderStatusOut(**dict(r)) for r in rows]
+    out: list[OrderStatusOut] = []
+    for r in rows:
+        d = dict(r)
+        bk = d.pop("builtin_kind", None)
+        d["code"] = str(bk).strip().lower() if bk else None
+        out.append(OrderStatusOut(**d))
+    return out
 
 
 # --- Estimate status (status_estimate): same UX as order statuses; optional builtin_kind in DB (not "slug") ---

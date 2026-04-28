@@ -154,5 +154,23 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("GOOGLE_OAUTH_REDIRECT_URI", "google_oauth_redirect_uri"),
     )
 
+    #: false (default): new companies get empty tenant matrices (blinds types, categories, estimate/order statuses).
+    #: Superadmin enables rows in Settings/Lookups before operational use. true restores legacy auto-fill on first touch.
+    bootstrap_prefill_company_lookup_matrices: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "BOOTSTRAP_PREFILL_COMPANY_LOOKUP_MATRICES",
+            "bootstrap_prefill_company_lookup_matrices",
+        ),
+    )
+    #: true (default): when a company is created, persist default contract/deposit + final invoice templates in `company_document_templates`.
+    bootstrap_seed_company_contract_invoice_templates: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "BOOTSTRAP_SEED_COMPANY_CONTRACT_INVOICE_TEMPLATES",
+            "bootstrap_seed_company_contract_invoice_templates",
+        ),
+    )
+
 
 settings = Settings()

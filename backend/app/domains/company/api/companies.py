@@ -19,6 +19,9 @@ from app.core.config import settings
 from app.domains.business_lookups.services.estimate_status_defaults import (
     ensure_default_estimate_statuses_for_company,
 )
+from app.domains.settings.api.contract_invoice_docs import (
+    seed_default_contract_invoice_templates_for_company,
+)
 from app.domains.user.services.company_membership import ensure_membership, user_has_membership
 
 router = APIRouter(prefix="/companies", tags=["Companies"])
@@ -385,6 +388,7 @@ def create_company(
     try:
         db.flush()
         ensure_default_estimate_statuses_for_company(db, row.id)
+        seed_default_contract_invoice_templates_for_company(db, row.id)
         if body.owner_user_id:
             _require_owner_user(db, body.owner_user_id)
             ensure_membership(db, body.owner_user_id, row.id, commit=False)

@@ -50,6 +50,102 @@ class GlobalOrderStatusOut(BaseModel):
     name: str
     active: bool
     sort_order: int = 0
+    code: str | None = Field(None, description="builtin_kind when set")
+
+
+def _order_row_out(row: dict[str, Any]) -> GlobalOrderStatusOut:
+    bk = row.get("builtin_kind")
+    code = str(bk).strip().lower() if bk else None
+    return GlobalOrderStatusOut(
+        id=str(row["id"]),
+        name=str(row["name"]),
+        active=bool(row["active"]),
+        sort_order=int(row.get("sort_order") or 0),
+        code=code,
+    )
+
+
+def _assert_status_unused_for_deactivate(db: Session, *, status_table: str, status_id: str) -> None:
+    """Shared guard: prevent deactivating a status while still in use."""
+    sid = status_id.strip()
+    if status_table == "estimate":
+        # matrix
+        used = db.execute(
+            text("SELECT 1 FROM company_status_estimate_matrix WHERE status_estimate_id = :sid LIMIT 1"),
+            {"sid": sid},
+        ).first()
+        if used:
+            raise HTTPException(
+                status_code=400,
+                detail="This status is enabled for at least one company. Disable it in the matrix first.",
+            )
+        # workflow (active transitions)
+        used = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM workflow_transitions t
+                WHERE t.deleted_at IS NULL AND (:sid IN (t.from_status_id, t.to_status_id))
+                LIMIT 1
+                """
+            ),
+            {"sid": sid},
+        ).first()
+        if used:
+            raise HTTPException(
+                status_code=400,
+                detail="This status is used in a workflow transition. Remove it from workflows first.",
+            )
+        # domain data
+        used = db.execute(
+            text("SELECT 1 FROM estimate e WHERE e.status_esti_id = :sid AND e.is_deleted IS NOT TRUE LIMIT 1"),
+            {"sid": sid},
+        ).first()
+        if used:
+            raise HTTPException(
+                status_code=400,
+                detail="This status is used by existing estimates. You must migrate those records first.",
+            )
+        return
+
+    if status_table == "order":
+        used = db.execute(
+            text("SELECT 1 FROM company_status_order_matrix WHERE status_order_id = :sid LIMIT 1"),
+            {"sid": sid},
+        ).first()
+        if used:
+            raise HTTPException(
+                status_code=400,
+                detail="This status is enabled for at least one company. Disable it in the matrix first.",
+            )
+        used = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM workflow_transitions t
+                WHERE t.deleted_at IS NULL AND (:sid IN (t.from_status_id, t.to_status_id))
+                LIMIT 1
+                """
+            ),
+            {"sid": sid},
+        ).first()
+        if used:
+            raise HTTPException(
+                status_code=400,
+                detail="This status is used in a workflow transition. Remove it from workflows first.",
+            )
+        used = db.execute(
+            text("SELECT 1 FROM orders o WHERE o.status_orde_id = :sid AND o.active IS TRUE LIMIT 1"),
+            {"sid": sid},
+        ).first()
+        if used:
+            raise HTTPException(
+                status_code=400,
+                detail="This status is used by existing orders. You must migrate those records first.",
+            )
+        return
+
+    raise HTTPException(status_code=500, detail="Unsupported status table.")
 
 
 class MatrixCellOut(BaseModel):
@@ -273,21 +369,13 @@ def get_order_status_matrix(
     st_rows = db.execute(
         text(
             """
-            SELECT id, name, active, sort_order
+            SELECT id, name, active, sort_order, builtin_kind
             FROM status_order
             ORDER BY sort_order ASC, name ASC
             """
         )
     ).mappings().all()
-    statuses = [
-        GlobalOrderStatusOut(
-            id=str(r["id"]),
-            name=str(r["name"]),
-            active=bool(r["active"]),
-            sort_order=int(r.get("sort_order") or 0),
-        )
-        for r in st_rows
-    ]
+    statuses = [_order_row_out(dict(r)) for r in st_rows]
     cells: list[MatrixCellOut] = []
     if companies:
         if is_effective_superadmin(db, current_user.id, getattr(current_user, "active_role", None)):
@@ -445,8 +533,7 @@ def patch_global_estimate_status(
     ).mappings().first()
     if not cur:
         raise HTTPException(status_code=404, detail="Estimate status not found.")
-    if cur.get("builtin_kind"):
-        raise HTTPException(status_code=400, detail="Built-in workflow statuses cannot be edited here.")
+    is_builtin = bool(cur.get("builtin_kind"))
     name = cur["name"] if body.name is None else body.name.strip()
     if body.name is not None:
         exists_name = db.execute(
@@ -466,22 +553,9 @@ def patch_global_estimate_status(
     active = cur["active"] if body.active is None else body.active
     sort_order = cur["sort_order"] if body.sort_order is None else body.sort_order
     if body.active is False:
-        used = db.execute(
-            text(
-                """
-                SELECT 1
-                FROM company_status_estimate_matrix
-                WHERE status_estimate_id = :sid
-                LIMIT 1
-                """
-            ),
-            {"sid": status_id.strip()},
-        ).first()
-        if used:
-            raise HTTPException(
-                status_code=400,
-                detail="This status is enabled for at least one company. Disable it in the matrix first.",
-            )
+        if is_builtin:
+            raise HTTPException(status_code=400, detail="Built-in statuses cannot be deactivated.")
+        _assert_status_unused_for_deactivate(db, status_table="estimate", status_id=status_id)
     db.execute(
         text(
             """
@@ -545,8 +619,8 @@ def create_global_order_status(
         db.execute(
             text(
                 """
-                INSERT INTO status_order (id, name, active, sort_order)
-                VALUES (:id, :name, TRUE, :so)
+                INSERT INTO status_order (id, name, active, sort_order, builtin_kind)
+                VALUES (:id, :name, TRUE, :so, NULL)
                 """
             ),
             {"id": new_id, "name": nm, "so": int(next_so or 0)},
@@ -556,15 +630,10 @@ def create_global_order_status(
         db.rollback()
         raise HTTPException(status_code=400, detail="Could not create order status.") from None
     row = db.execute(
-        text("SELECT id, name, active, sort_order FROM status_order WHERE id = :id"),
+        text("SELECT id, name, active, sort_order, builtin_kind FROM status_order WHERE id = :id"),
         {"id": new_id},
     ).mappings().one()
-    return GlobalOrderStatusOut(
-        id=str(row["id"]),
-        name=str(row["name"]),
-        active=bool(row["active"]),
-        sort_order=int(row.get("sort_order") or 0),
-    )
+    return _order_row_out(dict(row))
 
 
 @router.patch("/global-order-statuses/{status_id}", response_model=GlobalOrderStatusOut)
@@ -575,11 +644,12 @@ def patch_global_order_status(
     _: Annotated[Users, Depends(require_superadmin)],
 ):
     cur = db.execute(
-        text("SELECT id, name, active, sort_order FROM status_order WHERE id = :id LIMIT 1"),
+        text("SELECT id, name, active, sort_order, builtin_kind FROM status_order WHERE id = :id LIMIT 1"),
         {"id": status_id.strip()},
     ).mappings().first()
     if not cur:
         raise HTTPException(status_code=404, detail="Order status not found.")
+    is_builtin = bool(cur.get("builtin_kind"))
     name = cur["name"] if body.name is None else body.name.strip()
     if body.name is not None:
         exists_name = db.execute(
@@ -599,22 +669,9 @@ def patch_global_order_status(
     active = cur["active"] if body.active is None else body.active
     sort_order = cur["sort_order"] if body.sort_order is None else body.sort_order
     if body.active is False:
-        used = db.execute(
-            text(
-                """
-                SELECT 1
-                FROM company_status_order_matrix
-                WHERE status_order_id = :sid
-                LIMIT 1
-                """
-            ),
-            {"sid": status_id.strip()},
-        ).first()
-        if used:
-            raise HTTPException(
-                status_code=400,
-                detail="This status is enabled for at least one company. Disable it in the matrix first.",
-            )
+        if is_builtin:
+            raise HTTPException(status_code=400, detail="Built-in statuses cannot be deactivated.")
+        _assert_status_unused_for_deactivate(db, status_table="order", status_id=status_id)
     db.execute(
         text(
             """
@@ -627,12 +684,7 @@ def patch_global_order_status(
     )
     db.commit()
     row = db.execute(
-        text("SELECT id, name, active, sort_order FROM status_order WHERE id = :id"),
+        text("SELECT id, name, active, sort_order, builtin_kind FROM status_order WHERE id = :id"),
         {"id": status_id.strip()},
     ).mappings().one()
-    return GlobalOrderStatusOut(
-        id=str(row["id"]),
-        name=str(row["name"]),
-        active=bool(row["active"]),
-        sort_order=int(row.get("sort_order") or 0),
-    )
+    return _order_row_out(dict(row))

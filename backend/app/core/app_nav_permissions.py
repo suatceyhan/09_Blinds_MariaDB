@@ -76,32 +76,6 @@ APP_PERMISSION_SEEDS: list[tuple[str, str, str, int]] = [
     ("reports.ops.quarter.detail.btn_print.edit", "Reports / Detail — Print button (action)", "reports", 123),
 ]
 
-# Minimum menu permissions granted to the default `user` role
-DEFAULT_USER_ROLE_PERMISSION_KEYS: tuple[str, ...] = (
-    "dashboard.view",
-    "dashboard.edit",
-    "schedule.view",
-    "schedule.edit",
-    "customers.view",
-    "customers.edit",
-    "estimates.view",
-    "estimates.edit",
-    "orders.view",
-    "orders.edit",
-    "lookups.view",
-    "lookups.edit",
-    "lookups.blinds_types.view",
-    "lookups.blinds_types.edit",
-    "lookups.order_statuses.view",
-    "lookups.order_statuses.edit",
-    "lookups.estimate_statuses.view",
-    "lookups.estimate_statuses.edit",
-    "lookups.product_categories.view",
-    "lookups.product_categories.edit",
-    "account.password.view",
-    "account.password.edit",
-    "account.profile.view",
-    "account.profile.edit",
-    "companies.view",
-    "companies.edit",
-)
+# Permissions auto-granted to the default `user` role when missing (bootstrap only).
+# Empty tuple: fresh installs start with no grants for non-superadmin roles (superadmin gets all via bootstrap).
+DEFAULT_USER_ROLE_PERMISSION_KEYS: tuple[str, ...] = ()

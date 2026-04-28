@@ -574,7 +574,6 @@ def _normalize_order_note(raw: str | None, max_len: int = 4000) -> str | None:
 def _ensure_default_order_status_id(db: Session, *, company_id: UUID) -> str | None:
     """Resolve global 'New order' status for the company (matrix + catalog)."""
     from app.domains.business_lookups.services.global_status_seed import (
-        DEFAULT_ORDER_STATUS_ID,
         ensure_company_order_matrix_defaults,
         ensure_global_catalog_seeded,
     )
@@ -588,7 +587,7 @@ def _ensure_default_order_status_id(db: Session, *, company_id: UUID) -> str | N
             FROM status_order so
             INNER JOIN company_status_order_matrix m
               ON m.status_order_id = so.id AND m.company_id = CAST(:cid AS uuid)
-            WHERE so.active IS TRUE AND lower(trim(so.name)) = 'new order'
+            WHERE so.active IS TRUE AND (so.builtin_kind = 'new' OR lower(trim(so.name)) = 'new order')
             LIMIT 1
             """
         ),
@@ -596,7 +595,13 @@ def _ensure_default_order_status_id(db: Session, *, company_id: UUID) -> str | N
     ).mappings().first()
     if row:
         return str(row["id"])
-    return DEFAULT_ORDER_STATUS_ID
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            "No enabled default order status for this company. "
+            "Configure order statuses in Settings → Order status matrix (or set BOOTSTRAP_PREFILL_COMPANY_LOOKUP_MATRICES=true for legacy auto-fill)."
+        ),
+    )
 
 
 def _new_customer_id_for_order() -> str:
@@ -604,25 +609,6 @@ def _new_customer_id_for_order() -> str:
 
 
 def _ready_for_install_order_status_id(db: Session, company_id: UUID) -> str | None:
-    from app.domains.business_lookups.services.global_status_seed import (
-        READY_FOR_INSTALL_ORDER_STATUS_ID,
-    )
-
-    ok = db.execute(
-        text(
-            """
-            SELECT 1
-            FROM status_order so
-            INNER JOIN company_status_order_matrix m
-              ON m.status_order_id = so.id AND m.company_id = CAST(:cid AS uuid)
-            WHERE so.id = :rid AND so.active IS TRUE
-            LIMIT 1
-            """
-        ),
-        {"cid": str(company_id), "rid": READY_FOR_INSTALL_ORDER_STATUS_ID},
-    ).first()
-    if ok:
-        return READY_FOR_INSTALL_ORDER_STATUS_ID
     row = db.execute(
         text(
             """
@@ -631,8 +617,8 @@ def _ready_for_install_order_status_id(db: Session, company_id: UUID) -> str | N
             INNER JOIN company_status_order_matrix m
               ON m.status_order_id = so.id AND m.company_id = CAST(:cid AS uuid)
             WHERE so.active IS TRUE
-              AND lower(trim(so.name)) LIKE '%ready%'
-              AND lower(trim(so.name)) LIKE '%install%'
+              AND (so.builtin_kind = 'ready_for_install'
+                   OR (lower(trim(so.name)) LIKE '%ready%' AND lower(trim(so.name)) LIKE '%install%'))
             LIMIT 1
             """
         ),

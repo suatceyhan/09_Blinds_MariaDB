@@ -1,7 +1,7 @@
 -- Seed a minimal global Estimate workflow definition + transitions.
 -- Idempotent.
 --
--- Uses built-in global estimate status ids (see backend global_status_seed.py).
+-- Uses built-in global estimate status ids (resolved via builtin_kind).
 -- Default: New → Pending → (Converted | Cancelled), and New → Cancelled.
 
 DO $$
@@ -12,11 +12,16 @@ DECLARE
   st_converted varchar(16);
   st_cancelled varchar(16);
 BEGIN
-  -- Built-in ids
-  st_new := '86de9fe2784b1d0e';
-  st_pending := 'c9dacb6c04910d38';
-  st_converted := 'd75df7e9d38dce9a';
-  st_cancelled := 'c840548f67545846';
+  -- Built-in ids (no hardcoded ids): resolve via builtin_kind.
+  SELECT id INTO st_new FROM public.status_estimate WHERE builtin_kind = 'new' LIMIT 1;
+  SELECT id INTO st_pending FROM public.status_estimate WHERE builtin_kind = 'pending' LIMIT 1;
+  SELECT id INTO st_converted FROM public.status_estimate WHERE builtin_kind = 'converted' LIMIT 1;
+  SELECT id INTO st_cancelled FROM public.status_estimate WHERE builtin_kind = 'cancelled' LIMIT 1;
+
+  IF st_new IS NULL OR st_pending IS NULL OR st_converted IS NULL OR st_cancelled IS NULL THEN
+    RAISE NOTICE 'built-in status_estimate rows missing; skipping estimate workflow seed.';
+    RETURN;
+  END IF;
 
   -- Ensure global definition exists
   INSERT INTO public.workflow_definitions (company_id, entity_type, code, name, version, is_active)

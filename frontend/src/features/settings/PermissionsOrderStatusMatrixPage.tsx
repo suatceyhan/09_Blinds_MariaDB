@@ -6,7 +6,7 @@ import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { ShowDeletedToggle } from '@/components/ui/ShowDeletedToggle'
 
 type CompanyBrief = { id: string; name: string }
-type StatusRow = { id: string; name: string; active: boolean; sort_order: number }
+type StatusRow = { id: string; name: string; active: boolean; sort_order: number; code?: string | null }
 type Cell = { company_id: string; status_id: string; enabled: boolean }
 
 type MatrixOut = {
@@ -135,6 +135,7 @@ export function PermissionsOrderStatusMatrixPage() {
   }
 
   function openEdit(st: StatusRow) {
+    // Built-ins are protected from deactivation, but name/sort can still be edited.
     setErr(null)
     setEditId(st.id)
     setEditName(st.name ?? '')
@@ -320,7 +321,9 @@ export function PermissionsOrderStatusMatrixPage() {
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
-                        {st.active ? (
+                        {st.code ? (
+                          <span className="text-xs font-semibold text-slate-400">Built-in</span>
+                        ) : st.active ? (
                           <button
                             type="button"
                             title="Deactivate"

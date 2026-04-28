@@ -2261,10 +2261,18 @@ CREATE TABLE public.status_order (
   id           VARCHAR(16) PRIMARY KEY,
   name         TEXT        NOT NULL,
   active       BOOLEAN     NOT NULL DEFAULT TRUE,
-  sort_order   INTEGER     NOT NULL DEFAULT 0
+  sort_order   INTEGER     NOT NULL DEFAULT 0,
+  builtin_kind TEXT        NULL,
+  CONSTRAINT ck_status_order_builtin_kind_global CHECK (
+    builtin_kind IS NULL
+    OR builtin_kind IN ('new', 'ready_for_install', 'in_production', 'done')
+  )
 );
 CREATE INDEX idx_status_order_global_active
   ON public.status_order (active) WHERE active IS TRUE;
+CREATE UNIQUE INDEX uq_status_order_global_builtin_nn
+  ON public.status_order (builtin_kind)
+  WHERE builtin_kind IS NOT NULL;
 CREATE TABLE public.company_status_estimate_matrix (
   company_id          UUID        NOT NULL REFERENCES public.companies (id) ON UPDATE CASCADE ON DELETE CASCADE,
   status_estimate_id  VARCHAR(16) NOT NULL REFERENCES public.status_estimate (id) ON UPDATE CASCADE ON DELETE CASCADE,
@@ -2276,13 +2284,23 @@ CREATE TABLE public.company_status_order_matrix (
   PRIMARY KEY (company_id, status_order_id)
 );
 -- ---- Seed built-in estimate statuses (global ids) ----
-INSERT INTO public.status_estimate (id, name, active, sort_order, builtin_kind) VALUES
-  ('86de9fe2784b1d0e', 'New Estimate', TRUE, -1, 'new'),
-  ('c9dacb6c04910d38', 'Pending', TRUE, 0, 'pending'),
-  ('d75df7e9d38dce9a', 'Converted to order', TRUE, 1, 'converted'),
-  ('c840548f67545846', 'Cancelled', TRUE, 2, 'cancelled');
-INSERT INTO public.status_order (id, name, active, sort_order) VALUES
-  ('88efe5e3d3512afe', 'New order', TRUE, 0);
+INSERT INTO public.status_estimate (id, name, active, sort_order, builtin_kind)
+SELECT substring(md5(gen_random_uuid()::text) for 16), 'New Estimate', TRUE, -1, 'new'
+WHERE NOT EXISTS (SELECT 1 FROM public.status_estimate se WHERE se.builtin_kind = 'new');
+INSERT INTO public.status_estimate (id, name, active, sort_order, builtin_kind)
+SELECT substring(md5(gen_random_uuid()::text) for 16), 'Pending', TRUE, 0, 'pending'
+WHERE NOT EXISTS (SELECT 1 FROM public.status_estimate se WHERE se.builtin_kind = 'pending');
+INSERT INTO public.status_estimate (id, name, active, sort_order, builtin_kind)
+SELECT substring(md5(gen_random_uuid()::text) for 16), 'Converted to order', TRUE, 1, 'converted'
+WHERE NOT EXISTS (SELECT 1 FROM public.status_estimate se WHERE se.builtin_kind = 'converted');
+INSERT INTO public.status_estimate (id, name, active, sort_order, builtin_kind)
+SELECT substring(md5(gen_random_uuid()::text) for 16), 'Cancelled', TRUE, 2, 'cancelled'
+WHERE NOT EXISTS (SELECT 1 FROM public.status_estimate se WHERE se.builtin_kind = 'cancelled');
+
+-- ---- Seed built-in order status (New order) ----
+INSERT INTO public.status_order (id, name, active, sort_order, builtin_kind)
+SELECT substring(md5(gen_random_uuid()::text) for 16), 'New order', TRUE, 0, 'new'
+WHERE NOT EXISTS (SELECT 1 FROM public.status_order so WHERE so.builtin_kind = 'new');
 -- ---- Custom global estimate rows from legacy (NULL builtin_kind), one row per distinct name ----
 INSERT INTO public.status_estimate (id, name, active, sort_order, builtin_kind)
 SELECT
@@ -2302,10 +2320,10 @@ SELECT
   l.id AS old_id,
   COALESCE(
     CASE l.builtin_kind
-      WHEN 'new' THEN '86de9fe2784b1d0e'
-      WHEN 'pending' THEN 'c9dacb6c04910d38'
-      WHEN 'converted' THEN 'd75df7e9d38dce9a'
-      WHEN 'cancelled' THEN 'c840548f67545846'
+      WHEN 'new' THEN (SELECT se.id FROM public.status_estimate se WHERE se.builtin_kind = 'new' LIMIT 1)
+      WHEN 'pending' THEN (SELECT se.id FROM public.status_estimate se WHERE se.builtin_kind = 'pending' LIMIT 1)
+      WHEN 'converted' THEN (SELECT se.id FROM public.status_estimate se WHERE se.builtin_kind = 'converted' LIMIT 1)
+      WHEN 'cancelled' THEN (SELECT se.id FROM public.status_estimate se WHERE se.builtin_kind = 'cancelled' LIMIT 1)
     END,
     substring(md5('global:est:custom:' || lower(trim(l.name)))::text, 1, 16)
   ) AS new_id
@@ -2315,7 +2333,7 @@ SET status_esti_id = m.new_id
 FROM tmp_est_map m
 WHERE e.company_id = m.company_id AND e.status_esti_id = m.old_id;
 UPDATE public.estimate e
-SET status_esti_id = 'c9dacb6c04910d38'
+SET status_esti_id = (SELECT se.id FROM public.status_estimate se WHERE se.builtin_kind = 'pending' LIMIT 1)
 WHERE NOT EXISTS (SELECT 1 FROM public.status_estimate s WHERE s.id = e.status_esti_id);
 INSERT INTO public.company_status_estimate_matrix (company_id, status_estimate_id)
 SELECT DISTINCT company_id, new_id
@@ -2330,12 +2348,13 @@ WHERE c.is_deleted IS NOT TRUE
   AND s.builtin_kind IS NOT NULL
 ON CONFLICT (company_id, status_estimate_id) DO NOTHING;
 -- ---- Order statuses: custom globals from legacy (excluding canonical New order name) ----
-INSERT INTO public.status_order (id, name, active, sort_order)
+INSERT INTO public.status_order (id, name, active, sort_order, builtin_kind)
 SELECT
   substring(md5('global:ord:custom:' || lower(trim(name)))::text, 1, 16) AS id,
   max(trim(name)) AS name,
   bool_or(active) AS active,
-  min(sort_order)::int AS sort_order
+  min(sort_order)::int AS sort_order,
+  NULL::text AS builtin_kind
 FROM public.status_order_legacy
 WHERE lower(trim(name)) <> 'new order'
 GROUP BY lower(trim(name))
@@ -2345,7 +2364,7 @@ SELECT
   l.company_id,
   l.id AS old_id,
   CASE
-    WHEN lower(trim(l.name)) = 'new order' THEN '88efe5e3d3512afe'
+    WHEN lower(trim(l.name)) = 'new order' THEN (SELECT so.id FROM public.status_order so WHERE so.builtin_kind = 'new' LIMIT 1)
     ELSE substring(md5('global:ord:custom:' || lower(trim(l.name)))::text, 1, 16)
   END AS new_id
 FROM public.status_order_legacy l;
@@ -2354,7 +2373,7 @@ SET status_orde_id = m.new_id
 FROM tmp_ord_map m
 WHERE o.company_id = m.company_id AND o.status_orde_id = m.old_id;
 UPDATE public.orders o
-SET status_orde_id = '88efe5e3d3512afe'
+SET status_orde_id = (SELECT so.id FROM public.status_order so WHERE so.builtin_kind = 'new' LIMIT 1)
 WHERE o.status_orde_id IS NOT NULL
   AND NOT EXISTS (SELECT 1 FROM public.status_order s WHERE s.id = o.status_orde_id);
 INSERT INTO public.company_status_order_matrix (company_id, status_order_id)
@@ -2362,7 +2381,7 @@ SELECT DISTINCT company_id, new_id
 FROM tmp_ord_map
 ON CONFLICT (company_id, status_order_id) DO NOTHING;
 INSERT INTO public.company_status_order_matrix (company_id, status_order_id)
-SELECT c.id, '88efe5e3d3512afe'
+SELECT c.id, (SELECT so.id FROM public.status_order so WHERE so.builtin_kind = 'new' LIMIT 1)
 FROM public.companies c
 WHERE c.is_deleted IS NOT TRUE
 ON CONFLICT (company_id, status_order_id) DO NOTHING;
@@ -2954,7 +2973,7 @@ BEGIN
   ),
   ids AS (
     SELECT
-      '88efe5e3d3512afe'::varchar(32) AS st_new,
+      (SELECT so.id FROM public.status_order so WHERE so.builtin_kind = 'new' LIMIT 1)::varchar(32) AS st_new,
       substring(md5('global:ord:builtin:in_production') for 16)::varchar(32) AS st_prod,
       substring(md5('global:ord:builtin:ready_for_install') for 16)::varchar(32) AS st_rfi,
       substring(md5('global:ord:builtin:done') for 16)::varchar(32) AS st_done

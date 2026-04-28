@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from html import escape
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, Response
@@ -19,6 +20,7 @@ from sqlalchemy.orm import Session
 from typing_extensions import Annotated
 
 from app.core.authorization import is_effective_superadmin
+from app.core.config import settings
 from app.core.database import get_db
 from app.dependencies.auth import effective_company_id, require_permissions
 from app.domains.settings.deposit_contract_presets import (
@@ -57,6 +59,80 @@ def _company_document_templates_has_preset_key(db: Session) -> bool:
     ).scalar()
     db.info[_PRESET_KEY_COLUMN_CACHE_KEY] = bool(exists)
     return bool(exists)
+
+
+def seed_default_contract_invoice_templates_for_company(db: Session, company_id: UUID) -> None:
+    """Insert built-in deposit + final invoice rows for a new company when missing (Settings shows saved templates).
+
+    Controlled by ``bootstrap_seed_company_contract_invoice_templates``. Does not commit.
+    """
+    if not settings.bootstrap_seed_company_contract_invoice_templates:
+        return
+    cid = str(company_id)
+    rows = db.execute(
+        text(
+            """
+            SELECT kind FROM company_document_templates
+            WHERE company_id = CAST(:cid AS uuid) AND is_deleted IS NOT TRUE
+            """
+        ),
+        {"cid": cid},
+    ).fetchall()
+    kinds = {str(r[0]) for r in rows}
+    has_pk = _company_document_templates_has_preset_key(db)
+
+    if "deposit_contract" not in kinds:
+        if has_pk:
+            db.execute(
+                text(
+                    """
+                    INSERT INTO company_document_templates
+                      (company_id, kind, subject, body_html, preset_key, created_at, updated_at, is_deleted)
+                    VALUES (CAST(:cid AS uuid), 'deposit_contract', '', '', :pk, NOW(), NOW(), FALSE)
+                    ON CONFLICT (company_id, kind) DO NOTHING
+                    """
+                ),
+                {"cid": cid, "pk": default_deposit_preset()[0]},
+            )
+        else:
+            _k, preset = default_deposit_preset()
+            db.execute(
+                text(
+                    """
+                    INSERT INTO company_document_templates
+                      (company_id, kind, subject, body_html, created_at, updated_at, is_deleted)
+                    VALUES (CAST(:cid AS uuid), 'deposit_contract', :subj, :html, NOW(), NOW(), FALSE)
+                    ON CONFLICT (company_id, kind) DO NOTHING
+                    """
+                ),
+                {"cid": cid, "subj": preset.subject, "html": preset.body_html},
+            )
+
+    if "final_invoice" not in kinds:
+        if has_pk:
+            db.execute(
+                text(
+                    """
+                    INSERT INTO company_document_templates
+                      (company_id, kind, subject, body_html, preset_key, created_at, updated_at, is_deleted)
+                    VALUES (CAST(:cid AS uuid), 'final_invoice', :subj, :html, NULL, NOW(), NOW(), FALSE)
+                    ON CONFLICT (company_id, kind) DO NOTHING
+                    """
+                ),
+                {"cid": cid, "subj": "Final invoice", "html": FINAL_INVOICE_DEFAULT_HTML},
+            )
+        else:
+            db.execute(
+                text(
+                    """
+                    INSERT INTO company_document_templates
+                      (company_id, kind, subject, body_html, created_at, updated_at, is_deleted)
+                    VALUES (CAST(:cid AS uuid), 'final_invoice', :subj, :html, NOW(), NOW(), FALSE)
+                    ON CONFLICT (company_id, kind) DO NOTHING
+                    """
+                ),
+                {"cid": cid, "subj": "Final invoice", "html": FINAL_INVOICE_DEFAULT_HTML},
+            )
 
 
 class TemplateOut(BaseModel):

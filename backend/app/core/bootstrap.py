@@ -53,43 +53,13 @@ def seed_super_admin(db: Session) -> None:
     db.commit()
 
 
-def seed_company_owner_missing_permission_grants(db: Session) -> None:
-    """Şirket sahibi rolü için yalnızca eksik (hiç kayıt yok) izin satırlarını ekler.
+def seed_company_owner_missing_permission_grants(_db: Session) -> None:
+    """Reserved for compatibility with startup order; intentionally does not grant permissions.
 
-    Role permissions ekranında kapatılan izinler `role_permissions` satırında kalır
-    (`is_deleted=True`). Eski `full_grants` mantığı her restart'ta bunları tekrar açıyordu.
-    Mevcut satıra dokunulmaz; sadece (rol, izin) çifti için tabloda satır yoksa `granted` eklenir.
-    Böylece yeni `Permissions` satırları ilk açılışta admin'e verilir, özelleştirme korunur.
+    Fresh installs use zero grants for non-superadmin roles (`admin`, `user`, …).
+    Superadmin receives all permissions via `seed_superadmin_missing_permission_grants`.
+    Assign grants in Settings → Role permissions after onboarding.
     """
-    name = (settings.default_company_owner_role_name or "admin").strip()
-    if not name:
-        return
-    role = db.query(Roles).filter(Roles.name == name, Roles.is_deleted.is_(False)).first()
-    if not role:
-        return
-    changed = False
-    for perm in db.query(Permissions).filter(Permissions.is_deleted.is_(False)).all():
-        exists = (
-            db.query(RolePermissions)
-            .filter(
-                RolePermissions.role_id == role.id,
-                RolePermissions.permission_id == perm.id,
-            )
-            .first()
-        )
-        if exists is not None:
-            continue
-        db.add(
-            RolePermissions(
-                role_id=role.id,
-                permission_id=perm.id,
-                is_granted=True,
-                is_deleted=False,
-            )
-        )
-        changed = True
-    if changed:
-        db.commit()
 
 
 def seed_superadmin_missing_permission_grants(db: Session) -> None:

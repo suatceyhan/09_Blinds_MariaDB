@@ -10,11 +10,16 @@ from fastapi import HTTPException
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
+
+
 def ensure_company_product_category_matrix_defaults(db: Session, company_id: UUID) -> None:
     """Seed category matrix for a company when empty.
 
     Important: do NOT auto-enable newly created categories for existing companies.
     """
+    if not settings.bootstrap_prefill_company_lookup_matrices:
+        return
     cid = str(company_id)
     any_row = db.execute(
         text(

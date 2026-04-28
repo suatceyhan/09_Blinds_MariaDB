@@ -120,7 +120,7 @@ export type OrderDetail = {
   line_photos?: Record<string, OrderAttachmentRow[]>
 }
 
-export type OrderStatusOpt = { id: string; name: string; sort_order?: number }
+export type OrderStatusOpt = { id: string; name: string; sort_order?: number; code?: string | null }
 
 export function isoToDatetimeLocalValue(iso: string | null | undefined): string {
   if (!iso) return ''
@@ -146,6 +146,7 @@ export function datetimeLocalToIso(local: string): string | null {
 
 export function isReadyForInstallationStatus(statusId: string, statuses: OrderStatusOpt[]): boolean {
   const s = statuses.find((x) => x.id === statusId)
+  if (s?.code === 'ready_for_install') return true
   const n = (s?.name ?? '').toLowerCase()
   return n.includes('ready') && n.includes('install')
 }

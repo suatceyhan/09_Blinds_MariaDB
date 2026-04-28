@@ -14,3 +14,4 @@ Yeni migration eklerken mevcut en büyük numaradan bir sonrakini kullanın.
 - `42_workflow_transitions_soft_delete.sql`: `workflow_transitions.deleted_at` — ayarlardan silinen geçişler kalır; **Show deleted / Restore** ile geri alınır; runtime yalnızca aktif (`deleted_at IS NULL`) geçişleri kullanır.
 - `43_estimate_workflow_engine_seed.sql`: Global **Estimate workflow** varsayılanı (New → Pending → Converted/Cancelled) seed.
 - `44_permissions_estimate_workflow.sql`: Settings → Estimate workflow ekranı için permission key backfill (permissions + superadmin grants).
+- `45_status_order_builtin_kind.sql`: `status_order.builtin_kind` (order built-in status tanımları) — kod/seed’lerde hardcode id yerine `builtin_kind` ile çözümleme için.

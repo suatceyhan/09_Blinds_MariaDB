@@ -135,7 +135,6 @@ export function PermissionsEstimateStatusMatrixPage() {
   }
 
   function openEdit(st: StatusRow) {
-    if (st.code) return
     setErr(null)
     setEditId(st.id)
     setEditName(st.name ?? '')
@@ -333,7 +332,8 @@ export function PermissionsEstimateStatusMatrixPage() {
                                 type="button"
                                 title="Deactivate"
                                 onClick={() => setPendingToggle({ id: st.id, name: st.name, nextActive: false })}
-                                className="rounded-lg p-2 text-red-600 hover:bg-red-50"
+                                disabled={Boolean(st.code)}
+                                className="rounded-lg p-2 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
                               >
                                 <Trash2 className="h-4 w-4" />
                               </button>
@@ -342,7 +342,8 @@ export function PermissionsEstimateStatusMatrixPage() {
                                 type="button"
                                 title="Restore"
                                 onClick={() => setPendingToggle({ id: st.id, name: st.name, nextActive: true })}
-                                className="rounded-lg p-2 text-teal-700 hover:bg-teal-50"
+                                disabled={Boolean(st.code)}
+                                className="rounded-lg p-2 text-teal-700 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-40"
                               >
                                 <RotateCcw className="h-4 w-4" />
                               </button>
