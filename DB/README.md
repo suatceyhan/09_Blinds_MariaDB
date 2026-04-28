@@ -11,3 +11,4 @@ Yeni migration eklerken mevcut en büyük numaradan bir sonrakini kullanın.
 - `39_estimate_lead_source.sql`: `estimate.lead_source` (referral / advertising) alanı ekler; ay-ay müşteri kaynağı analizleri için.
 - `40_workflow_engine.sql`: Konfigüre edilebilir workflow engine tabloları (workflow definition + transitions + actions) ve Order için varsayılan akış seed’i.
 - `41_permissions_order_workflow.sql`: Settings → Order workflow ekranı için permission key backfill (permissions + superadmin grants).
+- `42_workflow_transitions_soft_delete.sql`: `workflow_transitions.deleted_at` — ayarlardan silinen geçişler kalır; **Show deleted / Restore** ile geri alınır; runtime yalnızca aktif (`deleted_at IS NULL`) geçişleri kullanır.

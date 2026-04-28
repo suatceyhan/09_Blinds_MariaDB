@@ -1622,6 +1622,7 @@ def order_workflow(
             FROM workflow_transitions
             WHERE workflow_definition_id = CAST(:wid AS uuid)
               AND COALESCE(from_status_id,'') = COALESCE(:from_sid,'')
+              AND deleted_at IS NULL
             ORDER BY sort_order ASC, created_at ASC, id ASC
             """
         ),
@@ -1687,6 +1688,7 @@ def order_workflow_transition(
             WHERE workflow_definition_id = CAST(:wid AS uuid)
               AND COALESCE(from_status_id,'') = COALESCE(:from_sid,'')
               AND to_status_id = :to_sid
+              AND deleted_at IS NULL
             LIMIT 1
             """
         ),
