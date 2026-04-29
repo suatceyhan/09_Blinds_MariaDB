@@ -1,6 +1,6 @@
 # Veritabanı betikleri
 
-- **`blinds-postgresql.sql`**: PostgreSQL için ilk kurulum / tam şema. Auth/RBAC + kiracı iskeleti + blinds iş alanı tabloları (örn. `customers`, `orders`, `estimate`, `blinds_type*`, `status_*`) ve tenant RLS policy’leri. **Workflow engine ve ilişkili migration’lar (40–45)** bu dosyanın sonunda (`$mig40$` … `$mig45$`) gömülüdür.
+- **`blinds-postgresql.sql`**: PostgreSQL için ilk kurulum / tam şema. Auth/RBAC + kiracı iskeleti + blinds iş alanı tabloları (örn. `customers`, `orders`, `estimate`, `blinds_type*`, `status_*`) ve tenant RLS policy’leri. **`blinds_product_category`** ilk kurulumda **boş** başlar (ürün kategorileri Lookups’tan eklenir). **Workflow engine ve ilişkili migration’lar (40–45)** bu dosyanın sonunda (`$mig40$` … `$mig45$`) gömülüdür.
 - **`blinds-mariadb.sql`**: MariaDB için uyarlanmış şema betiği (RLS/policy, plpgsql trigger/function ve PostgreSQL’e özel migration blokları çıkarılmış; “final şema” oluşturur).
 - **`NN_*.sql`**: Yeni schema değişiklikleri için migration’lar. (Önceki **01..29** ve **40..45** seti PostgreSQL tarafında tam şemaya konsolide edildi; yeni kurulum için `blinds-postgresql.sql` kullanın.)
 

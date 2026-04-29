@@ -1727,7 +1727,7 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_note TEXT;
 -- Global product categories (shared by all companies) + per-company matrix:
 -- which categories are allowed for each blinds type.
 -- Orders store blinds_lines[].category = blinds_product_category.code (exposed as "id" in the API).
--- Starter rows below run only when you apply this SQL; the application does not re-insert them at runtime.
+-- Global catalog starts empty: add categories under Lookups (superadmin). type×category backfill below inserts nothing until categories exist.
 -- Idempotent: safe to run multiple times on empty or already-migrated DB.
 BEGIN;
 CREATE TABLE IF NOT EXISTS blinds_product_category (
@@ -1758,12 +1758,7 @@ CREATE TABLE IF NOT EXISTS blinds_type_category_allowed (
 );
 CREATE INDEX IF NOT EXISTS idx_btca_company_type
   ON blinds_type_category_allowed (company_id, blinds_type_id);
-INSERT INTO blinds_product_category (code, name, sort_order, active) VALUES
-  ('classic', 'Classic', 1, TRUE),
-  ('delux', 'Delux', 2, TRUE),
-  ('premium', 'Premium', 3, TRUE)
-ON CONFLICT (code) DO NOTHING;
--- Backfill matrix (name-based rules), excluding curtain types.
+-- Backfill matrix (name-based rules), excluding curtain types (no rows until blinds_product_category has codes).
 INSERT INTO blinds_type_category_allowed (company_id, blinds_type_id, category_code)
 SELECT bt.company_id, bt.id, pc.code
 FROM blinds_type bt
@@ -1839,11 +1834,6 @@ BEGIN
 
     DROP TABLE blinds_product_category_old;
 
-    INSERT INTO blinds_product_category (code, name, sort_order, active) VALUES
-      ('classic', 'Classic', 1, TRUE),
-      ('delux', 'Delux', 2, TRUE),
-      ('premium', 'Premium', 3, TRUE)
-    ON CONFLICT (code) DO NOTHING;
   END IF;
 END
 $m$;
@@ -2629,6 +2619,7 @@ ON CONFLICT (user_id, permission_id, role_id) DO NOTHING;
 
 -- 31_company_blinds_product_category_matrix.sql
 -- Per-company enablement of global product categories (same pattern as company_status_*_matrix).
+-- INSERT below adds rows only when blinds_product_category already has active rows (fresh install: empty matrix).
 BEGIN;
 CREATE TABLE IF NOT EXISTS public.company_blinds_product_category_matrix (
   company_id    UUID        NOT NULL REFERENCES public.companies (id) ON UPDATE CASCADE ON DELETE CASCADE,
