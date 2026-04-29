@@ -66,7 +66,7 @@ type OrderWorkflowTransitionResult = {
 
 type ActionType = {
   type: string
-  ui_secondary?: { label: string; kind: 'navigate_edit' | 'open_expense' } | null
+  ui_secondary?: { label: string; kind: 'open_expense' } | null
 }
 
 export function OrdersPage() {
@@ -251,18 +251,9 @@ export function OrdersPage() {
     return f ?? null
   }
 
-  async function confirmAdvanceOrderStatus(opts?: { navigateToEdit?: boolean }) {
+  async function confirmAdvanceOrderStatus() {
     if (!advanceConfirm || !canEdit) return
     const { row, transition } = advanceConfirm
-    const navigateToEdit = Boolean(opts?.navigateToEdit)
-    if (navigateToEdit) {
-      // Do not mutate status yet. Preselect it in Edit and auto-open any required form.
-      setAdvanceConfirm(null)
-      navigate(
-        `/orders/${row.id}/edit?prefillStatus=${encodeURIComponent(transition.to_status_orde_id)}&openInstallation=1`,
-      )
-      return
-    }
     setAdvanceConfirmPending(true)
     setErr(null)
     try {
@@ -1059,9 +1050,6 @@ export function OrdersPage() {
             for (const a of tr.actions ?? []) {
               const sec = byType.get(a.type) ?? null
               if (!sec) continue
-              if (sec.kind === 'navigate_edit') {
-                return { label: sec.label, onClick: () => void confirmAdvanceOrderStatus({ navigateToEdit: true }) }
-              }
               if (sec.kind === 'open_expense') {
                 return { label: sec.label, onClick: () => void confirmAdvanceOrderStatusAndOpenExpense() }
               }

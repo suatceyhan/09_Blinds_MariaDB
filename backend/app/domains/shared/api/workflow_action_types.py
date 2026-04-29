@@ -32,10 +32,10 @@ class JsonSchemaFieldOut(BaseModel):
 
 
 class ActionUiSecondaryOut(BaseModel):
-    """How list UIs can offer a secondary shortcut action."""
+    """How list UIs can offer a secondary shortcut action (e.g. open expense flow)."""
 
     label: str
-    kind: Literal["navigate_edit", "open_expense"] = "navigate_edit"
+    kind: Literal["open_expense"] = "open_expense"
 
 
 class WorkflowActionTypeOut(BaseModel):
@@ -76,7 +76,7 @@ def list_workflow_action_types(
                     ],
                 ),
             ],
-            ui_secondary=ActionUiSecondaryOut(label="Enter details now", kind="navigate_edit"),
+            ui_secondary=None,
         ),
         WorkflowActionTypeOut(
             type="open_expense",

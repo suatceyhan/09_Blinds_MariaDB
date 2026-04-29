@@ -91,7 +91,7 @@ function buildAskFormConfigFromSingleField(f: {
     fields: [
       {
         key,
-        label: f.label.trim() || key,
+        label: String(f.label ?? '').trim() === '' ? key : String(f.label ?? ''),
         kind: f.kind,
         required: false,
         target: f.targetTable,
@@ -181,7 +181,7 @@ export function SettingsEstimateWorkflowPage() {
         if (!opts.enabled) return { ...t, actions: [] }
         const targetTable = (opts.targetTable ?? 'estimate').trim() || 'estimate'
         const targetField = (opts.targetField ?? '').trim()
-        const label = (opts.label ?? '').trim()
+        const label = opts.label !== undefined ? String(opts.label) : ''
         const available = schemaFields?.tables?.[targetTable] ?? []
         const inferred = available.find((x) => x.field === targetField)?.type ?? 'text'
         const kind = inferred === 'date' ? 'date' : inferred === 'datetime' ? 'datetime' : inferred
@@ -391,7 +391,7 @@ export function SettingsEstimateWorkflowPage() {
                       null
                     const targetTable = normalizeStoredTargetTable(f0?.target)
                     const targetField = String(f0?.target_field ?? f0?.key ?? '').trim()
-                    const label = String(f0?.label ?? '').trim()
+                    const labelRaw = String(f0?.label ?? '')
                     const available = schemaFields?.tables?.[targetTable] ?? []
                     const tableNames = Object.keys(schemaFields?.tables ?? {}).sort((x, y) => x.localeCompare(y))
                     const inferred = available.find((x) => x.field === targetField)?.type ?? 'text'
@@ -578,7 +578,7 @@ export function SettingsEstimateWorkflowPage() {
                                             enabled: true,
                                             targetTable: v,
                                             targetField: '',
-                                            label,
+                                            label: labelRaw,
                                           })
                                         }}
                                         className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:bg-slate-100"
@@ -605,7 +605,7 @@ export function SettingsEstimateWorkflowPage() {
                                             enabled: true,
                                             targetTable,
                                             targetField: e.target.value,
-                                            label,
+                                            label: labelRaw,
                                           })
                                         }
                                         className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:bg-slate-100"
@@ -622,7 +622,7 @@ export function SettingsEstimateWorkflowPage() {
                                       <span className="text-xs font-medium text-slate-700">User-facing label</span>
                                       <input
                                         disabled={!canEdit}
-                                        value={label}
+                                        value={labelRaw}
                                         onChange={(e) =>
                                           updateTransitionAskField({
                                             transitionKey: d.key,
