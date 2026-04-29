@@ -241,6 +241,10 @@ export function OrderEditPage() {
   } | null>(null)
   const [deleteAttachmentPending, setDeleteAttachmentPending] = useState(false)
   const [orderFormBaseline, setOrderFormBaseline] = useState<OrderEditBaseline | null>(null)
+  /** Done + zero job balance (API): lock lines/payments/additions; expenses still allowed. */
+  const [jobEditLocked, setJobEditLocked] = useState(false)
+
+  const canMutateOrder = useMemo(() => canEdit && !jobEditLocked, [canEdit, jobEditLocked])
 
   const blindsTypes = blindsOrderOptions?.blinds_types ?? null
 
@@ -447,6 +451,7 @@ export function OrderEditPage() {
         .map(toEditAdditionOrder)
         .sort((a, b) => String(a.created_at ?? '').localeCompare(String(b.created_at ?? ''))),
     )
+    setJobEditLocked(Boolean(detail.job_edit_locked))
   }
 
   // Handle deep link from Orders list: preselect status + open installation picker.
@@ -481,7 +486,7 @@ export function OrderEditPage() {
   // Prefill is applied in `applyOrderData` after order loads, so it can't be overwritten by API state.
 
   async function uploadLinePhoto(targetOrderId: string, blindsTypeId: string, file: File | null | undefined) {
-    if (!targetOrderId || !canEdit || !file) return
+    if (!targetOrderId || !canEdit || jobEditLocked || !file) return
     setErr(null)
     try {
       const resized = await resizePhotoForUpload(file, {
@@ -515,7 +520,7 @@ export function OrderEditPage() {
             accept="image/*"
             capture="environment"
             className="hidden"
-            disabled={!checked}
+            disabled={!checked || jobEditLocked}
             onChange={(e) => {
               const f = e.target.files?.[0]
               e.target.value = ''
@@ -527,7 +532,7 @@ export function OrderEditPage() {
             type="file"
             accept="image/*"
             className="hidden"
-            disabled={!checked}
+            disabled={!checked || jobEditLocked}
             onChange={(e) => {
               const f = e.target.files?.[0]
               e.target.value = ''
@@ -539,7 +544,7 @@ export function OrderEditPage() {
               type="button"
               title={checked ? 'Take photo' : 'Select type first'}
               aria-label={`Take photo for ${typeId}`}
-              disabled={!checked}
+              disabled={!checked || jobEditLocked}
               onClick={() => document.getElementById(camId)?.click()}
               className="rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400"
             >
@@ -549,7 +554,7 @@ export function OrderEditPage() {
               type="button"
               title={checked ? 'Upload photo' : 'Select type first'}
               aria-label={`Upload photo for ${typeId}`}
-              disabled={!checked}
+              disabled={!checked || jobEditLocked}
               onClick={() => document.getElementById(upId)?.click()}
               className="rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400"
             >
@@ -606,6 +611,7 @@ export function OrderEditPage() {
       setEditInstallationStart('')
       setEditAttachments([])
       setEditAdditionOrders([])
+      setJobEditLocked(false)
     } finally {
       if (showSpinner) setEditLoading(false)
     }
@@ -801,7 +807,7 @@ export function OrderEditPage() {
   }
 
   async function saveOrderEdit() {
-    if (!orderId || !editDraft || !canEdit) return
+    if (!orderId || !editDraft || !canMutateOrder) return
     if (!editDraft.status_orde_id.trim()) {
       setErr('Select an order status.')
       return
@@ -904,7 +910,7 @@ export function OrderEditPage() {
   }
 
   async function submitRecordPayment() {
-    if (!orderId || !canEdit) return
+    if (!orderId || !canMutateOrder) return
     const amt = parseOptionalDecimal(paymentAmountInput.trim())
     if (amt == null || amt <= 0) {
       setPaymentErr('Enter a valid payment amount.')
@@ -967,7 +973,7 @@ export function OrderEditPage() {
   }, [editRollupTotals.bal, editComputedBalance, editAdditionComputed])
 
   async function runDeletePaymentEntry() {
-    if (!deletePaymentEntryTarget || !canEdit) return
+    if (!deletePaymentEntryTarget || !canMutateOrder) return
     setDeletePaymentPending(true)
     setErr(null)
     setPaymentErr(null)
@@ -1026,7 +1032,7 @@ export function OrderEditPage() {
   }
 
   async function runDeleteAttachment() {
-    if (!deleteAttachmentTarget || !canEdit) return
+    if (!deleteAttachmentTarget || !canMutateOrder) return
     setDeleteAttachmentPending(true)
     setErr(null)
     try {
@@ -1356,6 +1362,14 @@ export function OrderEditPage() {
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{err}</div>
       ) : null}
 
+      {jobEditLocked ? (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+          This job is completed and paid in full. Order lines, payments, additional orders, and attachments cannot be
+          changed. You can still record expenses below. For new products, create a new order for this customer from the
+          Orders page.
+        </div>
+      ) : null}
+
       {editLoading || !editDraft ? (
         <p className="text-sm text-slate-500">Loading...</p>
       ) : (
@@ -1398,7 +1412,8 @@ export function OrderEditPage() {
                       <div className="mt-2">
                         <select
                           required
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                          disabled={jobEditLocked}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
                           value={editDraft.status_orde_id}
                           onChange={(e) => {
                             const nextId = e.target.value
@@ -1454,7 +1469,10 @@ export function OrderEditPage() {
                               : snapWallToQuarterMinutes('')
                           }
                           onChange={(w) => setEditInstallationStart(w)}
-                          disabled={!isReadyForInstallationStatus(editDraft.status_orde_id, orderStatuses ?? [])}
+                          disabled={
+                            jobEditLocked ||
+                            !isReadyForInstallationStatus(editDraft.status_orde_id, orderStatuses ?? [])
+                          }
                           compact
                           autoOpen={autoOpenInstallation}
                         />
@@ -1481,11 +1499,17 @@ export function OrderEditPage() {
                     {canEdit ? (
                       <button
                         type="button"
-                        disabled={!(editRollupTotals.bal > 0.005) || paymentPending}
-                        title={editRollupTotals.bal > 0.005 ? 'Record a payment' : 'Job balance is already fully paid.'}
+                        disabled={jobEditLocked || !(editRollupTotals.bal > 0.005) || paymentPending}
+                        title={
+                          jobEditLocked
+                            ? 'Payments are locked for completed jobs.'
+                            : editRollupTotals.bal > 0.005
+                              ? 'Record a payment'
+                              : 'Job balance is already fully paid.'
+                        }
                         className="inline-flex items-center justify-center rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
                         onClick={() => {
-                          if (!(editRollupTotals.bal > 0.005) || paymentPending) return
+                          if (jobEditLocked || !(editRollupTotals.bal > 0.005) || paymentPending) return
                           setPaymentAmountInput('')
                           setPaymentModalOpen(true)
                         }}
@@ -1560,7 +1584,7 @@ export function OrderEditPage() {
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
                             <span className="text-slate-500">{fmtDisplayDateTime(p.paid_at)}</span>
-                            {canEdit && p.id !== 'downpayment' ? (
+                            {canMutateOrder && p.id !== 'downpayment' ? (
                               <button
                                 type="button"
                                 title="Remove payment"
@@ -1691,6 +1715,7 @@ export function OrderEditPage() {
                         setLineAmount={editSetBlindsLineAmount}
                         renderLinePhotoCell={orderId ? renderLinePhotoCell(orderId, 'edit-orig') : undefined}
                         keyPrefix="edit"
+                        disabled={jobEditLocked}
                       />
                       {editBlindsLines.length === 0 ? (
                         <p className="mt-2 text-xs text-amber-700">Choose at least one blinds type.</p>
@@ -1705,7 +1730,8 @@ export function OrderEditPage() {
                         rows={2}
                         maxLength={4000}
                         placeholder="Optional note for this order..."
-                        className="w-full whitespace-pre-wrap rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                        disabled={jobEditLocked}
+                        className="w-full whitespace-pre-wrap rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
                       />
                     </label>
 
@@ -1721,7 +1747,8 @@ export function OrderEditPage() {
                           <span className="mb-1 block font-medium">Down payment</span>
                           <input
                             inputMode="decimal"
-                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
+                            disabled={jobEditLocked}
+                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
                             value={editDraft.downpayment}
                             onChange={(e) => setEditDraft((d) => (d ? { ...d, downpayment: e.target.value } : d))}
                             onBlur={() => {
@@ -1741,7 +1768,8 @@ export function OrderEditPage() {
                           <span className="mb-1 block font-medium">Taxable base</span>
                           <input
                             inputMode="decimal"
-                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
+                            disabled={jobEditLocked}
+                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
                             value={editDraft.tax_base}
                             onChange={(e) => setEditDraft((d) => (d ? { ...d, tax_base: e.target.value } : d))}
                             onBlur={() => {
@@ -1769,7 +1797,8 @@ export function OrderEditPage() {
                       <span className="mb-1 block font-medium">Agreement date (optional)</span>
                       <input
                         type="date"
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                        disabled={jobEditLocked}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
                         value={editDraft.agreement_date}
                         onChange={(e) => setEditDraft((d) => (d ? { ...d, agreement_date: e.target.value } : d))}
                       />
@@ -1782,7 +1811,7 @@ export function OrderEditPage() {
                         serverFiles={editAttachments}
                         pendingFiles={[]}
                         onPendingChange={() => {}}
-                        canEdit={canEdit}
+                        canEdit={canMutateOrder}
                         uploadBusy={attachmentUploadBusy || editSaving}
                         setUploadBusy={setAttachmentUploadBusy}
                         onAfterServerMutation={async () => {
@@ -1821,7 +1850,8 @@ export function OrderEditPage() {
                               {isPendingAdditionOrderId(a.order_id) ? (
                                 <button
                                   type="button"
-                                  className="inline-flex shrink-0 rounded-lg p-1.5 text-red-600 hover:bg-red-50"
+                                  disabled={jobEditLocked}
+                                  className="inline-flex shrink-0 rounded-lg p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-40"
                                   title="Remove draft additional order"
                                   aria-label="Remove draft additional order"
                                   onMouseDown={(e) => {
@@ -1856,6 +1886,7 @@ export function OrderEditPage() {
                                     !isPendingAdditionOrderId(a.order_id) ? renderLinePhotoCell(a.order_id, `edit-add-${a.order_id}`) : undefined
                                   }
                                   keyPrefix={`edit-add-${a.order_id}`}
+                                  disabled={jobEditLocked}
                                 />
                                 {a.blinds_lines.length === 0 ? (
                                   <p className="mt-2 text-xs text-amber-700">Choose at least one blinds type.</p>
@@ -1870,7 +1901,8 @@ export function OrderEditPage() {
                                   rows={2}
                                   maxLength={4000}
                                   placeholder="Optional note for this additional order..."
-                                  className="w-full whitespace-pre-wrap rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                                  disabled={jobEditLocked}
+                                  className="w-full whitespace-pre-wrap rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
                                 />
                               </label>
 
@@ -1886,7 +1918,8 @@ export function OrderEditPage() {
                                     <span className="mb-1 block font-medium">Down payment</span>
                                     <input
                                       inputMode="decimal"
-                                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
+                                      disabled={jobEditLocked}
+                                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
                                       value={a.downpayment}
                                       onChange={(e) => editAdditionUpdate(a.order_id, { downpayment: e.target.value })}
                                       onBlur={() => {
@@ -1901,7 +1934,8 @@ export function OrderEditPage() {
                                     <span className="mb-1 block font-medium">Taxable base</span>
                                     <input
                                       inputMode="decimal"
-                                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
+                                      disabled={jobEditLocked}
+                                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
                                       value={a.tax_base}
                                       onChange={(e) => editAdditionUpdate(a.order_id, { tax_base: e.target.value })}
                                       onBlur={() => {
@@ -1924,7 +1958,8 @@ export function OrderEditPage() {
                                 <span className="mb-1 block font-medium">Agreement date (optional)</span>
                                 <input
                                   type="date"
-                                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                                  disabled={jobEditLocked}
+                                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
                                   value={a.agreement_date}
                                   onChange={(e) => editAdditionUpdate(a.order_id, { agreement_date: e.target.value })}
                                 />
@@ -1937,7 +1972,7 @@ export function OrderEditPage() {
 
                   <button
                     type="button"
-                    disabled={!canEdit || editSaving || !orderId}
+                    disabled={!canMutateOrder || editSaving || !orderId}
                     className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-teal-200 bg-teal-50/70 px-4 py-3 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50 disabled:opacity-50"
                     onClick={() => appendPendingAddition()}
                     title="Add additional order"
@@ -1961,6 +1996,7 @@ export function OrderEditPage() {
             <button
               type="submit"
               disabled={
+                jobEditLocked ||
                 editSaving ||
                 !isOrderDirty ||
                 !editDraft.status_orde_id.trim() ||

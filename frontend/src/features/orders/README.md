@@ -10,6 +10,8 @@ Sipariş oluşturma, düzenleme, durum takibi.
 
 **+ Additional order** appends another **Additional order #N** accordion section inline (no separate full-screen form). The new draft opens expanded; no blinds type is pre-selected until the user picks one. (`BlindsTypesGrid` avoids rendering attribute `<select>`s with an empty value when no line is checked—React requires each `value` to match an `<option>`.) Draft rows show `(draft)` until **Save**; saving creates each new addition via `POST /orders/{anchorId}/line-item-additions`, then patches all additional orders and the anchor. Draft rows can be removed with the trash control on the summary line.
 
+When **`GET /orders/{id}`** returns **`job_edit_locked`** (anchor status **`builtin_kind` Done** + rolled-up job balance ~0), the edit screen locks lines, payments (including removing recorded Pay rows), additional orders, attachments, and line photos; **Add expense** remains available. New products should use a **new order** for the customer.
+
 ## Line photos (fabric reference)
 
 In **Order view** and **Edit order**, each blinds type row has a **Photo** column for capturing/uploading one or more photos of the selected fabric.

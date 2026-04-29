@@ -101,6 +101,10 @@ export type OrderDetail = {
   status_code: string
   status_orde_id?: string | null
   status_order_label: string | null
+  /** Mirrors `status_order.builtin_kind` when present (e.g. done). */
+  status_order_builtin_kind?: string | null
+  /** Anchor job Done + zero rolled-up balance: UI locks edits/payments; expenses still allowed. */
+  job_edit_locked?: boolean
   installation_scheduled_start_at?: string | null
   installation_scheduled_end_at?: string | null
   created_at: string | null
@@ -753,6 +757,8 @@ export function BlindsTypesGrid(props: {
   setLineAmount: (typeId: string, value: string) => void
   keyPrefix?: string
   renderLinePhotoCell?: (typeId: string, checked: boolean) => ReactNode
+  /** When true, lines are read-only (completed paid job). */
+  disabled?: boolean
 }) {
   const {
     blindsTypes: bt,
@@ -765,6 +771,7 @@ export function BlindsTypesGrid(props: {
     setLineAmount,
     keyPrefix = '',
     renderLinePhotoCell,
+    disabled = false,
   } = props
   const attrRows = lineAttributeRows(blindsOrderOptions)
 
@@ -836,14 +843,16 @@ export function BlindsTypesGrid(props: {
             {bt.map((b) => {
               const checked = lines.some((x) => x.id === b.id)
               const cur = lines.find((x) => x.id === b.id)
+              const rowDisabled = disabled
               return (
                 <tr key={`${keyPrefix}-row-${b.id}`} className="group hover:bg-slate-50/80">
                   <td className="min-w-[6rem] max-w-[10rem] bg-white px-1.5 py-1.5 group-hover:bg-slate-50/80">
-                    <label className="flex cursor-pointer items-center gap-1.5">
+                    <label className={`flex items-center gap-1.5 ${rowDisabled ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
                       <input
                         type="checkbox"
                         className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-teal-600"
                         checked={checked}
+                        disabled={rowDisabled}
                         onChange={() => toggleType(b.id)}
                       />
                       <span className="min-w-0 break-words font-semibold text-slate-800" title={b.name}>
@@ -857,7 +866,7 @@ export function BlindsTypesGrid(props: {
                       min={1}
                       max={99}
                       step={1}
-                      disabled={!checked}
+                      disabled={rowDisabled || !checked}
                       placeholder="—"
                       title={checked ? 'Quantity 1–99 (use arrows or type)' : 'Select type first'}
                       aria-label={`Quantity for ${b.name}`}
@@ -919,10 +928,11 @@ export function BlindsTypesGrid(props: {
                       >
                         <select
                           value={selectValue}
+                          disabled={rowDisabled}
                           onChange={(e) => setLineField(b.id, attrRow.json_key, e.target.value)}
                           title={`${attributeColumnHeaderLabel(attrRow)}: ${selectLabel || '—'}`}
                           aria-label={`${attributeColumnHeaderLabel(attrRow)} for ${b.name}`}
-                          className="h-8 w-full min-w-0 max-w-full truncate rounded-md border border-slate-200 bg-white px-0.5 text-center text-xs outline-none focus:border-teal-500"
+                          className="h-8 w-full min-w-0 max-w-full truncate rounded-md border border-slate-200 bg-white px-0.5 text-center text-xs outline-none focus:border-teal-500 disabled:bg-slate-100 disabled:text-slate-400"
                         >
                           {opts.map((oid) => (
                             <option key={oid} value={oid}>
@@ -938,7 +948,7 @@ export function BlindsTypesGrid(props: {
                       type="text"
                       inputMode="decimal"
                       maxLength={9}
-                      disabled={!checked}
+                      disabled={rowDisabled || !checked}
                       placeholder="0.00"
                       title={checked ? 'Amount (up to 6 digits before decimal)' : 'Select type first'}
                       aria-label={`Amount for ${b.name}`}
@@ -949,7 +959,7 @@ export function BlindsTypesGrid(props: {
                   </td>
                   <td className="min-w-[9rem] px-1 py-1 align-top">
                     <textarea
-                      disabled={!checked}
+                      disabled={rowDisabled || !checked}
                       rows={2}
                       maxLength={2000}
                       placeholder="Optional…"

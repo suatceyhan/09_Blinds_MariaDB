@@ -1241,6 +1241,14 @@ class OrderDetailOut(BaseModel):
     status_code: str
     status_orde_id: str | None = None
     status_order_label: str | None = None
+    status_order_builtin_kind: str | None = Field(
+        None,
+        description="status_order.builtin_kind for this row (e.g. done) when configured.",
+    )
+    job_edit_locked: bool = Field(
+        False,
+        description="True when anchor job is Done with zero rolled-up balance; structural edits and payments blocked.",
+    )
     installation_scheduled_start_at: datetime | None = None
     installation_scheduled_end_at: datetime | None = None
     created_at: Any | None = None
@@ -1694,6 +1702,8 @@ def order_workflow_transition(
     ).mappings().first()
     if not cur:
         raise HTTPException(status_code=404, detail="Order not found.")
+    if _job_edit_locked(db, cid, oid):
+        raise HTTPException(status_code=400, detail=_JOB_CLOSED_EDIT_LOCKED_MSG)
     from_sid = (cur.get("status_orde_id") or "").strip() or None
     to_sid = body.to_status_orde_id.strip()
     wid = _active_workflow_definition_id(db, cid, "order")
@@ -1983,6 +1993,96 @@ def _financial_row_for_rollup(m: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_JOB_CLOSED_EDIT_LOCKED_MSG = (
+    "This job is completed and paid in full. "
+    "Create a new order for additional products. "
+    "You can still record expenses here."
+)
+
+
+def _resolve_anchor_order_id_for_job(db: Session, company_id: UUID, order_id: str) -> str | None:
+    oid = order_id.strip()
+    row = db.execute(
+        text(
+            """
+            SELECT NULLIF(trim(o.parent_order_id::text), '') AS pid
+            FROM orders o
+            WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid
+            LIMIT 1
+            """
+        ),
+        {"cid": str(company_id), "oid": oid},
+    ).mappings().first()
+    if not row:
+        return None
+    pid = row.get("pid")
+    if pid:
+        return str(pid).strip()
+    return oid
+
+
+def _anchor_status_builtin_kind(db: Session, company_id: UUID, anchor_oid: str) -> str | None:
+    row = db.execute(
+        text(
+            """
+            SELECT so.builtin_kind AS bk
+            FROM orders o
+            LEFT JOIN status_order so ON so.id = o.status_orde_id
+            WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :aid AND COALESCE(o.active, FALSE) IS TRUE
+            LIMIT 1
+            """
+        ),
+        {"cid": str(company_id), "aid": anchor_oid.strip()},
+    ).mappings().first()
+    if not row:
+        return None
+    bk = row.get("bk")
+    if bk is None:
+        return None
+    s = str(bk).strip()
+    return s or None
+
+
+def _job_financial_rows_for_anchor(db: Session, company_id: UUID, anchor_oid: str) -> list[dict[str, Any]]:
+    aid = anchor_oid.strip()
+    rows = db.execute(
+        text(
+            """
+            SELECT
+              o.total_amount,
+              o.tax_amount,
+              o.tax_uygulanacak_miktar,
+              o.downpayment,
+              o.final_payment,
+              o.balance
+            FROM orders o
+            WHERE o.company_id = CAST(:cid AS uuid)
+              AND COALESCE(o.active, FALSE) IS TRUE
+              AND (o.id = :aid OR o.parent_order_id = :aid)
+            ORDER BY CASE WHEN o.id = :aid THEN 0 ELSE 1 END, o.created_at ASC NULLS LAST
+            """
+        ),
+        {"cid": str(company_id), "aid": aid},
+    ).mappings().all()
+    return [_financial_row_for_rollup(dict(r)) for r in rows]
+
+
+def _job_edit_locked(db: Session, company_id: UUID, order_id: str) -> bool:
+    """Done (`builtin_kind`) + rolled-up job balance ~0: lock edits/payments; expenses still allowed."""
+    anchor = _resolve_anchor_order_id_for_job(db, company_id, order_id)
+    if not anchor:
+        return False
+    bk = (_anchor_status_builtin_kind(db, company_id, anchor) or "").strip().lower()
+    if bk != "done":
+        return False
+    jrows = _job_financial_rows_for_anchor(db, company_id, anchor)
+    if not jrows:
+        return False
+    ft = _rollup_financial_totals(jrows)
+    bal = _money_q(ft.balance)
+    return abs(bal) <= _DONE_BALANCE_EPS
+
+
 def _apply_order_record_payment(db: Session, company_id: UUID, order_id: str, pay_amt: Decimal) -> str:
     """Core of POST /record-payment: allocate `pay_amt` across job rows via `order_payment_entries`.
 
@@ -2023,6 +2123,9 @@ def _apply_order_record_payment(db: Session, company_id: UUID, order_id: str, pa
         raise HTTPException(status_code=400, detail="Order has no total amount.")
     parent_ref = (str(row.get("parent_order_id") or "")).strip() or None
     anchor_oid = parent_ref if parent_ref else oid
+
+    if _job_edit_locked(db, company_id, anchor_oid):
+        raise HTTPException(status_code=400, detail=_JOB_CLOSED_EDIT_LOCKED_MSG)
 
     # Fix historic overpayments on earlier rows by moving payment entries forward.
     # This prevents negative balances like "-125.25" on the original when additions still owe money.
@@ -2204,6 +2307,8 @@ def soft_delete_order_payment_entry(
     if not cid:
         raise HTTPException(status_code=403, detail="No active company.")
     oid = order_id.strip()
+    if _job_edit_locked(db, cid, oid):
+        raise HTTPException(status_code=400, detail=_JOB_CLOSED_EDIT_LOCKED_MSG)
     eid_raw = (entry_id or "").strip()
     if eid_raw.startswith("grp:"):
         try:
@@ -2272,6 +2377,8 @@ async def upload_order_attachment(
     ).first()
     if not ok:
         raise HTTPException(status_code=404, detail="Order not found.")
+    if _job_edit_locked(db, cid, oid):
+        raise HTTPException(status_code=400, detail=_JOB_CLOSED_EDIT_LOCKED_MSG)
     ct = _normalize_upload_content_type(file.content_type)
     max_bytes = ORDER_PHOTO_MAX_BYTES if k == "photo" else ORDER_EXCEL_MAX_BYTES
     fn_low = (file.filename or "").lower()
@@ -2374,6 +2481,8 @@ async def upload_order_line_photo(
     ).mappings().first()
     if not row:
         raise HTTPException(status_code=404, detail="Order not found.")
+    if _job_edit_locked(db, cid, oid):
+        raise HTTPException(status_code=400, detail=_JOB_CLOSED_EDIT_LOCKED_MSG)
     lines = _normalize_blinds_lines(row.get("blinds_lines_json"))
     if not any(str(x.get("id") or "").strip() == bt for x in lines):
         raise HTTPException(status_code=400, detail="This blinds type is not selected on the order.")
@@ -2452,6 +2561,8 @@ def soft_delete_order_attachment(
         aid = UUID(attachment_id.strip())
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Attachment not found.") from exc
+    if _job_edit_locked(db, cid, oid):
+        raise HTTPException(status_code=400, detail=_JOB_CLOSED_EDIT_LOCKED_MSG)
     res = db.execute(
         text(
             """
@@ -2503,6 +2614,7 @@ def get_order(
               o.status_code,
               o.status_orde_id,
               so.name AS status_order_label,
+              so.builtin_kind AS status_order_builtin_kind,
               o.installation_scheduled_start_at,
               o.installation_scheduled_end_at,
               o.created_at,
@@ -2556,6 +2668,7 @@ def get_order(
                       o.status_code,
                       o.status_orde_id,
                       so.name AS status_order_label,
+                      so.builtin_kind AS status_order_builtin_kind,
                       o.installation_scheduled_start_at,
                       o.installation_scheduled_end_at,
                       o.created_at,
@@ -2721,6 +2834,7 @@ def get_order(
     attachments = _fetch_order_attachments(db, cid, oid)
     line_photos = _fetch_order_line_photos(db, cid, oid)
     expense_entries = _fetch_order_expense_entries(db, cid, oid)
+    job_locked = _job_edit_locked(db, cid, oid)
     return OrderDetailOut(
         **d,
         blinds_lines=lines,
@@ -2734,6 +2848,7 @@ def get_order(
         financial_totals=financial_totals,
         has_line_item_additions=len(line_item_additions) > 0,
         line_item_additions=line_item_additions,
+        job_edit_locked=job_locked,
     )
 
 
@@ -3232,6 +3347,9 @@ def create_line_item_addition(
             detail="Additions can only be created on an anchor order (open the main job, not an addition).",
         )
 
+    if _job_edit_locked(db, cid, pid):
+        raise HTTPException(status_code=400, detail=_JOB_CLOSED_EDIT_LOCKED_MSG)
+
     cust_id = str(prow["customer_id"]).strip()
     lines = _normalize_blinds_lines(body.blinds_lines or [])
     if not lines:
@@ -3357,6 +3475,9 @@ def patch_order(
     ).mappings().first()
     if not cur:
         raise HTTPException(status_code=404, detail="Order not found.")
+
+    if _job_edit_locked(db, cid, oid):
+        raise HTTPException(status_code=400, detail=_JOB_CLOSED_EDIT_LOCKED_MSG)
 
     sets: list[str] = []
     params: dict[str, Any] = {"cid": str(cid), "oid": oid}
