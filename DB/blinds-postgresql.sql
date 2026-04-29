@@ -1839,64 +1839,12 @@ END
 $m$;
 COMMIT;
 
--- 15_blinds_line_extra_attributes.sql
--- Extra per-blinds-type line attributes (e.g. lifting system, cassette type), in addition to product category.
--- Orders: blinds_lines[].<line_json_key> stores option code (same pattern as category).
--- Configure allowed combinations under Settings (one matrix per kind). Manage options under Lookups.
+-- 15_blinds_line_extra_attributes REMOVED — lifting system / cassette type matrices retired.
+-- Fresh installs skip creation; existing DBs drop leftover tables when this script is reapplied.
 BEGIN;
-CREATE TABLE IF NOT EXISTS blinds_line_extra_kind (
-  id            VARCHAR(32)  NOT NULL PRIMARY KEY,
-  name          TEXT           NOT NULL,
-  line_json_key VARCHAR(32)    NOT NULL UNIQUE,
-  sort_order    INTEGER        NOT NULL DEFAULT 0,
-  active        BOOLEAN        NOT NULL DEFAULT TRUE,
-  created_at    TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
-  updated_at    TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
-  CONSTRAINT ck_blinds_line_extra_kind_json_key
-    CHECK (line_json_key ~ '^[a-z][a-z0-9_]*$' AND line_json_key <> 'category')
-);
-CREATE INDEX IF NOT EXISTS idx_blinds_line_extra_kind_active
-  ON blinds_line_extra_kind (active) WHERE active IS TRUE;
-CREATE TABLE IF NOT EXISTS blinds_line_extra_option (
-  kind_id     VARCHAR(32) NOT NULL,
-  code        VARCHAR(32) NOT NULL,
-  name        TEXT        NOT NULL,
-  sort_order  INTEGER     NOT NULL DEFAULT 0,
-  active      BOOLEAN     NOT NULL DEFAULT TRUE,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (kind_id, code),
-  CONSTRAINT fk_bleo_kind
-    FOREIGN KEY (kind_id)
-    REFERENCES blinds_line_extra_kind (id)
-    ON UPDATE CASCADE
-    ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_blinds_line_extra_option_kind_active
-  ON blinds_line_extra_option (kind_id) WHERE active IS TRUE;
-CREATE TABLE IF NOT EXISTS blinds_type_extra_allowed (
-  company_id       UUID        NOT NULL,
-  blinds_type_id   VARCHAR(16) NOT NULL,
-  kind_id          VARCHAR(32) NOT NULL,
-  option_code      VARCHAR(32) NOT NULL,
-  PRIMARY KEY (company_id, blinds_type_id, kind_id, option_code),
-  CONSTRAINT fk_btea_blinds_type
-    FOREIGN KEY (company_id, blinds_type_id)
-    REFERENCES blinds_type (company_id, id)
-    ON UPDATE CASCADE
-    ON DELETE CASCADE,
-  CONSTRAINT fk_btea_option
-    FOREIGN KEY (kind_id, option_code)
-    REFERENCES blinds_line_extra_option (kind_id, code)
-    ON UPDATE CASCADE
-    ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_btea_company_type
-  ON blinds_type_extra_allowed (company_id, blinds_type_id);
-INSERT INTO blinds_line_extra_kind (id, name, line_json_key, sort_order, active) VALUES
-  ('lifting_system', 'Lifting system', 'lifting_system', 10, TRUE),
-  ('cassette_type', 'Cassette type', 'cassette_type', 20, TRUE)
-ON CONFLICT (id) DO NOTHING;
+DROP TABLE IF EXISTS public.blinds_type_extra_allowed CASCADE;
+DROP TABLE IF EXISTS public.blinds_line_extra_option CASCADE;
+DROP TABLE IF EXISTS public.blinds_line_extra_kind CASCADE;
 COMMIT;
 
 -- 16_order_payment_entries.sql
@@ -2497,11 +2445,7 @@ VALUES
   ('lookups.estimate_statuses.view', 'Lookups / Estimate statuses — view', NULL, 'module', 'lookups', 'access', 'lookups', 128, FALSE),
   ('lookups.estimate_statuses.edit', 'Lookups / Estimate statuses — edit', NULL, 'module', 'lookups', 'access', 'lookups', 129, FALSE),
   ('lookups.product_categories.view', 'Lookups / Product categories — view', NULL, 'module', 'lookups', 'access', 'lookups', 130, FALSE),
-  ('lookups.product_categories.edit', 'Lookups / Product categories — edit', NULL, 'module', 'lookups', 'access', 'lookups', 131, FALSE),
-  ('lookups.blinds_extra_lifting_system.view', 'Lookups / Lifting system options — view', NULL, 'module', 'lookups', 'access', 'lookups', 132, FALSE),
-  ('lookups.blinds_extra_lifting_system.edit', 'Lookups / Lifting system options — edit', NULL, 'module', 'lookups', 'access', 'lookups', 133, FALSE),
-  ('lookups.blinds_extra_cassette_type.view', 'Lookups / Cassette type options — view', NULL, 'module', 'lookups', 'access', 'lookups', 134, FALSE),
-  ('lookups.blinds_extra_cassette_type.edit', 'Lookups / Cassette type options — edit', NULL, 'module', 'lookups', 'access', 'lookups', 135, FALSE)
+  ('lookups.product_categories.edit', 'Lookups / Product categories — edit', NULL, 'module', 'lookups', 'access', 'lookups', 131, FALSE)
 ON CONFLICT (key) DO NOTHING;
 
 -- 32_settings_contract_invoice_permissions.sql
@@ -2537,9 +2481,7 @@ JOIN permissions pn ON pn.key IN (
   'lookups.blinds_types.view',
   'lookups.order_statuses.view',
   'lookups.estimate_statuses.view',
-  'lookups.product_categories.view',
-  'lookups.blinds_extra_lifting_system.view',
-  'lookups.blinds_extra_cassette_type.view'
+  'lookups.product_categories.view'
 )
 WHERE rp.is_deleted IS NOT TRUE AND rp.is_granted IS TRUE
 ON CONFLICT (role_id, permission_id) DO NOTHING;
@@ -2552,9 +2494,7 @@ JOIN permissions pn ON pn.key IN (
   'lookups.blinds_types.edit',
   'lookups.order_statuses.edit',
   'lookups.estimate_statuses.edit',
-  'lookups.product_categories.edit',
-  'lookups.blinds_extra_lifting_system.edit',
-  'lookups.blinds_extra_cassette_type.edit'
+  'lookups.product_categories.edit'
 )
 WHERE rp.is_deleted IS NOT TRUE AND rp.is_granted IS TRUE
 ON CONFLICT (role_id, permission_id) DO NOTHING;
@@ -2567,9 +2507,7 @@ JOIN permissions pn ON pn.key IN (
   'lookups.blinds_types.view',
   'lookups.order_statuses.view',
   'lookups.estimate_statuses.view',
-  'lookups.product_categories.view',
-  'lookups.blinds_extra_lifting_system.view',
-  'lookups.blinds_extra_cassette_type.view'
+  'lookups.product_categories.view'
 )
 WHERE up.is_deleted IS NOT TRUE AND up.is_granted IS NOT TRUE
 ON CONFLICT (user_id, permission_id, role_id) DO NOTHING;
@@ -2581,9 +2519,7 @@ JOIN permissions pn ON pn.key IN (
   'lookups.blinds_types.edit',
   'lookups.order_statuses.edit',
   'lookups.estimate_statuses.edit',
-  'lookups.product_categories.edit',
-  'lookups.blinds_extra_lifting_system.edit',
-  'lookups.blinds_extra_cassette_type.edit'
+  'lookups.product_categories.edit'
 )
 WHERE up.is_deleted IS NOT TRUE AND up.is_granted IS NOT TRUE
 ON CONFLICT (user_id, permission_id, role_id) DO NOTHING;
@@ -2596,9 +2532,7 @@ JOIN permissions pn ON pn.key IN (
   'lookups.blinds_types.view',
   'lookups.order_statuses.view',
   'lookups.estimate_statuses.view',
-  'lookups.product_categories.view',
-  'lookups.blinds_extra_lifting_system.view',
-  'lookups.blinds_extra_cassette_type.view'
+  'lookups.product_categories.view'
 )
 WHERE up.is_deleted IS NOT TRUE AND up.is_granted IS TRUE
 ON CONFLICT (user_id, permission_id, role_id) DO NOTHING;
@@ -2610,12 +2544,21 @@ JOIN permissions pn ON pn.key IN (
   'lookups.blinds_types.edit',
   'lookups.order_statuses.edit',
   'lookups.estimate_statuses.edit',
-  'lookups.product_categories.edit',
-  'lookups.blinds_extra_lifting_system.edit',
-  'lookups.blinds_extra_cassette_type.edit'
+  'lookups.product_categories.edit'
 )
 WHERE up.is_deleted IS NOT TRUE AND up.is_granted IS TRUE
 ON CONFLICT (user_id, permission_id, role_id) DO NOTHING;
+
+-- Retire removed lookups.blinds_extra_* keys (lifting/cassette options) on databases that already had them.
+UPDATE permissions
+SET is_deleted = TRUE
+WHERE key IN (
+  'lookups.blinds_extra_lifting_system.view',
+  'lookups.blinds_extra_lifting_system.edit',
+  'lookups.blinds_extra_cassette_type.view',
+  'lookups.blinds_extra_cassette_type.edit'
+)
+AND COALESCE(is_deleted, FALSE) IS NOT TRUE;
 
 -- 31_company_blinds_product_category_matrix.sql
 -- Per-company enablement of global product categories (same pattern as company_status_*_matrix).
@@ -2667,7 +2610,12 @@ BEGIN
   ALTER TABLE public.estimate DROP CONSTRAINT IF EXISTS fk_estimate_blinds_type;
   ALTER TABLE public.blinds_type_add DROP CONSTRAINT IF EXISTS fk_blinds_type_add_blinds_type;
   ALTER TABLE public.blinds_type_category_allowed DROP CONSTRAINT IF EXISTS fk_btca_blinds_type;
-  ALTER TABLE public.blinds_type_extra_allowed DROP CONSTRAINT IF EXISTS fk_btea_blinds_type;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'blinds_type_extra_allowed'
+  ) THEN
+    ALTER TABLE public.blinds_type_extra_allowed DROP CONSTRAINT IF EXISTS fk_btea_blinds_type;
+  END IF;
 
   ALTER TABLE public.blinds_type RENAME TO blinds_type_legacy;
 
@@ -2720,10 +2668,15 @@ BEGIN
   FROM public._tmp_bt_map m
   WHERE a.company_id = m.company_id AND a.blinds_type_id = m.old_id;
 
-  UPDATE public.blinds_type_extra_allowed x
-  SET blinds_type_id = m.new_id
-  FROM public._tmp_bt_map m
-  WHERE x.company_id = m.company_id AND x.blinds_type_id = m.old_id;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'blinds_type_extra_allowed'
+  ) THEN
+    UPDATE public.blinds_type_extra_allowed x
+    SET blinds_type_id = m.new_id
+    FROM public._tmp_bt_map m
+    WHERE x.company_id = m.company_id AND x.blinds_type_id = m.old_id;
+  END IF;
 
   UPDATE public.orders o
   SET blinds_lines = COALESCE(tagg.new_lines, '[]'::jsonb)
@@ -2774,10 +2727,15 @@ BEGIN
     FOREIGN KEY (blinds_type_id) REFERENCES public.blinds_type (id)
     ON UPDATE CASCADE ON DELETE CASCADE;
 
-  ALTER TABLE public.blinds_type_extra_allowed
-    ADD CONSTRAINT fk_btea_blinds_type
-    FOREIGN KEY (blinds_type_id) REFERENCES public.blinds_type (id)
-    ON UPDATE CASCADE ON DELETE CASCADE;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'blinds_type_extra_allowed'
+  ) THEN
+    ALTER TABLE public.blinds_type_extra_allowed
+      ADD CONSTRAINT fk_btea_blinds_type
+      FOREIGN KEY (blinds_type_id) REFERENCES public.blinds_type (id)
+      ON UPDATE CASCADE ON DELETE CASCADE;
+  END IF;
 
   CREATE TABLE public.company_blinds_type_matrix (
     company_id      UUID        NOT NULL REFERENCES public.companies (id) ON UPDATE CASCADE ON DELETE CASCADE,
@@ -2832,7 +2790,7 @@ $mig32$;
 -- • Employee/company başvurusu için pending_*_self_registrations tabloları; PUBLIC_REGISTRATION_ENABLED yalnızca POST /auth/register (anında kayıt) anahtarıdır.
 
 -- -----------------------------------------------------------------------------
--- Migration 40 — workflow engine (eski DB/40_workflow_engine.sql)
+-- Migration 40 — workflow engine tables + RLS (no global Order workflow transitions seed; configure in Settings).
 -- -----------------------------------------------------------------------------
 DO $mig40$
 BEGIN
@@ -2949,74 +2907,7 @@ BEGIN
       WITH CHECK (COALESCE(current_setting('app.rls_bypass', true), '') = '1');
   END IF;
 
-  INSERT INTO public.workflow_definitions (company_id, entity_type, code, name, version, is_active)
-  SELECT NULL, 'order', 'default_order', 'Default order workflow', 1, TRUE
-  WHERE NOT EXISTS (
-    SELECT 1 FROM public.workflow_definitions
-    WHERE company_id IS NULL AND entity_type = 'order' AND code = 'default_order' AND version = 1
-  );
-
-  WITH def AS (
-    SELECT id
-    FROM public.workflow_definitions
-    WHERE company_id IS NULL AND entity_type = 'order' AND code = 'default_order' AND version = 1
-    LIMIT 1
-  ),
-  ids AS (
-    SELECT
-      (SELECT so.id FROM public.status_order so WHERE so.builtin_kind = 'new' LIMIT 1)::varchar(32) AS st_new,
-      substring(md5('global:ord:builtin:in_production') for 16)::varchar(32) AS st_prod,
-      substring(md5('global:ord:builtin:ready_for_install') for 16)::varchar(32) AS st_rfi,
-      substring(md5('global:ord:builtin:done') for 16)::varchar(32) AS st_done
-  ),
-  ins AS (
-    INSERT INTO public.workflow_transitions (workflow_definition_id, from_status_id, to_status_id, sort_order)
-    SELECT def.id, ids.st_new, ids.st_prod, 10
-    FROM def, ids
-    WHERE NOT EXISTS (
-      SELECT 1 FROM public.workflow_transitions t
-      WHERE t.workflow_definition_id = def.id AND COALESCE(t.from_status_id,'') = COALESCE(ids.st_new,'') AND t.to_status_id = ids.st_prod
-    )
-    UNION ALL
-    SELECT def.id, ids.st_prod, ids.st_rfi, 20
-    FROM def, ids
-    WHERE NOT EXISTS (
-      SELECT 1 FROM public.workflow_transitions t
-      WHERE t.workflow_definition_id = def.id AND COALESCE(t.from_status_id,'') = COALESCE(ids.st_prod,'') AND t.to_status_id = ids.st_rfi
-    )
-    UNION ALL
-    SELECT def.id, ids.st_rfi, ids.st_done, 30
-    FROM def, ids
-    WHERE NOT EXISTS (
-      SELECT 1 FROM public.workflow_transitions t
-      WHERE t.workflow_definition_id = def.id AND COALESCE(t.from_status_id,'') = COALESCE(ids.st_rfi,'') AND t.to_status_id = ids.st_done
-    )
-    RETURNING id, from_status_id, to_status_id
-  )
-  INSERT INTO public.workflow_transition_actions (transition_id, type, config, sort_order, is_required)
-  SELECT
-    ins.id,
-    'ask_form',
-    jsonb_build_object(
-      'title', 'Schedule installation',
-      'description', 'Enter the installation date-time for this order.',
-      'fields', jsonb_build_array(
-        jsonb_build_object(
-          'key', 'installation_scheduled_start_at',
-          'label', 'Installation date-time',
-          'kind', 'datetime'
-        )
-      )
-    ),
-    0,
-    TRUE
-  FROM ins
-  WHERE ins.from_status_id = (SELECT substring(md5('global:ord:builtin:in_production') for 16))
-    AND ins.to_status_id = (SELECT substring(md5('global:ord:builtin:ready_for_install') for 16))
-    AND NOT EXISTS (
-      SELECT 1 FROM public.workflow_transition_actions a
-      WHERE a.transition_id = ins.id AND a.type = 'ask_form'
-    );
+  -- No global Order workflow seed: definitions/transitions are created when saving from Settings (company override).
 END
 $mig40$;
 
@@ -3081,78 +2972,9 @@ BEGIN
 END
 $mig41$;
 
--- Migration 43 — global Estimate workflow seed (eski DB/43_estimate_workflow_engine_seed.sql)
+-- Migration 43 — Estimate workflow: no global seed (company workflow created on first Save in Settings).
 DO $mig43$
-DECLARE
-  def_id uuid;
-  st_new varchar(16);
-  st_pending varchar(16);
-  st_converted varchar(16);
-  st_cancelled varchar(16);
 BEGIN
-  SELECT id INTO st_new FROM public.status_estimate WHERE builtin_kind = 'new' LIMIT 1;
-  SELECT id INTO st_pending FROM public.status_estimate WHERE builtin_kind = 'pending' LIMIT 1;
-  SELECT id INTO st_converted FROM public.status_estimate WHERE builtin_kind = 'converted' LIMIT 1;
-  SELECT id INTO st_cancelled FROM public.status_estimate WHERE builtin_kind = 'cancelled' LIMIT 1;
-
-  IF st_new IS NULL OR st_pending IS NULL OR st_converted IS NULL OR st_cancelled IS NULL THEN
-    RAISE NOTICE 'built-in status_estimate rows missing; skipping estimate workflow seed.';
-    RETURN;
-  END IF;
-
-  INSERT INTO public.workflow_definitions (company_id, entity_type, code, name, version, is_active)
-  SELECT NULL, 'estimate', 'default_estimate', 'Global estimate workflow', 1, TRUE
-  WHERE NOT EXISTS (
-    SELECT 1 FROM public.workflow_definitions wd
-    WHERE wd.company_id IS NULL AND wd.entity_type = 'estimate' AND wd.code = 'default_estimate' AND wd.version = 1
-  );
-
-  SELECT id INTO def_id
-  FROM public.workflow_definitions
-  WHERE company_id IS NULL AND entity_type = 'estimate' AND code = 'default_estimate' AND version = 1
-  ORDER BY created_at ASC
-  LIMIT 1;
-
-  IF def_id IS NULL THEN
-    RAISE NOTICE 'workflow_definitions missing for estimate; skipping seed.';
-    RETURN;
-  END IF;
-
-  INSERT INTO public.workflow_transitions (workflow_definition_id, from_status_id, to_status_id, sort_order, deleted_at)
-  SELECT def_id, st_new, st_pending, 10, NULL
-  WHERE NOT EXISTS (
-    SELECT 1 FROM public.workflow_transitions t
-    WHERE t.workflow_definition_id = def_id
-      AND COALESCE(t.from_status_id,'') = COALESCE(st_new,'')
-      AND t.to_status_id = st_pending
-  );
-
-  INSERT INTO public.workflow_transitions (workflow_definition_id, from_status_id, to_status_id, sort_order, deleted_at)
-  SELECT def_id, st_pending, st_converted, 20, NULL
-  WHERE NOT EXISTS (
-    SELECT 1 FROM public.workflow_transitions t
-    WHERE t.workflow_definition_id = def_id
-      AND COALESCE(t.from_status_id,'') = COALESCE(st_pending,'')
-      AND t.to_status_id = st_converted
-  );
-
-  INSERT INTO public.workflow_transitions (workflow_definition_id, from_status_id, to_status_id, sort_order, deleted_at)
-  SELECT def_id, st_pending, st_cancelled, 30, NULL
-  WHERE NOT EXISTS (
-    SELECT 1 FROM public.workflow_transitions t
-    WHERE t.workflow_definition_id = def_id
-      AND COALESCE(t.from_status_id,'') = COALESCE(st_pending,'')
-      AND t.to_status_id = st_cancelled
-  );
-
-  INSERT INTO public.workflow_transitions (workflow_definition_id, from_status_id, to_status_id, sort_order, deleted_at)
-  SELECT def_id, st_new, st_cancelled, 40, NULL
-  WHERE NOT EXISTS (
-    SELECT 1 FROM public.workflow_transitions t
-    WHERE t.workflow_definition_id = def_id
-      AND COALESCE(t.from_status_id,'') = COALESCE(st_new,'')
-      AND t.to_status_id = st_cancelled
-  );
 END
 $mig43$;
 

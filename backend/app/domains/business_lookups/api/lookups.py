@@ -455,9 +455,5 @@ def list_estimate_statuses(
 from app.domains.business_lookups.api.blinds_product_categories import (  # noqa: E402
     router as _blinds_product_categories_router,
 )
-from app.domains.business_lookups.api.blinds_line_extra_options import (  # noqa: E402
-    router as _blinds_line_extra_options_router,
-)
 
 router.include_router(_blinds_product_categories_router)
-router.include_router(_blinds_line_extra_options_router)

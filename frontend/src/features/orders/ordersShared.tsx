@@ -32,6 +32,8 @@ export type OrderRow = {
   status_code: string
   status_orde_id?: string | null
   status_order_label: string | null
+  /** First workflow transition target label from GET /orders (matches advance action). */
+  workflow_next_status_label?: string | null
   agreement_date?: string | null
   created_at: string | null
   installation_scheduled_start_at?: string | null
@@ -177,7 +179,7 @@ export type BlindsOrderOptions = {
   line_attribute_rows?: BlindsLineAttributeRow[]
 }
 
-/** One line in the order blinds grid (category + lifting_system + …). */
+/** One line in the order blinds grid (category + dynamic line attributes from the API). */
 export type BlindsLineState = {
   id: string
   name: string
@@ -739,7 +741,7 @@ export function parseTaxRatePercent(v: unknown): number | null {
   return Number.isNaN(n) ? null : n
 }
 
-/** Transposed grid: one row per blinds type; Qty, category attrs, amount, line note last (lifting/cassette elsewhere). */
+/** Transposed grid: one row per blinds type; Qty, category attrs, amount, line note last. */
 export function BlindsTypesGrid(props: {
   blindsTypes: { id: string; name: string }[]
   blindsOrderOptions: BlindsOrderOptions | null

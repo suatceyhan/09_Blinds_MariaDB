@@ -43,8 +43,7 @@ export function LookupsHubPage() {
           <h2 className="text-base font-semibold text-slate-900">Estimate &amp; order statuses</h2>
           <p className="text-sm text-slate-600">
             Global status labels and per-company enablement are under Lookups → Estimate statuses and Order
-            statuses. Extra line attributes (lifting, cassette, etc.) are edited only from Settings → Blinds line
-            matrices.
+            statuses.
           </p>
         </section>
       </div>

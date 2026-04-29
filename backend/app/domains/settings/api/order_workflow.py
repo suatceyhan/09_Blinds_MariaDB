@@ -20,6 +20,9 @@ from typing_extensions import Annotated
 from app.core.database import get_db
 from app.dependencies.auth import effective_company_id, require_permissions
 from app.domains.user.models.users import Users
+from app.domains.settings.services.workflow_company_bootstrap import (
+    bootstrap_company_workflow_transitions_from_global_if_empty,
+)
 
 
 router = APIRouter(prefix="/settings", tags=["Settings — workflow"])
@@ -258,6 +261,13 @@ def put_order_workflow(
             {"cid": str(cid)},
         ).mappings().first()
         def_id = str(ins["id"])
+
+    bootstrap_company_workflow_transitions_from_global_if_empty(
+        db,
+        company_definition_id=def_id,
+        entity_type="order",
+        definition_code="default_order",
+    )
 
     if not body.transitions:
         raise HTTPException(status_code=400, detail="At least one transition is required.")

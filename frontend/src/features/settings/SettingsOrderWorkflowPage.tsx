@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ChevronDown, ChevronRight, GitBranchPlus, RotateCcw, Save, Trash2 } from 'lucide-react'
 import { useAuthSession } from '@/app/authSession'
 import { getJson, putJson } from '@/lib/api'
@@ -136,7 +137,7 @@ export function SettingsOrderWorkflowPage() {
     setErr(null)
     try {
       const [st, at, sf, out] = await Promise.all([
-        getJson<StatusOpt[]>('/orders/lookup/order-statuses').catch(() => [] as StatusOpt[]),
+        getJson<StatusOpt[]>('/lookups/order-statuses?limit=300').catch(() => [] as StatusOpt[]),
         // Fetch action-types for forward compatibility / caching; this page currently uses only ask_form.
         getJson<ActionType[]>('/workflow/action-types').catch(() => [] as ActionType[]),
         getJson<SchemaFieldsOut>('/schema/fields').catch(() => null),
@@ -148,7 +149,10 @@ export function SettingsOrderWorkflowPage() {
       setWf(out)
       const nextDraft: TransitionDraft[] = (out.transitions ?? []).map((t) => ({
         key: t.id,
-        deletedAt: t.deleted_at ?? null,
+        deletedAt:
+          (t as { deleted_at?: string | null; deletedAt?: string | null }).deleted_at ??
+          (t as { deletedAt?: string | null }).deletedAt ??
+          null,
         from_status_orde_id: (t.from_status_orde_id ?? '').trim(),
         to_status_orde_id: (t.to_status_orde_id ?? '').trim(),
         sort_order: String(t.sort_order ?? 0),
@@ -321,6 +325,17 @@ export function SettingsOrderWorkflowPage() {
 
       {err ? (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{err}</div>
+      ) : null}
+
+      {!loading && Array.isArray(statuses) && statuses.length === 0 ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          From/To lists only include statuses <strong>enabled for your company</strong> in the order status matrix.
+          None are enabled yet, so the dropdowns are empty. Open{' '}
+          <Link className="font-semibold text-teal-800 underline underline-offset-2 hover:text-teal-950" to="/lookups/order-statuses">
+            Lookups → Order statuses
+          </Link>{' '}
+          and check the cells for your company, then return here.
+        </div>
       ) : null}
 
       <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">

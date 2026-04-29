@@ -861,6 +861,8 @@ export function OrdersPage() {
                   const bucket = orderStatusWorkflowBucketFromName((r.status_order_label ?? '').trim())
                   const missingInstallation =
                     r.active !== false && bucket === 'rfi' && !String(r.installation_scheduled_start_at ?? '').trim()
+                  const advanceLabel = (r.workflow_next_status_label ?? '').trim() || 'Next'
+                  const advanceChip = statusColorClasses(advanceLabel)
                   return (
                   <tr
                     key={r.id}
@@ -953,14 +955,18 @@ export function OrdersPage() {
                         {canEdit && r.active !== false && orderStatusWorkflowBucketFromName((r.status_order_label ?? '').trim()) !== 'done' ? (
                           <button
                             type="button"
-                            title="Advance status"
+                            title={
+                              (r.workflow_next_status_label ?? '').trim()
+                                ? `Advance to ${(r.workflow_next_status_label ?? '').trim()}`
+                                : 'Advance status'
+                            }
                             disabled={advanceConfirmPending && advanceConfirm?.row.id === r.id}
-                            className="inline-flex items-center justify-center whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
+                            className={`inline-flex max-w-[14rem] items-center justify-center truncate rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm ring-1 transition hover:brightness-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60 ${advanceChip.base}`}
                             onClick={() => void openAdvanceStatusFromRow(r)}
                           >
                             {advanceConfirmPending && advanceConfirm?.row.id === r.id
                               ? 'Updating…'
-                              : 'Next'}
+                              : advanceLabel}
                           </button>
                         ) : null}
                         <button

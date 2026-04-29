@@ -39,10 +39,8 @@ export function SettingsHubPage() {
         <section className="space-y-2 border-t border-slate-100 pt-6">
           <h2 className="text-base font-semibold text-slate-900">Blinds line matrices</h2>
           <p className="text-sm text-slate-600">
-            One screen lists every order-line option matrix: product category, lifting system, cassette type,
-            and any other active line attributes. Each matrix defines which options are allowed per blinds
-            type. Global product category names and per-company category enablement are on Lookups → Product
-            categories (same screen).
+            Configure which product categories each blinds type may use on orders. Global category names and
+            per-company category enablement are on Lookups → Product categories (same pattern as blinds types).
           </p>
         </section>
         <section className="space-y-2 border-t border-slate-100 pt-6">

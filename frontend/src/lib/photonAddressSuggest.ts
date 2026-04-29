@@ -62,6 +62,24 @@ function normalizeForPrefixMatch(s: string): string {
     .trim()
 }
 
+/**
+ * Previously we required {@link normalizeForPrefixMatch}(line) to start with the normalized query.
+ * That hides valid Photon hits when the user types partial street tokens (`fred mc`) that are not
+ * literal prefixes of the formatted OSM line (`frederick …`). Require each significant token to
+ * appear in the line (substring / word-prefix) instead.
+ */
+function normalizedLineMatchesQueryTokens(qNorm: string, lineNorm: string): boolean {
+  if (!qNorm) return true
+  const tokens = qNorm.split(/\s+/).filter((t) => t.length >= 2)
+  if (tokens.length === 0) return true
+  for (const tok of tokens) {
+    if (lineNorm.includes(tok)) continue
+    const words = lineNorm.split(/\s+/).filter(Boolean)
+    if (!words.some((w) => w.startsWith(tok))) return false
+  }
+  return true
+}
+
 function normalizeHouseToken(s: string): string {
   return s.trim().toUpperCase().replaceAll(/\s+/g, '')
 }
@@ -259,12 +277,12 @@ function photonSuggestUrl(
 function collectDedupedLines(kept: ScoredPhoton[], q: string, hnWant: string | null, limit: number): string[] {
   const lines: string[] = []
   const seen = new Set<string>()
-  const qPrefix = normalizeForPrefixMatch(q)
+  const qNorm = normalizeForPrefixMatch(q)
   for (const { pr } of kept) {
     const line = buildDisplayLineForSuggest(pr, q)
-    if (qPrefix) {
-      const linePrefix = normalizeForPrefixMatch(line)
-      if (!linePrefix.startsWith(qPrefix)) continue
+    if (qNorm) {
+      const lineNorm = normalizeForPrefixMatch(line)
+      if (!normalizedLineMatchesQueryTokens(qNorm, lineNorm)) continue
     }
     const dedupeKey = hnWant ? stripTrailingPostcodeFromAddressLine(line).toLowerCase() : line.toLowerCase()
     if (!line || seen.has(dedupeKey)) continue

@@ -896,6 +896,10 @@ class OrderListItemOut(BaseModel):
     created_at: Any | None = None
     active: bool = True
     installation_scheduled_start_at: datetime | None = None
+    workflow_next_status_label: str | None = Field(
+        None,
+        description="Label of the next status from the first allowed workflow transition (GET /orders/{id}/workflow).",
+    )
 
 
 class OrderCreateIn(BaseModel):
@@ -1356,6 +1360,36 @@ def _active_workflow_definition_id(db: Session, company_id: UUID, entity_type: s
     return row["id"] if row else None
 
 
+def _first_next_order_transition_label(
+    db: Session,
+    workflow_definition_id: UUID | None,
+    from_status_orde_id: str | None,
+) -> str | None:
+    """Label for `allowed_transitions[0]` — same SQL ordering as GET /orders/{{id}}/workflow."""
+    if not workflow_definition_id:
+        return None
+    from_sid = (from_status_orde_id or "").strip()
+    row = db.execute(
+        text(
+            """
+            SELECT so.name AS nm
+            FROM workflow_transitions wt
+            INNER JOIN status_order so ON so.id = wt.to_status_id
+            WHERE wt.workflow_definition_id = CAST(:wid AS uuid)
+              AND COALESCE(wt.from_status_id, '') = COALESCE(:from_sid, '')
+              AND wt.deleted_at IS NULL
+            ORDER BY wt.sort_order ASC, wt.created_at ASC, wt.id ASC
+            LIMIT 1
+            """
+        ),
+        {"wid": str(workflow_definition_id), "from_sid": from_sid},
+    ).mappings().first()
+    if not row:
+        return None
+    nm = str((row.get("nm") if row else None) or "").strip()
+    return nm or None
+
+
 def _status_order_label_by_id(db: Session, company_id: UUID, status_orde_id: str | None) -> str:
     sid = (status_orde_id or "").strip()
     if not sid:
@@ -1769,11 +1803,7 @@ def blinds_order_options(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Users, Depends(require_permissions("orders.view"))],
 ):
-    """Blinds types, product categories, and allowed type×category pairs for the order form.
-
-    Lifting/cassette and other line extras are configured under Settings but captured on separate
-    detail forms; the order screen only uses product category per line plus line note/amount.
-    """
+    """Blinds types, product categories, and allowed type×category pairs for the order form."""
     cid = effective_company_id(current_user)
     if not cid:
         raise HTTPException(status_code=403, detail="No active company.")
@@ -1923,7 +1953,23 @@ def list_orders(
         ),
         {**params, "include_deleted": include_deleted},
     ).mappings().all()
-    return [OrderListItemOut(**dict(r)) for r in rows]
+    wf_wid = _active_workflow_definition_id(db, cid, "order")
+    next_cache: dict[str, str | None] = {}
+
+    def _next_label(status_orde_id_val: Any) -> str | None:
+        key = str(status_orde_id_val).strip() if status_orde_id_val is not None else ""
+        if key in next_cache:
+            return next_cache[key]
+        lbl = _first_next_order_transition_label(db, wf_wid, key if key else None)
+        next_cache[key] = lbl
+        return lbl
+
+    out: list[OrderListItemOut] = []
+    for r in rows:
+        d = dict(r)
+        d["workflow_next_status_label"] = _next_label(d.get("status_orde_id"))
+        out.append(OrderListItemOut(**d))
+    return out
 
 
 def _financial_row_for_rollup(m: dict[str, Any]) -> dict[str, Any]:

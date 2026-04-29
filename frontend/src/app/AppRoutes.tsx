@@ -22,7 +22,6 @@ import { EstimateEditPage } from '@/features/estimates/EstimateEditPage'
 import { EstimateViewPage } from '@/features/estimates/EstimateViewPage'
 import { OrderEditPage } from '@/features/orders/OrderEditPage'
 import { OrderViewPage } from '@/features/orders/OrderViewPage'
-import { BlindsExtraOptionsLookupPage } from '@/features/lookups/BlindsExtraOptionsLookupPage'
 import { BlindsProductCategoriesLookupPage } from '@/features/lookups/BlindsProductCategoriesLookupPage'
 import { BlindsTypesLookupPage } from '@/features/lookups/BlindsTypesLookupPage'
 import { LookupsHubPage } from '@/features/lookups/LookupsHubPage'
@@ -88,8 +87,8 @@ export function AppRoutes() {
         <Route path="orders/:orderId" element={<OrderViewPage />} />
         <Route path="orders" element={<OrdersPage />} />
         <Route path="lookups/blinds-types" element={<BlindsTypesLookupPage />} />
+        <Route path="lookups/blinds-extra-options/:kindId" element={<Navigate to="/lookups" replace />} />
         <Route path="lookups/blinds-product-categories" element={<BlindsProductCategoriesLookupPage />} />
-        <Route path="lookups/blinds-extra-options/:kindId" element={<BlindsExtraOptionsLookupPage />} />
         <Route path="lookups/estimate-statuses" element={<PermissionsEstimateStatusMatrixPage />} />
         <Route path="lookups/order-statuses" element={<PermissionsOrderStatusMatrixPage />} />
         <Route path="lookups" element={<LookupsHubPage />} />
@@ -108,10 +107,7 @@ export function AppRoutes() {
         <Route path="settings/estimate-workflow" element={<SettingsEstimateWorkflowPage />} />
         <Route path="settings/blinds-line-matrices" element={<SettingsBlindsLineMatricesPage />} />
         <Route path="settings/blinds-category-matrix" element={<Navigate to="/settings/blinds-line-matrices" replace />} />
-        <Route
-          path="settings/blinds-extra-matrix/:kindId"
-          element={<Navigate to="/settings/blinds-line-matrices" replace />}
-        />
+        <Route path="settings/blinds-extra-matrix/:kindId" element={<Navigate to="/settings/blinds-line-matrices" replace />} />
         <Route path="settings/roles" element={<Navigate to="/permissions/roles" replace />} />
         <Route path="settings/role-matrix" element={<Navigate to="/permissions/role-matrix" replace />} />
         <Route path="settings/user-roles" element={<Navigate to="/permissions/user-roles" replace />} />

@@ -35,7 +35,6 @@ from app.domains.orders.api import orders_router
 from app.integrations.google_calendar_router import router as google_calendar_router
 from app.domains.business_lookups.api import business_lookups_router
 from app.domains.settings.api.blinds_category_matrix import router as settings_blinds_matrix_router
-from app.domains.settings.api.blinds_extra_matrix import router as settings_blinds_extra_matrix_router
 from app.domains.settings.api.blinds_type_matrix import router as blinds_type_matrix_router
 from app.domains.settings.api.contract_invoice_docs import router as contract_invoice_docs_router
 from app.domains.settings.api.product_category_matrix import router as product_category_matrix_router
@@ -132,7 +131,6 @@ app.include_router(orders_router)
 app.include_router(google_calendar_router)
 app.include_router(business_lookups_router)
 app.include_router(settings_blinds_matrix_router)
-app.include_router(settings_blinds_extra_matrix_router)
 app.include_router(status_matrices_router)
 app.include_router(product_category_matrix_router)
 app.include_router(blinds_type_matrix_router)
