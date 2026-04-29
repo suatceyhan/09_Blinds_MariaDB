@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CalendarDays, Clock, Database } from 'lucide-react'
+import { useAuthSession } from '@/app/authSession'
 import { getJson } from '@/lib/api'
 
 type DashboardSummary = {
@@ -177,6 +178,10 @@ function CustomerSourcesWidget(props: Readonly<{ sum: DashboardSummary | null; e
 }
 
 export function DashboardPage() {
+  const me = useAuthSession()
+  /** Refetch when active company changes (`/auth/switch-company` updates JWT + `/auth/me`). */
+  const sessionCompanyKey = (me?.active_company_id ?? me?.company_id ?? '').trim()
+
   const [sum, setSum] = useState<DashboardSummary | null>(null)
   const [sumErr, setSumErr] = useState<string | null>(null)
 
@@ -199,7 +204,7 @@ export function DashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [sessionCompanyKey])
 
   const upcomingTop = useMemo(() => (sum?.upcoming_installations ?? []).slice(0, 8), [sum])
   const upcomingEstTop = useMemo(() => (sum?.upcoming_estimates ?? []).slice(0, 8), [sum])

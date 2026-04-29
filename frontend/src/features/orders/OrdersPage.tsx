@@ -819,7 +819,7 @@ export function OrdersPage() {
             </div>
           </div>
         </div>
-        <div className="w-full overflow-x-auto overscroll-x-contain">
+        <div className="w-full overflow-x-auto overflow-y-hidden overscroll-x-contain">
           <table className="w-full min-w-[50rem] text-left text-sm [word-break:break-word]">
             <thead className="border-b border-slate-100 bg-slate-50/80 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>

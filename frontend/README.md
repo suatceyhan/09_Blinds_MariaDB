@@ -37,7 +37,7 @@ Tarayıcı: [http://127.0.0.1:5173](http://127.0.0.1:5173)
 ## Yapı
 
 - `src/app` — router, layout
-- `src/features` — sayfalar (auth, dashboard, customers, **estimates**)
+- `src/features` — sayfalar (auth, dashboard, customers, **estimates**). **Dashboard** (`/dashboard/summary`) refetches when **`active_company_id`** changes (company switch in the header).
 - `src/lib` — `api.ts`, `authStorage.ts`, `sessionIdle.ts`, `useSessionIdleTimeout.ts`
 - `src/components/ui` — paylaşılan modal vb.
 - **Schedule:** `/schedule` — view-only calendar for **Estimates** visits and **Orders** installations (Day/Week/Month/Schedule views). In Month view, days outside the current month are visually muted and not interactive.

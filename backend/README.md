@@ -73,6 +73,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 Dashboard summary ayrıca aşağıdaki metrikleri de içerir:
 
+- **`order_age_buckets`**, **`ready_waiting`** listesi ve **`upcoming_installations`**: sayım/listeler **anchor siparişler** ile sınırlıdır (`orders.parent_order_id IS NULL`) — **`GET /orders`** ile aynı iş tekil satır mantığı; ek satır (line-item addition) kayıtları bu özetlere ayrıca dahil edilmez.
 - `new_estimates_count`, `pending_estimates_count`
 - `ready_install_with_date_count`, `ready_install_missing_date_count`
 - `estimate_conversion_last_3_months` (ay-ay converted count + %)

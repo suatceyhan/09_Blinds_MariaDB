@@ -207,6 +207,7 @@ def get_dashboard_summary(
                 SELECT COUNT(*)::int AS c
                 FROM orders
                 WHERE company_id = CAST(:cid AS uuid)
+                  AND parent_order_id IS NULL
                   AND created_at < (NOW() - (:lo || ' days')::interval)
                   AND active IS TRUE
                 """
@@ -218,6 +219,7 @@ def get_dashboard_summary(
                 SELECT COUNT(*)::int AS c
                 FROM orders
                 WHERE company_id = CAST(:cid AS uuid)
+                  AND parent_order_id IS NULL
                   AND created_at >= (NOW() - (:hi || ' days')::interval)
                   AND created_at <  (NOW() - (:lo || ' days')::interval)
                   AND active IS TRUE
@@ -243,6 +245,7 @@ def get_dashboard_summary(
             FROM orders
             WHERE company_id = CAST(:cid AS uuid)
               AND active IS TRUE
+              AND parent_order_id IS NULL
               AND (
                 COALESCE(status_code, '') = 'ready_for_install'
                 OR COALESCE(status_orde_id, '') ILIKE '%ready%'
@@ -314,6 +317,7 @@ def get_dashboard_summary(
             JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
             WHERE o.company_id = CAST(:cid AS uuid)
               AND o.active IS TRUE
+              AND o.parent_order_id IS NULL
               AND o.installation_scheduled_start_at IS NOT NULL
               AND o.installation_scheduled_start_at >= NOW() - INTERVAL '6 hours'
               AND o.installation_scheduled_start_at < NOW() + INTERVAL '7 days'
