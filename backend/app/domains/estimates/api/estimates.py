@@ -85,7 +85,7 @@ def _active_workflow_definition_id(db: Session, company_id: UUID, entity_type: s
             FROM workflow_definitions wd
             WHERE wd.is_active IS TRUE
               AND wd.entity_type = :et
-              AND (wd.company_id = CAST(:cid AS uuid) OR wd.company_id IS NULL)
+              AND (wd.company_id = :cid OR wd.company_id IS NULL)
             ORDER BY (wd.company_id IS NOT NULL) DESC, wd.version DESC, wd.created_at DESC
             LIMIT 1
             """
@@ -105,7 +105,7 @@ def _status_estimate_label_by_id(db: Session, company_id: UUID, status_esti_id: 
             SELECT se.name
             FROM status_estimate se
             INNER JOIN company_status_estimate_matrix m
-              ON m.status_estimate_id = se.id AND m.company_id = CAST(:cid AS uuid)
+              ON m.status_estimate_id = se.id AND m.company_id = :cid
             WHERE se.id = :sid
             LIMIT 1
             """
@@ -122,7 +122,7 @@ def _workflow_actions_for_transition(db: Session, transition_id: str) -> list[Wo
             """
             SELECT type, config
             FROM workflow_transition_actions
-            WHERE transition_id = CAST(:tid AS uuid)
+            WHERE transition_id = :tid
             ORDER BY sort_order ASC, created_at ASC, id ASC
             """
         ),
@@ -204,9 +204,9 @@ def _new_estimate_id() -> str:
 _SQL_BLINDS_TYPES_JSON = """
   COALESCE(
     (
-      SELECT json_agg(
-        json_build_object(
-          'id', bt.id,
+      SELECT JSON_ARRAYAGG(
+        JSON_OBJECT(
+          'id', CAST(bt.id AS CHAR),
           'name', bt.name,
           'window_count', eb.perde_sayisi,
           'line_amount', eb.line_amount
@@ -219,9 +219,9 @@ _SQL_BLINDS_TYPES_JSON = """
     ),
     CASE
       WHEN e.blinds_id IS NOT NULL THEN
-        (SELECT json_build_array(
-          json_build_object(
-            'id', bt.id,
+        (SELECT JSON_ARRAY(
+          JSON_OBJECT(
+            'id', CAST(bt.id AS CHAR),
             'name', bt.name,
             'window_count', e.perde_sayisi,
             'line_amount', NULL
@@ -229,7 +229,7 @@ _SQL_BLINDS_TYPES_JSON = """
         )
          FROM blinds_type bt
          WHERE bt.id = e.blinds_id)
-      ELSE '[]'::json
+      ELSE JSON_ARRAY()
     END
   )
 """
@@ -714,7 +714,7 @@ def list_blinds_types_for_estimates(
             SELECT bt.id, bt.name
             FROM blinds_type bt
             INNER JOIN company_blinds_type_matrix m
-              ON m.blinds_type_id = bt.id AND m.company_id = CAST(:company_id AS uuid)
+              ON m.blinds_type_id = bt.id AND m.company_id = :company_id
             WHERE bt.active IS TRUE
             ORDER BY bt.sort_order ASC, bt.name ASC
             """
@@ -739,21 +739,24 @@ def list_estimate_statuses_for_estimates(
               SELECT se.id, se.name, se.sort_order, se.builtin_kind
               FROM status_estimate se
               INNER JOIN company_status_estimate_matrix m
-                ON m.status_estimate_id = se.id AND m.company_id = CAST(:cid AS uuid)
+                ON m.status_estimate_id = se.id AND m.company_id = :cid
               WHERE se.active IS TRUE
             ),
             chosen_builtin AS (
-              SELECT DISTINCT ON (a.builtin_kind)
-                a.id,
-                a.name,
-                a.sort_order,
-                a.builtin_kind AS code
-              FROM active a
-              WHERE a.builtin_kind IS NOT NULL
-              ORDER BY a.builtin_kind, a.sort_order ASC, a.name ASC, a.id ASC
+              SELECT id, name, sort_order, builtin_kind AS code
+              FROM (
+                SELECT
+                  a.*,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY a.builtin_kind ORDER BY a.sort_order ASC, a.name ASC, a.id ASC
+                  ) AS rn
+                FROM active a
+                WHERE a.builtin_kind IS NOT NULL
+              ) z
+              WHERE rn = 1
             ),
             custom AS (
-              SELECT a.id, a.name, a.sort_order, NULL::text AS code
+              SELECT a.id, a.name, a.sort_order, CAST(NULL AS CHAR) AS code
               FROM active a
               WHERE a.builtin_kind IS NULL
                 AND NOT EXISTS (
@@ -792,7 +795,7 @@ def estimate_create_context(
             """
             SELECT name, email
             FROM companies
-            WHERE id = CAST(:cid AS uuid) AND is_deleted IS NOT TRUE
+            WHERE id = :cid AND is_deleted IS NOT TRUE
             LIMIT 1
             """
         ),
@@ -805,18 +808,24 @@ def estimate_create_context(
     mem_rows = db.execute(
         text(
             """
-            SELECT DISTINCT ON (lower(btrim(u.email)))
-              btrim(u.email) AS email,
-              u.first_name,
-              u.last_name
-            FROM user_company_memberships m
-            JOIN users u ON u.id = m.user_id
-            WHERE m.company_id = CAST(:cid AS uuid)
-              AND COALESCE(m.is_deleted, FALSE) IS NOT TRUE
-              AND COALESCE(u.is_deleted, FALSE) IS NOT TRUE
-              AND u.email IS NOT NULL
-              AND btrim(u.email) <> ''
-            ORDER BY lower(btrim(u.email)), u.first_name, u.last_name, u.email
+            SELECT email, first_name, last_name
+            FROM (
+              SELECT
+                trim(u.email) AS email,
+                u.first_name AS first_name,
+                u.last_name AS last_name,
+                ROW_NUMBER() OVER (
+                  PARTITION BY lower(trim(u.email)) ORDER BY u.first_name, u.last_name, u.email
+                ) AS rn
+              FROM user_company_memberships m
+              JOIN users u ON u.id = m.user_id
+              WHERE m.company_id = :cid
+                AND COALESCE(m.is_deleted, 0) = 0
+                AND COALESCE(u.is_deleted, 0) = 0
+                AND u.email IS NOT NULL
+                AND trim(u.email) <> ''
+            ) q
+            WHERE rn = 1
             """
         ),
         {"cid": str(cid)},
@@ -870,7 +879,7 @@ def list_estimates(
     term = (search or "").strip()
     where = ["e.company_id = :company_id"]
     if not include_deleted:
-        where.append("e.is_deleted IS NOT TRUE")
+        where.append("COALESCE(e.is_deleted, 0) = 0")
     params: dict[str, Any] = {"company_id": str(cid), "limit": limit}
     if sf_raw == "upcoming":
         where.append("COALESCE(e.scheduled_start_at, e.tarih_saat) >= NOW()")
@@ -893,19 +902,19 @@ def list_estimates(
         params["term"] = f"%{term}%"
         where.append(
             "("
-            "COALESCE(c.name,'') ILIKE :term OR COALESCE(c.surname,'') ILIKE :term OR "
-            "COALESCE(c.address,'') ILIKE :term OR "
-            "COALESCE(e.prospect_name,'') ILIKE :term OR COALESCE(e.prospect_surname,'') ILIKE :term OR "
-            "COALESCE(e.prospect_phone,'') ILIKE :term OR COALESCE(e.prospect_email,'') ILIKE :term OR "
-            "COALESCE(e.prospect_address,'') ILIKE :term OR "
+            "LOWER(COALESCE(c.name,'')) LIKE LOWER(:term) OR LOWER(COALESCE(c.surname,'')) LIKE LOWER(:term) OR "
+            "LOWER(COALESCE(c.address,'')) LIKE LOWER(:term) OR "
+            "LOWER(COALESCE(e.prospect_name,'')) LIKE LOWER(:term) OR LOWER(COALESCE(e.prospect_surname,'')) LIKE LOWER(:term) OR "
+            "LOWER(COALESCE(e.prospect_phone,'')) LIKE LOWER(:term) OR LOWER(COALESCE(e.prospect_email,'')) LIKE LOWER(:term) OR "
+            "LOWER(COALESCE(e.prospect_address,'')) LIKE LOWER(:term) OR "
             "EXISTS ("
             "  SELECT 1 FROM estimate_blinds eb2"
             "  JOIN blinds_type btx ON btx.id = eb2.blinds_id"
-            "  WHERE eb2.company_id = e.company_id AND eb2.estimate_id = e.id AND btx.name ILIKE :term"
+            "  WHERE eb2.company_id = e.company_id AND eb2.estimate_id = e.id AND LOWER(btx.name) LIKE LOWER(:term)"
             ") OR "
             "EXISTS ("
             "  SELECT 1 FROM blinds_type bty"
-            "  WHERE bty.id = e.blinds_id AND bty.name ILIKE :term"
+            "  WHERE bty.id = e.blinds_id AND LOWER(bty.name) LIKE LOWER(:term)"
             "))"
         )
     where_sql = " AND ".join(where)
@@ -938,14 +947,14 @@ def list_estimates(
                 WHERE o.company_id = e.company_id
                   AND o.estimate_id IS NOT NULL
                   AND trim(o.estimate_id) = trim(e.id)
-                ORDER BY CASE WHEN o.active IS TRUE THEN 0 ELSE 1 END, o.created_at DESC NULLS LAST
+                ORDER BY CASE WHEN o.active IS TRUE THEN 0 ELSE 1 END, (o.created_at IS NULL) ASC, o.created_at DESC
                 LIMIT 1
               ) AS linked_order_id
             FROM estimate e
             LEFT JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
             LEFT JOIN status_estimate se ON se.id = e.status_esti_id
             WHERE {where_sql}
-            ORDER BY COALESCE(e.scheduled_start_at, e.tarih_saat) DESC NULLS LAST, e.created_at DESC
+            ORDER BY (COALESCE(e.scheduled_start_at, e.tarih_saat) IS NULL) ASC, COALESCE(e.scheduled_start_at, e.tarih_saat) DESC, e.created_at DESC
             LIMIT :limit
             """
         ),
@@ -999,7 +1008,7 @@ def create_estimate(
             SELECT se.id
             FROM status_estimate se
             INNER JOIN company_status_estimate_matrix m
-              ON m.status_estimate_id = se.id AND m.company_id = CAST(:cid AS uuid)
+              ON m.status_estimate_id = se.id AND m.company_id = :cid
             WHERE se.builtin_kind = 'new'
             LIMIT 1
             """
@@ -1014,7 +1023,7 @@ def create_estimate(
                 SELECT se.id
                 FROM status_estimate se
                 INNER JOIN company_status_estimate_matrix m
-                  ON m.status_estimate_id = se.id AND m.company_id = CAST(:cid AS uuid)
+                  ON m.status_estimate_id = se.id AND m.company_id = :cid
                 WHERE se.builtin_kind = 'new'
                 LIMIT 1
                 """
@@ -1201,7 +1210,7 @@ def get_estimate(
                 WHERE o.company_id = e.company_id
                   AND o.estimate_id IS NOT NULL
                   AND trim(o.estimate_id) = trim(e.id)
-                ORDER BY CASE WHEN o.active IS TRUE THEN 0 ELSE 1 END, o.created_at DESC NULLS LAST
+                ORDER BY CASE WHEN o.active IS TRUE THEN 0 ELSE 1 END, (o.created_at IS NULL) ASC, o.created_at DESC
                 LIMIT 1
               ) AS linked_order_id
             FROM estimate e
@@ -1246,7 +1255,7 @@ def patch_estimate(
             SELECT e.visit_time_zone, e.customer_id, se.builtin_kind AS status_builtin_kind
             FROM estimate e
             LEFT JOIN status_estimate se ON se.id = e.status_esti_id
-            WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid AND e.is_deleted IS NOT TRUE
+            WHERE e.company_id = :cid AND e.id = :eid AND e.is_deleted IS NOT TRUE
             LIMIT 1
             """
         ),
@@ -1352,7 +1361,7 @@ def patch_estimate(
                 SELECT se.id, se.builtin_kind
                 FROM status_estimate se
                 INNER JOIN company_status_estimate_matrix m
-                  ON m.status_estimate_id = se.id AND m.company_id = CAST(:cid AS uuid)
+                  ON m.status_estimate_id = se.id AND m.company_id = :cid
                 WHERE se.id = :sid AND se.active IS TRUE
                 LIMIT 1
                 """
@@ -1370,7 +1379,7 @@ def patch_estimate(
         estimate_perde = sum(counts) if counts else None
         db.execute(
             text(
-                "DELETE FROM estimate_blinds WHERE company_id = CAST(:cid AS uuid) AND estimate_id = :eid"
+                "DELETE FROM estimate_blinds WHERE company_id = :cid AND estimate_id = :eid"
             ),
             {"cid": str(cid), "eid": eid},
         )
@@ -1386,7 +1395,7 @@ def patch_estimate(
                       company_id, estimate_id, blinds_id, sort_order, perde_sayisi, line_amount
                     )
                     VALUES (
-                      CAST(:cid AS uuid), :estimate_id, :blinds_id, :sort_order, :perde_sayisi, :line_amount
+                      :cid, :estimate_id, :blinds_id, :sort_order, :perde_sayisi, :line_amount
                     )
                     """
                 ),
@@ -1411,7 +1420,7 @@ def patch_estimate(
             f"""
             UPDATE estimate
             SET {", ".join(sets)}
-            WHERE company_id = CAST(:cid AS uuid) AND id = :eid AND is_deleted IS NOT TRUE
+            WHERE company_id = :cid AND id = :eid AND is_deleted IS NOT TRUE
             """
         ),
         params,
@@ -1448,7 +1457,7 @@ def restore_estimate(
             """
             UPDATE estimate
             SET is_deleted = FALSE, updated_at = NOW()
-            WHERE company_id = CAST(:cid AS uuid) AND id = :eid AND is_deleted IS TRUE
+            WHERE company_id = :cid AND id = :eid AND is_deleted IS TRUE
             """
         ),
         {"cid": str(cid), "eid": eid},
@@ -1512,7 +1521,7 @@ def _fetch_estimate_doc_context(db: Session, company_id: UUID, estimate_id: str)
         text(
             f"""
             SELECT
-              e.id::text AS estimate_id,
+              e.id AS estimate_id,
               e.customer_id,
               trim(concat_ws(' ', c.name, c.surname)) AS customer_name,
               c.address AS customer_address,
@@ -1533,7 +1542,7 @@ def _fetch_estimate_doc_context(db: Session, company_id: UUID, estimate_id: str)
             LEFT JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
             LEFT JOIN status_estimate se ON se.id = e.status_esti_id
             JOIN companies co ON co.id = e.company_id
-            WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid AND e.is_deleted IS NOT TRUE
+            WHERE e.company_id = :cid AND e.id = :eid AND e.is_deleted IS NOT TRUE
             LIMIT 1
             """
         ),
@@ -1723,9 +1732,9 @@ def estimate_workflow(
     cur = db.execute(
         text(
             """
-            SELECT e.status_esti_id::text AS status_esti_id
+            SELECT e.status_esti_id AS status_esti_id
             FROM estimate e
-            WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid AND e.is_deleted IS NOT TRUE
+            WHERE e.company_id = :cid AND e.id = :eid AND e.is_deleted IS NOT TRUE
             LIMIT 1
             """
         ),
@@ -1744,9 +1753,9 @@ def estimate_workflow(
     trans = db.execute(
         text(
             """
-            SELECT id::text AS id, to_status_id::text AS to_status_id
+            SELECT id AS id, to_status_id AS to_status_id
             FROM workflow_transitions
-            WHERE workflow_definition_id = CAST(:wid AS uuid)
+            WHERE workflow_definition_id = :wid
               AND COALESCE(from_status_id,'') = COALESCE(:from_sid,'')
               AND deleted_at IS NULL
             ORDER BY sort_order ASC, created_at ASC, id ASC
@@ -1790,10 +1799,10 @@ def estimate_workflow_transition(
     cur = db.execute(
         text(
             """
-            SELECT e.status_esti_id::text AS status_esti_id, se.builtin_kind AS status_builtin_kind
+            SELECT e.status_esti_id AS status_esti_id, se.builtin_kind AS status_builtin_kind
             FROM estimate e
             LEFT JOIN status_estimate se ON se.id = e.status_esti_id
-            WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid AND e.is_deleted IS NOT TRUE
+            WHERE e.company_id = :cid AND e.id = :eid AND e.is_deleted IS NOT TRUE
             LIMIT 1
             """
         ),
@@ -1821,9 +1830,9 @@ def estimate_workflow_transition(
     tr = db.execute(
         text(
             """
-            SELECT id::text AS id
+            SELECT id AS id
             FROM workflow_transitions
-            WHERE workflow_definition_id = CAST(:wid AS uuid)
+            WHERE workflow_definition_id = :wid
               AND COALESCE(from_status_id,'') = COALESCE(:from_sid,'')
               AND to_status_id = :to_sid
               AND deleted_at IS NULL

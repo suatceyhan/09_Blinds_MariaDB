@@ -1,4 +1,4 @@
-# Blinds (FastAPI + React + PostgreSQL)
+# Blinds (FastAPI + React + MariaDB)
 
 Bu proje, **giriş, kayıt, şifre değiştirme, şifremi unuttum / sıfırlama** akışlarını içerir. RBAC tabloları ve JWT ile uyumludur.
 
@@ -20,8 +20,7 @@ Bu proje, **giriş, kayıt, şifre değiştirme, şifremi unuttum / sıfırlama*
 ## Hızlı başlangıç
 
 **1. Veritabanı**  
-PostgreSQL oluşturun. Şema için repodaki `DB/blinds-postgresql.sql` veya `create_all_tables()` kullanın; ikisini aynı DB’de karıştırmayın.
-MariaDB için ayrı şema: `DB/blinds-mariadb.sql`.
+MariaDB **10.11+** oluşturun (**12.2** dahil — yüklü sürümünüzle uyumludur). İsterseniz uyumlu **MySQL 8+** de kullanılabilir. Şema için `python scripts/generate_mariadb_sql.py` ile `DB/blinds-mariadb.sql` üretin ve boş bir veritabanına `mysql … < DB/blinds-mariadb.sql` ile yükleyin; alternatif olarak `AUTO_CREATE_TABLES=true` ile `create_all_tables()` kullanın — ikisini aynı DB’de karıştırmayın. Kaynak şema referansı `DB/blinds-postgresql-reference.sql`; ayrıntılar `DB/README.md` içinde. **`DB2/blinds-mdb.sql`** doğrudan MariaDB şema dökümüdür; tek oturumda boş DB’ye importta döngüsel/bozuk sıralı FK DDL’si için dosya başında `SET SESSION foreign_key_checks = 0`, sonda `= 1` kullanır (mysqldump ile aynı kalıp; uygulama bağlantıları varsayılan olarak FK doğrulamasını açık tutar). **Bileşik kiracı FK’leri (`company_id` + …):** PostgreSQL’deki `ON DELETE SET NULL` davranışı (yalnızca nullable kolonları temizler) MariaDB/InnoDB’de yok; `company_id` NOT NULL olduğu için `orders` → `blinds_type_add` ve `orders` → `estimate` gibi ilişkilerde `ON DELETE RESTRICT` kullanılır — üst satır silinmeden önce uygulama tarafında referans kaldırılmalı. **İndeks:** PostgreSQL kısmi indeksleri (`CREATE INDEX … WHERE`) taşınmaz; dosyada tam sütun indeksleri kullanılır (MariaDB 10.7 öncesi ve taşınabilirlik). **DB2:** bazı sürümlerde `GENERATED` ifadeleri ERROR 1901 verebilir; `workflow_definitions.company_id_norm` ve `pending_employee_self_registrations.email_unique_key` tetikleyicilerle güncellenir (PostgreSQL’deki eşdeğer benzersizlik davranışı).
 
 **2. Backend** (`backend/`)
 

@@ -1,14 +1,14 @@
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Numeric, String, UniqueConstraint, text
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+from app.core.sqlalchemy_types import MariaUuid
 
 
 class Companies(Base):
     __tablename__ = "companies"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id = Column(MariaUuid(), primary_key=True, server_default=text("(UUID())"))
     name = Column(String, nullable=False)
     phone = Column(String, nullable=True)
     website = Column(String, nullable=True)
@@ -18,7 +18,7 @@ class Companies(Base):
     country_code = Column(String(2), nullable=True)
     region_code = Column(String(8), nullable=True)
     maps_url = Column(String(2000), nullable=True)
-    owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    owner_user_id = Column(MariaUuid(), ForeignKey("users.id"), nullable=True)
     logo_url = Column(String(500), nullable=True)
     tax_rate_percent = Column(Numeric(6, 3), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))

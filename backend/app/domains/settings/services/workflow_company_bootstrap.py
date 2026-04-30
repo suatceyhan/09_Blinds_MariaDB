@@ -24,9 +24,9 @@ def bootstrap_company_workflow_transitions_from_global_if_empty(
     cnt_raw = db.execute(
         text(
             """
-            SELECT COUNT(*)::bigint AS n
+            SELECT COUNT(*) AS n
             FROM workflow_transitions
-            WHERE workflow_definition_id = CAST(:wid AS uuid)
+            WHERE workflow_definition_id = :wid
             """
         ),
         {"wid": company_definition_id},
@@ -37,7 +37,7 @@ def bootstrap_company_workflow_transitions_from_global_if_empty(
     grow = db.execute(
         text(
             """
-            SELECT id::text AS id
+            SELECT id AS id
             FROM workflow_definitions
             WHERE company_id IS NULL
               AND entity_type = CAST(:et AS text)
@@ -56,9 +56,9 @@ def bootstrap_company_workflow_transitions_from_global_if_empty(
     trans = db.execute(
         text(
             """
-            SELECT id::text AS id, from_status_id, to_status_id, sort_order, deleted_at
+            SELECT id AS id, from_status_id, to_status_id, sort_order, deleted_at
             FROM workflow_transitions
-            WHERE workflow_definition_id = CAST(:gwid AS uuid)
+            WHERE workflow_definition_id = :gwid
             ORDER BY sort_order ASC, created_at ASC, id ASC
             """
         ),
@@ -81,9 +81,9 @@ def bootstrap_company_workflow_transitions_from_global_if_empty(
                   workflow_definition_id, from_status_id, to_status_id, sort_order, deleted_at
                 )
                 VALUES (
-                  CAST(:wid AS uuid), :from_sid, CAST(:to_sid AS varchar), :so, :del_at
+                  :wid, :from_sid, CAST(:to_sid AS varchar), :so, :del_at
                 )
-                RETURNING id::text AS id
+                RETURNING id
                 """
             ),
             {
@@ -103,7 +103,7 @@ def bootstrap_company_workflow_transitions_from_global_if_empty(
                 """
                 SELECT type, config, sort_order, COALESCE(is_required, TRUE) AS is_required
                 FROM workflow_transition_actions
-                WHERE transition_id = CAST(:tid AS uuid)
+                WHERE transition_id = :tid
                 ORDER BY sort_order ASC, created_at ASC, id ASC
                 """
             ),
@@ -128,7 +128,7 @@ def bootstrap_company_workflow_transitions_from_global_if_empty(
                 text(
                     """
                     INSERT INTO workflow_transition_actions (transition_id, type, config, sort_order, is_required)
-                    VALUES (CAST(:tid AS uuid), :typ, CAST(:cfg AS jsonb), :so, :req)
+                    VALUES (:tid, :typ, CAST(:cfg AS jsonb), :so, :req)
                     """
                 ),
                 {

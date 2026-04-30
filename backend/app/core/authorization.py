@@ -7,7 +7,7 @@ from typing import List, Optional, Set
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.domains.lookup.models.permissions import Permissions
@@ -30,19 +30,26 @@ ROLE_HIERARCHY = {
 PROTECTED_ROLES = {"superadmin", "admin", "roleadmin"}
 
 
+def _uuid_candidates(u: UUID) -> tuple[str, str]:
+    """Return dashed36 and hex32 candidates for mixed MariaDB storage."""
+    return (str(u), u.hex)
+
+
 def user_has_superadmin_assignment(db: Session, user_id: UUID) -> bool:
     """Kullanıcıya atanmış (silinmemiş) superadmin rolü var mı."""
-    row = (
-        db.query(UserRoles)
-        .join(Roles, UserRoles.role_id == Roles.id)
-        .filter(
-            UserRoles.user_id == user_id,
-            UserRoles.is_deleted.is_(False),
-            Roles.is_deleted.is_(False),
-            Roles.name.ilike("superadmin"),
-        )
-        .first()
-    )
+    d, h = _uuid_candidates(user_id)
+    row = db.execute(
+        text(
+            "SELECT 1 "
+            "FROM user_roles ur "
+            "JOIN roles r ON r.id = ur.role_id "
+            "WHERE COALESCE(ur.is_deleted,0)=0 AND COALESCE(r.is_deleted,0)=0 "
+            "AND LOWER(r.name)='superadmin' "
+            "AND (ur.user_id = :d OR ur.user_id = :h) "
+            "LIMIT 1"
+        ),
+        {"d": d, "h": h},
+    ).first()
     return row is not None
 
 
@@ -91,111 +98,151 @@ def _check_superadmin_permission(
     if ar:
         # JWT ile başka bir aktif rol seçiliyken hesaptaki superadmin ataması yetkiyi genişletmez.
         return False
-    super_admin_role = (
-        db.query(UserRoles)
-        .join(Roles, UserRoles.role_id == Roles.id)
-        .filter(
-            UserRoles.user_id == user_id,
-            UserRoles.is_deleted.is_(False),
-            Roles.name.ilike("%superadmin%"),
-        )
-        .first()
-    )
-    return super_admin_role is not None
+    d, h = _uuid_candidates(user_id)
+    row = db.execute(
+        text(
+            "SELECT 1 "
+            "FROM user_roles ur "
+            "JOIN roles r ON r.id = ur.role_id "
+            "WHERE COALESCE(ur.is_deleted,0)=0 AND COALESCE(r.is_deleted,0)=0 "
+            "AND LOWER(r.name) LIKE '%superadmin%' "
+            "AND (ur.user_id = :d OR ur.user_id = :h) "
+            "LIMIT 1"
+        ),
+        {"d": d, "h": h},
+    ).first()
+    return row is not None
 
 
 def _check_active_role_permission(
     db: Session, user_id: UUID, permission_key: str, active_role: str
 ) -> bool:
-    role_obj = resolve_role_by_active_name(db, active_role)
-    if not role_obj:
+    # Resolve role id string from DB to match stored representation.
+    rrow = db.execute(
+        text(
+            "SELECT id FROM roles WHERE LOWER(name)=LOWER(:n) AND COALESCE(is_deleted,0)=0 LIMIT 1"
+        ),
+        {"n": str(active_role).strip()},
+    ).first()
+    if not rrow:
         return False
-    role_id = role_obj.id
-    user_perm = (
-        db.query(UserPermissions)
-        .join(Permissions, UserPermissions.permission_id == Permissions.id)
-        .filter(
-            UserPermissions.user_id == user_id,
-            UserPermissions.role_id == role_id,
-            UserPermissions.is_deleted.is_(False),
-            Permissions.key == permission_key,
-        )
-        .first()
-    )
-    if user_perm is not None:
-        return bool(user_perm.is_granted)
-    role_perm = (
-        db.query(RolePermissions)
-        .join(Permissions, RolePermissions.permission_id == Permissions.id)
-        .filter(
-            RolePermissions.role_id == role_id,
-            RolePermissions.is_deleted.is_(False),
-            RolePermissions.is_granted.is_(True),
-            Permissions.key == permission_key,
-        )
-        .first()
-    )
-    return role_perm is not None
+    role_id = rrow[0]
+    d, h = _uuid_candidates(user_id)
+
+    up = db.execute(
+        text(
+            "SELECT up.is_granted "
+            "FROM user_permissions up "
+            "JOIN permissions p ON p.id = up.permission_id "
+            "WHERE COALESCE(up.is_deleted,0)=0 AND COALESCE(p.is_deleted,0)=0 "
+            "AND up.role_id = :rid "
+            "AND (up.user_id = :d OR up.user_id = :h) "
+            "AND p.`key` = :k "
+            "LIMIT 1"
+        ),
+        {"rid": role_id, "d": d, "h": h, "k": permission_key},
+    ).first()
+    if up is not None:
+        return bool(up[0])
+
+    rp = db.execute(
+        text(
+            "SELECT 1 "
+            "FROM role_permissions rp "
+            "JOIN permissions p ON p.id = rp.permission_id "
+            "WHERE COALESCE(rp.is_deleted,0)=0 AND COALESCE(p.is_deleted,0)=0 "
+            "AND COALESCE(rp.is_granted,0)=1 "
+            "AND rp.role_id = :rid "
+            "AND p.`key` = :k "
+            "LIMIT 1"
+        ),
+        {"rid": role_id, "k": permission_key},
+    ).first()
+    return rp is not None
 
 
 def _check_legacy_permissions(db: Session, user_id: UUID, permission_key: str) -> bool:
-    super_admin_role = (
-        db.query(UserRoles)
-        .join(Roles, UserRoles.role_id == Roles.id)
-        .filter(
-            UserRoles.user_id == user_id,
-            UserRoles.is_deleted.is_(False),
-            Roles.name == "superAdmin",
-        )
-        .first()
-    )
-    if super_admin_role:
+    # Legacy path: gather effective permission keys via raw SQL to tolerate mixed UUID storage.
+    d, h = _uuid_candidates(user_id)
+
+    # superAdmin legacy casing
+    legacy_super = db.execute(
+        text(
+            "SELECT 1 FROM user_roles ur "
+            "JOIN roles r ON r.id = ur.role_id "
+            "WHERE COALESCE(ur.is_deleted,0)=0 AND COALESCE(r.is_deleted,0)=0 "
+            "AND r.name = 'superAdmin' AND (ur.user_id=:d OR ur.user_id=:h) LIMIT 1"
+        ),
+        {"d": d, "h": h},
+    ).first()
+    if legacy_super:
         return True
-    user_role_ids = {
-        r_id
-        for (r_id,) in db.query(UserRoles.role_id)
-        .filter(UserRoles.user_id == user_id, UserRoles.is_deleted.is_(False))
-        .all()
-    }
-    direct_perm_ids = {
-        p_id
-        for (p_id,) in db.query(UserPermissions.permission_id)
-        .filter(
-            UserPermissions.user_id == user_id,
-            UserPermissions.is_deleted.is_(False),
-            UserPermissions.is_granted.is_(True),
-        )
-        .all()
-    }
-    role_perm_ids: set = set()
-    if user_role_ids:
-        role_perm_ids = {
-            p_id
-            for (p_id,) in db.query(RolePermissions.permission_id)
-            .filter(
-                RolePermissions.role_id.in_(user_role_ids),
-                RolePermissions.is_deleted.is_(False),
-                RolePermissions.is_granted.is_(True),
-            )
-            .all()
-        }
-    all_perm_ids = direct_perm_ids.union(role_perm_ids)
-    if not all_perm_ids:
+
+    role_ids = [
+        rid
+        for (rid,) in db.execute(
+            text(
+                "SELECT role_id FROM user_roles "
+                "WHERE COALESCE(is_deleted,0)=0 AND (user_id=:d OR user_id=:h)"
+            ),
+            {"d": d, "h": h},
+        ).fetchall()
+    ]
+
+    perm_ids: set[str] = set(
+        pid
+        for (pid,) in db.execute(
+            text(
+                "SELECT permission_id FROM user_permissions "
+                "WHERE COALESCE(is_deleted,0)=0 AND COALESCE(is_granted,0)=1 "
+                "AND (user_id=:d OR user_id=:h)"
+            ),
+            {"d": d, "h": h},
+        ).fetchall()
+    )
+
+    if role_ids:
+        # IN list via bound params
+        params = {f"r{i}": r for i, r in enumerate(role_ids)}
+        in_clause = ", ".join([f":r{i}" for i in range(len(role_ids))])
+        rows = db.execute(
+            text(
+                f"SELECT permission_id FROM role_permissions "
+                f"WHERE COALESCE(is_deleted,0)=0 AND COALESCE(is_granted,0)=1 "
+                f"AND role_id IN ({in_clause})"
+            ),
+            params,
+        ).fetchall()
+        perm_ids.update(pid for (pid,) in rows)
+
+    if not perm_ids:
         return False
-    user_perm_keys = {
-        key for (key,) in db.query(Permissions.key).filter(Permissions.id.in_(all_perm_ids)).all()
-    }
-    if permission_key in user_perm_keys:
+
+    params = {f"p{i}": p for i, p in enumerate(sorted(perm_ids))}
+    in_clause = ", ".join([f":p{i}" for i in range(len(params))])
+    keys = [
+        k
+        for (k,) in db.execute(
+            text(
+                f"SELECT `key` FROM permissions WHERE COALESCE(is_deleted,0)=0 AND id IN ({in_clause})"
+            ),
+            params,
+        ).fetchall()
+    ]
+    key_set = set(keys)
+    if permission_key in key_set:
         return True
-    all_permissions_hierarchy = (
-        db.query(Permissions.key, Permissions.parent_key).filter(Permissions.is_deleted.is_(False)).all()
-    )
-    hierarchy_map = {key: parent_key for key, parent_key in all_permissions_hierarchy if key}
-    current_key = hierarchy_map.get(permission_key)
-    while current_key:
-        if current_key in user_perm_keys:
+
+    # Walk parent chain.
+    hierarchy = db.execute(
+        text("SELECT `key`, parent_key FROM permissions WHERE COALESCE(is_deleted,0)=0")
+    ).fetchall()
+    parent = {k: pk for (k, pk) in hierarchy if k}
+    current = parent.get(permission_key)
+    while current:
+        if current in key_set:
             return True
-        current_key = hierarchy_map.get(current_key)
+        current = parent.get(current)
     return False
 
 
@@ -234,6 +281,11 @@ def enforce_permission(
 def get_user_permissions(
     db: Session, user_id: UUID, active_role: Optional[str] = None
 ) -> List[str]:
+    # If the account has superadmin assignment and no explicit active_role override,
+    # treat as full-access (UI nav relies on permissions list).
+    if not active_role and _check_superadmin_permission(db, user_id, active_role=None):
+        all_perms = db.query(Permissions.key).filter(Permissions.is_deleted.is_(False)).all()
+        return [row[0] for row in all_perms]
     if active_role and active_role.lower() == "superadmin":
         all_perms = db.query(Permissions.key).filter(Permissions.is_deleted.is_(False)).all()
         return [row[0] for row in all_perms]
@@ -287,10 +339,9 @@ def get_user_permissions(
         )
         .all()
     )
-    role_ids = (
-        db.query(UserRoles.role_id)
-        .filter(UserRoles.user_id == user_id, UserRoles.is_deleted.is_(False))
-        .subquery()
+    # Avoid SAWarning: IN (subquery) should receive a select()
+    role_ids = select(UserRoles.role_id).where(
+        UserRoles.user_id == user_id, UserRoles.is_deleted.is_(False)
     )
     via_roles = (
         db.query(Permissions.key)

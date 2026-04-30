@@ -8,17 +8,20 @@ from app.core.config import settings
 Base = declarative_base()
 
 
-def _pg_connect_args(url: str) -> dict:
-    if url.startswith("postgresql"):
+def _engine_connect_args(url: str) -> dict:
+    low = (url or "").lower()
+    if low.startswith("postgresql"):
         # Havuzdan yeni bağlantı: bootstrap/login RLS'ten muaf (FORCE RLS + owner için gerekli)
         return {"options": "-c app.rls_bypass=1"}
+    if low.startswith("mysql") or low.startswith("mariadb"):
+        return {"charset": "utf8mb4"}
     return {}
 
 
 engine = create_engine(
     settings.database_url,
     echo=False,
-    connect_args=_pg_connect_args(settings.database_url),
+    connect_args=_engine_connect_args(settings.database_url),
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -65,7 +68,7 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         # Hatalı isteklerde transaction "aborted" kalır; reset öncesi rollback yoksa
-        # PostgreSQL bir sonraki set_config'te InFailedSqlTransaction verir.
+        # PostgreSQL: aborted txn blocks sonraki set_config; MariaDB için zararsız rollback.
         try:
             db.rollback()
         except Exception:

@@ -69,9 +69,9 @@ def create_user_role_assignment(
         executed_by=current_user.id,
         action="update" if reactivated else "create",
         table_name="user_roles",
-        table_id=created.id,
+        table_id=created["id"],
         before_data=before_snap if reactivated else None,
-        after_data=jsonable_encoder(created),
+        after_data=created,
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
     )
@@ -80,7 +80,7 @@ def create_user_role_assignment(
         service_name="user",
         action="reactivate_role" if reactivated else "assign_role",
         status="success",
-        details={"user_role_id": str(created.id), "user_id": str(body.user_id), "role_id": str(body.role_id)},
+        details={"user_role_id": str(created["id"]), "user_id": str(body.user_id), "role_id": str(body.role_id)},
         executed_by=current_user.email,
         ip_address=request.client.host if request.client else None,
     )

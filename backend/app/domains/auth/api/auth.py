@@ -153,10 +153,18 @@ def login(
     if not user_auth:
         raise HTTPException(status_code=400, detail="Invalid email or password")
 
+    # log_login_attempt commits; reload user so ORM state is not expired/stale (expire_on_commit).
+    user_auth = db.query(Users).filter(Users.email == email).first()
+    if not user_auth:
+        raise HTTPException(status_code=500, detail="Could not reload user after login")
+
     from app.domains.user.services.company_membership import normalize_active_company
 
     normalize_active_company(db, user_auth)
-    db.refresh(user_auth)
+    # `normalize_active_company` may commit; re-load instead of refresh to avoid detached/expired instance issues.
+    user_auth = db.query(Users).filter(Users.email == email).first()
+    if not user_auth:
+        raise HTTPException(status_code=500, detail="Could not reload user after company normalization")
 
     out = _issue_tokens(user_auth, db)
     log_system_event(
@@ -380,34 +388,56 @@ def logout(
     db: Session = Depends(get_db),
     current_user: Users = Depends(get_current_user),
 ):
+    # Functions below may commit (expire ORM instances). Capture primitives up-front.
+    uid = current_user.id
+    uemail = current_user.email
+
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith(BEARER_PREFIX):
         raise HTTPException(status_code=400, detail="Missing or invalid Authorization header")
 
     token = auth_header.replace(BEARER_PREFIX, "")
-    deactivate_all_sessions_for_user(db, current_user.id)
-    revoke_token(token, db, RevokedTokens, user_id=current_user.id)
+    try:
+        deactivate_all_sessions_for_user(db, uid)
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    try:
+        revoke_token(token, db, RevokedTokens, user_id=uid)
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
-    log_user_action(
-        db=db,
-        executed_by=current_user.id,
-        action="logout",
-        table_name="user_sessions",
-        table_id=None,
-        before_data=None,
-        after_data=None,
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent"),
-    )
-    log_system_event(
-        db=db,
-        service_name="auth",
-        action="user_logout",
-        status="success",
-        details={"user_id": str(current_user.id)},
-        executed_by=current_user.email,
-        ip_address=request.client.host if request.client else None,
-    )
+    try:
+        log_user_action(
+            db=db,
+            executed_by=uid,
+            action="logout",
+            table_name="user_sessions",
+            table_id=None,
+            before_data=None,
+            after_data=None,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+    except Exception:
+        pass
+    try:
+        log_system_event(
+            db=db,
+            service_name="auth",
+            action="user_logout",
+            status="success",
+            details={"user_id": str(uid)},
+            executed_by=uemail,
+            ip_address=request.client.host if request.client else None,
+        )
+    except Exception:
+        pass
 
     return {"detail": "All sessions and tokens revoked successfully"}
 

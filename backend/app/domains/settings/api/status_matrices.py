@@ -245,7 +245,7 @@ def _load_companies_scope(
         text(
             """
             SELECT id, name FROM companies
-            WHERE id = CAST(:cid AS uuid) AND is_deleted IS NOT TRUE
+            WHERE id = :cid AND is_deleted IS NOT TRUE
             LIMIT 1
             """
         ),
@@ -281,7 +281,7 @@ def get_estimate_status_matrix(
             matrix_rows = db.execute(
                 text(
                     """
-                    SELECT company_id::text AS company_id, status_estimate_id AS status_id
+                    SELECT company_id AS company_id, status_estimate_id AS status_id
                     FROM company_status_estimate_matrix
                     """
                 )
@@ -292,9 +292,9 @@ def get_estimate_status_matrix(
                 db.execute(
                     text(
                         """
-                        SELECT company_id::text AS company_id, status_estimate_id AS status_id
+                        SELECT company_id AS company_id, status_estimate_id AS status_id
                         FROM company_status_estimate_matrix
-                        WHERE company_id = CAST(:cid AS uuid)
+                        WHERE company_id = :cid
                         """
                     ),
                     {"cid": str(ec)},
@@ -335,7 +335,7 @@ def put_estimate_status_matrix(
                 text(
                     """
                     INSERT INTO company_status_estimate_matrix (company_id, status_estimate_id)
-                    VALUES (CAST(:cid AS uuid), :sid)
+                    VALUES (:cid, :sid)
                     ON CONFLICT (company_id, status_estimate_id) DO NOTHING
                     """
                 ),
@@ -346,7 +346,7 @@ def put_estimate_status_matrix(
                 text(
                     """
                     DELETE FROM company_status_estimate_matrix
-                    WHERE company_id = CAST(:cid AS uuid) AND status_estimate_id = :sid
+                    WHERE company_id = :cid AND status_estimate_id = :sid
                     """
                 ),
                 {"cid": str(cell.company_id), "sid": cell.status_id.strip()},
@@ -382,7 +382,7 @@ def get_order_status_matrix(
             matrix_rows = db.execute(
                 text(
                     """
-                    SELECT company_id::text AS company_id, status_order_id AS status_id
+                    SELECT company_id AS company_id, status_order_id AS status_id
                     FROM company_status_order_matrix
                     """
                 )
@@ -393,9 +393,9 @@ def get_order_status_matrix(
                 db.execute(
                     text(
                         """
-                        SELECT company_id::text AS company_id, status_order_id AS status_id
+                        SELECT company_id AS company_id, status_order_id AS status_id
                         FROM company_status_order_matrix
-                        WHERE company_id = CAST(:cid AS uuid)
+                        WHERE company_id = :cid
                         """
                     ),
                     {"cid": str(ec)},
@@ -436,7 +436,7 @@ def put_order_status_matrix(
                 text(
                     """
                     INSERT INTO company_status_order_matrix (company_id, status_order_id)
-                    VALUES (CAST(:cid AS uuid), :sid)
+                    VALUES (:cid, :sid)
                     ON CONFLICT (company_id, status_order_id) DO NOTHING
                     """
                 ),
@@ -447,7 +447,7 @@ def put_order_status_matrix(
                 text(
                     """
                     DELETE FROM company_status_order_matrix
-                    WHERE company_id = CAST(:cid AS uuid) AND status_order_id = :sid
+                    WHERE company_id = :cid AND status_order_id = :sid
                     """
                 ),
                 {"cid": str(cell.company_id), "sid": cell.status_id.strip()},
@@ -469,7 +469,7 @@ def create_global_estimate_status(
             """
             SELECT 1
             FROM status_estimate
-            WHERE lower(btrim(name)) = lower(btrim(:name))
+            WHERE lower(trim(name)) = lower(trim(:name))
             LIMIT 1
             """
         ),
@@ -541,7 +541,7 @@ def patch_global_estimate_status(
                 """
                 SELECT 1
                 FROM status_estimate
-                WHERE lower(btrim(name)) = lower(btrim(:name))
+                WHERE lower(trim(name)) = lower(trim(:name))
                   AND id <> :id
                 LIMIT 1
                 """
@@ -589,7 +589,7 @@ def create_global_order_status(
             """
             SELECT 1
             FROM status_order
-            WHERE lower(btrim(name)) = lower(btrim(:name))
+            WHERE lower(trim(name)) = lower(trim(:name))
             LIMIT 1
             """
         ),
@@ -657,7 +657,7 @@ def patch_global_order_status(
                 """
                 SELECT 1
                 FROM status_order
-                WHERE lower(btrim(name)) = lower(btrim(:name))
+                WHERE lower(trim(name)) = lower(trim(:name))
                   AND id <> :id
                 LIMIT 1
                 """

@@ -1,15 +1,15 @@
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, UniqueConstraint, text
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+from app.core.sqlalchemy_types import MariaUuid
 
 
 class PasswordResetTokens(Base):
     __tablename__ = "password_reset_tokens"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    id = Column(MariaUuid(), primary_key=True, server_default=text("(UUID())"))
+    user_id = Column(MariaUuid(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     token = Column(String(100), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
     expires_at = Column(DateTime(timezone=True), nullable=False)

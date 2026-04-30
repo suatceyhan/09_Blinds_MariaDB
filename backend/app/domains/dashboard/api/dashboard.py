@@ -77,6 +77,35 @@ def _utc_today_range() -> tuple[datetime, datetime]:
     return start, end
 
 
+def _month_floor(dt: datetime) -> datetime:
+    return datetime(dt.year, dt.month, 1, tzinfo=dt.tzinfo)
+
+
+def _month_add(dt: datetime, delta: int) -> datetime:
+    y, m = dt.year, dt.month + delta
+    while m > 12:
+        m -= 12
+        y += 1
+    while m < 1:
+        m += 12
+        y -= 1
+    return datetime(y, m, 1, tzinfo=dt.tzinfo)
+
+
+def _rolling_month_labels(now_utc: datetime, count: int = 3) -> list[str]:
+    cur = _month_floor(now_utc)
+    start = _month_add(cur, -(count - 1))
+    keys: list[str] = []
+    y, m = start.year, start.month
+    for _ in range(count):
+        keys.append(f"{y:04d}-{m:02d}")
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+    return keys
+
+
 @router.get(
     "/summary",
     response_model=DashboardSummary,
@@ -91,17 +120,21 @@ def get_dashboard_summary(
         raise HTTPException(status_code=403, detail="No active company.")
     start, _ = _utc_today_range()
     week_end = start + timedelta(days=7)
+    now_u = datetime.now(timezone.utc)
+    win_start = _month_add(_month_floor(now_u), -2)
+    win_end = _month_add(_month_floor(now_u), 1)
+    month_keys = _rolling_month_labels(now_u, 3)
 
     est_counts = db.execute(
         text(
             """
             SELECT
-              COALESCE(SUM(CASE WHEN se.builtin_kind = 'new' THEN 1 ELSE 0 END), 0)::int AS new_count,
-              COALESCE(SUM(CASE WHEN se.builtin_kind = 'pending' THEN 1 ELSE 0 END), 0)::int AS pending_count
+              COALESCE(SUM(CASE WHEN se.builtin_kind = 'new' THEN 1 ELSE 0 END), 0) AS new_count,
+              COALESCE(SUM(CASE WHEN se.builtin_kind = 'pending' THEN 1 ELSE 0 END), 0) AS pending_count
             FROM estimate e
             LEFT JOIN status_estimate se ON se.id = e.status_esti_id
-            WHERE e.company_id = CAST(:cid AS uuid)
-              AND e.is_deleted IS NOT TRUE
+            WHERE e.company_id = :cid
+              AND COALESCE(e.is_deleted, 0) = 0
               AND (se.builtin_kind IS NULL OR se.builtin_kind <> 'cancelled')
             """
         ),
@@ -119,20 +152,19 @@ def get_dashboard_summary(
               trim(concat_ws(' ', c.name, c.surname)) AS customer_display,
               COALESCE(
                 (
-                  SELECT string_agg(
+                  SELECT GROUP_CONCAT(
                     CASE
-                      WHEN eb.perde_sayisi IS NOT NULL THEN bt.name || ' (' || eb.perde_sayisi::text || ')'
+                      WHEN eb.perde_sayisi IS NOT NULL THEN CONCAT(bt.name, ' (', CAST(eb.perde_sayisi AS CHAR), ')')
                       ELSE bt.name
-                    END,
-                    ', ' ORDER BY eb.sort_order, bt.name
-                  )
+                    END
+                    ORDER BY eb.sort_order, bt.name SEPARATOR ', ')
                   FROM estimate_blinds eb
                   JOIN blinds_type bt ON bt.id = eb.blinds_id
                   WHERE eb.company_id = e.company_id AND eb.estimate_id = e.id
                 ),
                 (
                   SELECT CASE
-                    WHEN e.perde_sayisi IS NOT NULL THEN bt.name || ' (' || e.perde_sayisi::text || ')'
+                    WHEN e.perde_sayisi IS NOT NULL THEN CONCAT(bt.name, ' (', CAST(e.perde_sayisi AS CHAR), ')')
                     ELSE bt.name
                   END
                   FROM blinds_type bt
@@ -145,12 +177,12 @@ def get_dashboard_summary(
             FROM estimate e
             JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
             LEFT JOIN status_estimate se ON se.id = e.status_esti_id
-            WHERE e.company_id = CAST(:cid AS uuid)
-              AND e.is_deleted IS NOT TRUE
+            WHERE e.company_id = :cid
+              AND COALESCE(e.is_deleted, 0) = 0
               AND (se.builtin_kind IS NULL OR se.builtin_kind <> 'cancelled')
               AND COALESCE(e.scheduled_start_at, e.tarih_saat) IS NOT NULL
-              AND COALESCE(e.scheduled_start_at, e.tarih_saat) >= NOW() - INTERVAL '1 hour'
-              AND COALESCE(e.scheduled_start_at, e.tarih_saat) < NOW() + INTERVAL '30 days'
+              AND COALESCE(e.scheduled_start_at, e.tarih_saat) >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+              AND COALESCE(e.scheduled_start_at, e.tarih_saat) < DATE_ADD(NOW(), INTERVAL 30 DAY)
             ORDER BY COALESCE(e.scheduled_start_at, e.tarih_saat) ASC
             LIMIT 20
             """
@@ -161,11 +193,11 @@ def get_dashboard_summary(
     week_count = db.execute(
         text(
             """
-            SELECT COUNT(*)::int AS c
+            SELECT COUNT(*) AS c
             FROM estimate e
             LEFT JOIN status_estimate se ON se.id = e.status_esti_id
-            WHERE e.company_id = CAST(:cid AS uuid)
-              AND e.is_deleted IS NOT TRUE
+            WHERE e.company_id = :cid
+              AND COALESCE(e.is_deleted, 0) = 0
               AND (se.builtin_kind IS NULL OR se.builtin_kind <> 'cancelled')
               AND (
                 (e.scheduled_start_at >= :start AND e.scheduled_start_at < :week_end)
@@ -179,9 +211,9 @@ def get_dashboard_summary(
     week_order_count = db.execute(
         text(
             """
-            SELECT COUNT(*)::int AS c
+            SELECT COUNT(*) AS c
             FROM orders
-            WHERE company_id = CAST(:cid AS uuid)
+            WHERE company_id = :cid
               AND active IS TRUE
               AND parent_order_id IS NULL
               AND created_at >= :start
@@ -191,7 +223,6 @@ def get_dashboard_summary(
         {"start": start, "week_end": week_end, "cid": str(cid)},
     ).mappings().one()["c"]
 
-    # Order aging by created_at (weekly buckets; days since order created)
     buckets = [
         ("0-6d", 0, 6),
         ("7-13d", 7, 13),
@@ -204,11 +235,11 @@ def get_dashboard_summary(
         if label == "28d+":
             q = text(
                 """
-                SELECT COUNT(*)::int AS c
+                SELECT COUNT(*) AS c
                 FROM orders
-                WHERE company_id = CAST(:cid AS uuid)
+                WHERE company_id = :cid
                   AND parent_order_id IS NULL
-                  AND created_at < (NOW() - (:lo || ' days')::interval)
+                  AND created_at < DATE_SUB(NOW(), INTERVAL :lo DAY)
                   AND active IS TRUE
                 """
             )
@@ -216,19 +247,18 @@ def get_dashboard_summary(
         else:
             q = text(
                 """
-                SELECT COUNT(*)::int AS c
+                SELECT COUNT(*) AS c
                 FROM orders
-                WHERE company_id = CAST(:cid AS uuid)
+                WHERE company_id = :cid
                   AND parent_order_id IS NULL
-                  AND created_at >= (NOW() - (:hi || ' days')::interval)
-                  AND created_at <  (NOW() - (:lo || ' days')::interval)
+                  AND created_at >= DATE_SUB(NOW(), INTERVAL :hi DAY)
+                  AND created_at <  DATE_SUB(NOW(), INTERVAL :lo DAY)
                   AND active IS TRUE
                 """
             )
             c = db.execute(q, {"lo": lo, "hi": hi, "cid": str(cid)}).mappings().one()["c"]
         bucket_counts.append(AgingBucket(label=label, count=int(c)))
 
-    # Ready orders waiting for installation: status_code ready_for_install, fallback to status_orde_id if status_code absent.
     ready_rows = db.execute(
         text(
             """
@@ -240,15 +270,15 @@ def get_dashboard_summary(
               created_at,
               GREATEST(
                 0,
-                FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(ready_at, created_at))) / 86400)
-              )::int AS waiting_days
+                FLOOR(TIMESTAMPDIFF(SECOND, COALESCE(ready_at, created_at), NOW()) / 86400)
+              ) AS waiting_days
             FROM orders
-            WHERE company_id = CAST(:cid AS uuid)
+            WHERE company_id = :cid
               AND active IS TRUE
               AND parent_order_id IS NULL
               AND (
                 COALESCE(status_code, '') = 'ready_for_install'
-                OR COALESCE(status_orde_id, '') ILIKE '%ready%'
+                OR LOWER(COALESCE(status_orde_id, '')) LIKE '%ready%'
               )
             ORDER BY waiting_days DESC, COALESCE(ready_at, created_at) ASC
             LIMIT 50
@@ -260,9 +290,9 @@ def get_dashboard_summary(
     open_orders_count = db.execute(
         text(
             """
-            SELECT COUNT(*)::int AS c
+            SELECT COUNT(*) AS c
             FROM orders
-            WHERE company_id = CAST(:cid AS uuid)
+            WHERE company_id = :cid
               AND active IS TRUE
               AND parent_order_id IS NULL
             """
@@ -275,7 +305,7 @@ def get_dashboard_summary(
             """
             SELECT COALESCE(SUM(GREATEST(COALESCE(balance, 0), 0)), 0) AS s
             FROM orders
-            WHERE company_id = CAST(:cid AS uuid)
+            WHERE company_id = :cid
               AND active IS TRUE
             """
         ),
@@ -287,11 +317,11 @@ def get_dashboard_summary(
         text(
             """
             SELECT
-              COALESCE(SUM(CASE WHEN o.installation_scheduled_start_at IS NOT NULL THEN 1 ELSE 0 END), 0)::int AS with_date,
-              COALESCE(SUM(CASE WHEN o.installation_scheduled_start_at IS NULL THEN 1 ELSE 0 END), 0)::int AS missing_date
+              COALESCE(SUM(CASE WHEN o.installation_scheduled_start_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS with_date,
+              COALESCE(SUM(CASE WHEN o.installation_scheduled_start_at IS NULL THEN 1 ELSE 0 END), 0) AS missing_date
             FROM orders o
             LEFT JOIN status_order so ON so.id = o.status_orde_id
-            WHERE o.company_id = CAST(:cid AS uuid)
+            WHERE o.company_id = :cid
               AND o.active IS TRUE
               AND o.parent_order_id IS NULL
               AND (
@@ -315,12 +345,12 @@ def get_dashboard_summary(
               o.installation_scheduled_start_at
             FROM orders o
             JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
-            WHERE o.company_id = CAST(:cid AS uuid)
+            WHERE o.company_id = :cid
               AND o.active IS TRUE
               AND o.parent_order_id IS NULL
               AND o.installation_scheduled_start_at IS NOT NULL
-              AND o.installation_scheduled_start_at >= NOW() - INTERVAL '6 hours'
-              AND o.installation_scheduled_start_at < NOW() + INTERVAL '7 days'
+              AND o.installation_scheduled_start_at >= DATE_SUB(NOW(), INTERVAL 6 HOUR)
+              AND o.installation_scheduled_start_at < DATE_ADD(NOW(), INTERVAL 7 DAY)
             ORDER BY o.installation_scheduled_start_at ASC
             LIMIT 20
             """
@@ -328,104 +358,73 @@ def get_dashboard_summary(
         {"cid": str(cid)},
     ).mappings().all()
 
-    conv_rows = db.execute(
+    conv_raw = db.execute(
         text(
             """
-            WITH months AS (
-              SELECT generate_series(
-                date_trunc('month', NOW()) - INTERVAL '2 months',
-                date_trunc('month', NOW()),
-                INTERVAL '1 month'
-              ) AS month_start
-            ),
-            cohort AS (
-              SELECT
-                date_trunc('month', e.created_at) AS month_start,
-                COUNT(*)::int AS total_count,
-                COALESCE(SUM(
-                  CASE WHEN EXISTS (
-                    SELECT 1
-                    FROM orders o
-                    WHERE o.company_id = e.company_id
-                      AND o.estimate_id = e.id
-                  ) THEN 1 ELSE 0 END
-                ), 0)::int AS converted_count
-              FROM estimate e
-              WHERE e.company_id = CAST(:cid AS uuid)
-                AND e.is_deleted IS NOT TRUE
-                AND e.created_at >= (date_trunc('month', NOW()) - INTERVAL '2 months')
-                AND e.created_at <  (date_trunc('month', NOW()) + INTERVAL '1 month')
-              GROUP BY 1
-            )
             SELECT
-              to_char(m.month_start, 'YYYY-MM') AS month,
-              COALESCE(c.converted_count, 0)::int AS converted_count,
-              COALESCE(c.total_count, 0)::int AS total_count,
-              COALESCE(
-                ROUND((COALESCE(c.converted_count, 0)::numeric * 100.0) / NULLIF(COALESCE(c.total_count, 0), 0), 1),
-                0
-              )::float AS percent
-            FROM months m
-            LEFT JOIN cohort c ON c.month_start = m.month_start
-            ORDER BY m.month_start ASC
+              DATE_FORMAT(e.created_at, '%Y-%m') AS month,
+              COUNT(*) AS total_count,
+              COALESCE(SUM(
+                CASE WHEN EXISTS (
+                  SELECT 1
+                  FROM orders o
+                  WHERE o.company_id = e.company_id
+                    AND o.estimate_id = e.id
+                ) THEN 1 ELSE 0 END
+              ), 0) AS converted_count
+            FROM estimate e
+            WHERE e.company_id = :cid
+              AND COALESCE(e.is_deleted, 0) = 0
+              AND e.created_at >= :win_start
+              AND e.created_at < :win_end
+            GROUP BY DATE_FORMAT(e.created_at, '%Y-%m')
             """
         ),
-        {"cid": str(cid)},
+        {"cid": str(cid), "win_start": win_start, "win_end": win_end},
     ).mappings().all()
-    estimate_conversion_last_3_months = [
-        EstimateConversionMonth(
-            month=str(r["month"]),
-            converted_count=int(r["converted_count"]),
-            total_count=int(r["total_count"]),
-            percent=float(r["percent"]),
+    conv_map = {str(r["month"]): r for r in conv_raw}
+    estimate_conversion_last_3_months: list[EstimateConversionMonth] = []
+    for mk in month_keys:
+        r = conv_map.get(mk)
+        tc = int(r["total_count"] or 0) if r else 0
+        cc = int(r["converted_count"] or 0) if r else 0
+        pct = float(round((cc * 100.0) / tc, 1)) if tc else 0.0
+        estimate_conversion_last_3_months.append(
+            EstimateConversionMonth(month=mk, converted_count=cc, total_count=tc, percent=pct)
         )
-        for r in conv_rows
-    ]
 
-    sources_rows = db.execute(
+    src_raw = db.execute(
         text(
             """
-            WITH months AS (
-              SELECT generate_series(
-                date_trunc('month', NOW()) - INTERVAL '2 months',
-                date_trunc('month', NOW()),
-                INTERVAL '1 month'
-              ) AS month_start
-            ),
-            cohort AS (
-              SELECT
-                date_trunc('month', e.created_at) AS month_start,
-                COALESCE(SUM(CASE WHEN COALESCE(e.lead_source, 'advertising') = 'referral' THEN 1 ELSE 0 END), 0)::int AS referral_count,
-                COALESCE(SUM(CASE WHEN COALESCE(e.lead_source, 'advertising') <> 'referral' THEN 1 ELSE 0 END), 0)::int AS advertising_count,
-                COUNT(*)::int AS total_count
-              FROM estimate e
-              WHERE e.company_id = CAST(:cid AS uuid)
-                AND e.is_deleted IS NOT TRUE
-                AND e.created_at >= (date_trunc('month', NOW()) - INTERVAL '2 months')
-                AND e.created_at <  (date_trunc('month', NOW()) + INTERVAL '1 month')
-              GROUP BY 1
-            )
             SELECT
-              to_char(m.month_start, 'YYYY-MM') AS month,
-              COALESCE(c.advertising_count, 0)::int AS advertising_count,
-              COALESCE(c.referral_count, 0)::int AS referral_count,
-              COALESCE(c.total_count, 0)::int AS total_count
-            FROM months m
-            LEFT JOIN cohort c ON c.month_start = m.month_start
-            ORDER BY m.month_start ASC
+              DATE_FORMAT(e.created_at, '%Y-%m') AS month,
+              COALESCE(SUM(CASE WHEN COALESCE(e.lead_source, 'advertising') = 'referral' THEN 1 ELSE 0 END), 0)
+                AS referral_count,
+              COALESCE(SUM(CASE WHEN COALESCE(e.lead_source, 'advertising') <> 'referral' THEN 1 ELSE 0 END), 0)
+                AS advertising_count,
+              COUNT(*) AS total_count
+            FROM estimate e
+            WHERE e.company_id = :cid
+              AND COALESCE(e.is_deleted, 0) = 0
+              AND e.created_at >= :win_start
+              AND e.created_at < :win_end
+            GROUP BY DATE_FORMAT(e.created_at, '%Y-%m')
             """
         ),
-        {"cid": str(cid)},
+        {"cid": str(cid), "win_start": win_start, "win_end": win_end},
     ).mappings().all()
-    customer_sources_last_3_months = [
-        CustomerSourcesMonth(
-            month=str(r["month"]),
-            advertising_count=int(r["advertising_count"]),
-            referral_count=int(r["referral_count"]),
-            total_count=int(r["total_count"]),
+    src_map = {str(r["month"]): r for r in src_raw}
+    customer_sources_last_3_months = []
+    for mk in month_keys:
+        r = src_map.get(mk)
+        customer_sources_last_3_months.append(
+            CustomerSourcesMonth(
+                month=mk,
+                advertising_count=int(r["advertising_count"] or 0) if r else 0,
+                referral_count=int(r["referral_count"] or 0) if r else 0,
+                total_count=int(r["total_count"] or 0) if r else 0,
+            )
         )
-        for r in sources_rows
-    ]
 
     return DashboardSummary(
         week_estimate_count=int(week_count),
@@ -443,4 +442,3 @@ def get_dashboard_summary(
         customer_sources_last_3_months=customer_sources_last_3_months,
         upcoming_installations=[dict(r) for r in upcoming_rows],
     )
-

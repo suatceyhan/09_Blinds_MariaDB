@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     debug: bool = Field(default=True, validation_alias=AliasChoices("DEBUG", "debug"))
 
-    #: true: SQLAlchemy create_all() ile tabloları otomatik oluştur (dev). false: DB şeması SQL (DB/blinds-postgresql.sql + migration’lar) ile yönetilir.
+    #: true: SQLAlchemy create_all() ile tabloları otomatik oluştur (dev). false: DB şeması SQL (örn. DB/blinds-mariadb.sql) ile yönetilir.
     auto_create_tables: bool = Field(
         default=True,
         validation_alias=AliasChoices("AUTO_CREATE_TABLES", "auto_create_tables"),

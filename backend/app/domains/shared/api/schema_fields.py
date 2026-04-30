@@ -58,17 +58,33 @@ _SKIP_COLUMNS: frozenset[str] = frozenset(
 )
 
 
-def _kind_for_column(col: str, data_type: str, udt_name: str) -> FieldKind:
+def _kind_for_column(
+    col: str,
+    data_type: str,
+    udt_name: str,
+    *,
+    column_type: str | None = None,
+) -> FieldKind:
     n = col.strip().lower()
     dt = (data_type or "").strip().lower()
     udt = (udt_name or "").strip().lower()
-    if dt in ("timestamp without time zone", "timestamp with time zone") or udt in ("timestamptz", "timestamp"):
+    ct = (column_type or "").strip().lower()
+    if "tinyint(1)" in ct:
+        return "boolean"
+    if dt in ("timestamp without time zone", "timestamp with time zone", "datetime") or udt in (
+        "timestamptz",
+        "timestamp",
+    ):
         return "datetime"
     if dt == "date":
         return "date"
-    if dt in ("numeric", "decimal", "real", "double precision") or udt in ("numeric", "float4", "float8"):
+    if dt in ("numeric", "decimal", "real", "double precision", "double") or udt in (
+        "numeric",
+        "float4",
+        "float8",
+    ):
         return "number"
-    if dt in ("integer", "smallint", "bigint") or udt in ("int2", "int4", "int8"):
+    if dt in ("integer", "smallint", "bigint", "mediumint", "tinyint") or udt in ("int2", "int4", "int8"):
         return "number"
     if dt == "boolean" or udt == "bool":
         return "boolean"
@@ -98,10 +114,14 @@ def list_schema_fields(
     rows = db.execute(
         text(
             """
-            SELECT table_name, column_name, data_type, udt_name
+            SELECT
+              TABLE_NAME AS table_name,
+              COLUMN_NAME AS column_name,
+              DATA_TYPE AS data_type,
+              DATA_TYPE AS udt_name,
+              COLUMN_TYPE AS column_type
             FROM information_schema.columns
-            WHERE table_catalog = current_database()
-              AND table_schema = 'public'
+            WHERE TABLE_SCHEMA = DATABASE()
             ORDER BY table_name ASC, ordinal_position ASC
             """
         )
@@ -118,6 +138,7 @@ def list_schema_fields(
                 "column_name": cname,
                 "data_type": str(r.get("data_type") or ""),
                 "udt_name": str(r.get("udt_name") or ""),
+                "column_type": str(r.get("column_type") or ""),
             }
         )
 
@@ -126,8 +147,7 @@ def list_schema_fields(
             """
             SELECT table_name
             FROM information_schema.tables
-            WHERE table_catalog = current_database()
-              AND table_schema = 'public'
+            WHERE TABLE_SCHEMA = DATABASE()
               AND table_type = 'BASE TABLE'
             ORDER BY table_name ASC
             """
@@ -153,6 +173,7 @@ def list_schema_fields(
                         col=cname,
                         data_type=str(c.get("data_type") or ""),
                         udt_name=str(c.get("udt_name") or ""),
+                        column_type=str(c.get("column_type") or ""),
                     ),
                 )
             )

@@ -214,7 +214,7 @@ def complete_oauth_callback(db: Session, *, authorization_response_url: str, sta
                   company_id, refresh_token, calendar_id, google_account_email, created_at, updated_at
                 )
                 VALUES (
-                  CAST(:company_id AS uuid), :refresh_token, 'primary', :google_account_email, NOW(), NOW()
+                  :company_id, :refresh_token, 'primary', :google_account_email, NOW(), NOW()
                 )
                 ON CONFLICT (company_id) DO UPDATE SET
                   refresh_token = EXCLUDED.refresh_token,
@@ -236,7 +236,7 @@ def complete_oauth_callback(db: Session, *, authorization_response_url: str, sta
             text(
                 """
                 SELECT refresh_token FROM company_google_calendar
-                WHERE company_id = CAST(:cid AS uuid)
+                WHERE company_id = :cid
                 LIMIT 1
                 """
             ),
@@ -250,7 +250,7 @@ def complete_oauth_callback(db: Session, *, authorization_response_url: str, sta
                     """
                     UPDATE company_google_calendar
                     SET google_account_email = :email, updated_at = NOW()
-                    WHERE company_id = CAST(:cid AS uuid)
+                    WHERE company_id = :cid
                     """
                 ),
                 {"cid": str(company_id), "email": email},
@@ -265,7 +265,7 @@ def delete_company_google_calendar(db: Session, *, company_id: UUID, user_id: UU
     _set_rls_for_company_user(db, company_id, user_id)
     res = db.execute(
         text(
-            "DELETE FROM company_google_calendar WHERE company_id = CAST(:cid AS uuid)"
+            "DELETE FROM company_google_calendar WHERE company_id = :cid"
         ),
         {"cid": str(company_id)},
     )
@@ -285,7 +285,7 @@ def get_connection_status(
             """
             SELECT google_account_email, calendar_id, updated_at
             FROM company_google_calendar
-            WHERE company_id = CAST(:cid AS uuid)
+            WHERE company_id = :cid
             LIMIT 1
             """
         ),
@@ -362,7 +362,7 @@ def try_push_estimate_to_google_calendar(
                 """
                 SELECT refresh_token, calendar_id, google_account_email
                 FROM company_google_calendar
-                WHERE company_id = CAST(:cid AS uuid)
+                WHERE company_id = :cid
                 LIMIT 1
                 """
             ),
@@ -398,7 +398,7 @@ def try_push_estimate_to_google_calendar(
                 FROM estimate e
                 LEFT JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
                 LEFT JOIN status_estimate se ON se.id = e.status_esti_id
-                WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid AND e.is_deleted IS NOT TRUE
+                WHERE e.company_id = :cid AND e.id = :eid AND e.is_deleted IS NOT TRUE
                 LIMIT 1
                 """
             ),
@@ -420,7 +420,7 @@ def try_push_estimate_to_google_calendar(
                 SELECT bt.name AS name, eb.perde_sayisi AS window_count
                 FROM estimate_blinds eb
                 JOIN blinds_type bt ON bt.id = eb.blinds_id
-                WHERE eb.company_id = CAST(:cid AS uuid) AND eb.estimate_id = :eid
+                WHERE eb.company_id = :cid AND eb.estimate_id = :eid
                 ORDER BY eb.sort_order, bt.name
                 """
             ),
@@ -438,7 +438,7 @@ def try_push_estimate_to_google_calendar(
                     SELECT bt.name AS name, e.perde_sayisi AS window_count
                     FROM estimate e
                     JOIN blinds_type bt ON bt.id = e.blinds_id
-                    WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid AND e.is_deleted IS NOT TRUE
+                    WHERE e.company_id = :cid AND e.id = :eid AND e.is_deleted IS NOT TRUE
                     LIMIT 1
                     """
                 ),
@@ -521,7 +521,7 @@ def try_push_estimate_to_google_calendar(
                     UPDATE estimate
                     SET calendar_last_synced_at = NOW(),
                         updated_at = NOW()
-                    WHERE company_id = CAST(:cid AS uuid) AND id = :eid
+                    WHERE company_id = :cid AND id = :eid
                     """
                 ),
                 {"cid": str(company_id), "eid": estimate_id},
@@ -543,7 +543,7 @@ def try_push_estimate_to_google_calendar(
                             calendar_provider = 'google',
                             calendar_last_synced_at = NOW(),
                             updated_at = NOW()
-                        WHERE company_id = CAST(:cid AS uuid) AND id = :eid
+                        WHERE company_id = :cid AND id = :eid
                         """
                     ),
                     {"geid": geid, "cid": str(company_id), "eid": estimate_id},
@@ -575,7 +575,7 @@ def try_push_order_installation_to_google_calendar(
                 """
                 SELECT refresh_token, calendar_id, google_account_email
                 FROM company_google_calendar
-                WHERE company_id = CAST(:cid AS uuid)
+                WHERE company_id = :cid
                 LIMIT 1
                 """
             ),
@@ -598,7 +598,7 @@ def try_push_order_installation_to_google_calendar(
                   c.address AS customer_address
                 FROM orders o
                 JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
-                WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid AND o.active IS TRUE
+                WHERE o.company_id = :cid AND o.id = :oid AND o.active IS TRUE
                 LIMIT 1
                 """
             ),
@@ -620,7 +620,7 @@ def try_push_order_installation_to_google_calendar(
                 SELECT lower(trim(so.name)) AS nm
                 FROM status_order so
                 INNER JOIN company_status_order_matrix m
-                  ON m.status_order_id = so.id AND m.company_id = CAST(:cid AS uuid)
+                  ON m.status_order_id = so.id AND m.company_id = :cid
                 WHERE so.id = :sid AND so.active IS TRUE
                 LIMIT 1
                 """
@@ -652,7 +652,7 @@ def try_push_order_installation_to_google_calendar(
                                 installation_calendar_provider = NULL,
                                 installation_calendar_last_synced_at = NOW(),
                                 updated_at = NOW()
-                            WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+                            WHERE company_id = :cid AND id = :oid AND active IS TRUE
                             """
                         ),
                         {"cid": str(company_id), "oid": order_id},
@@ -746,7 +746,7 @@ def try_push_order_installation_to_google_calendar(
                     SET installation_calendar_last_synced_at = NOW(),
                         installation_calendar_provider = 'google',
                         updated_at = NOW()
-                    WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+                    WHERE company_id = :cid AND id = :oid AND active IS TRUE
                     """
                 ),
                 {"cid": str(company_id), "oid": order_id},
@@ -764,7 +764,7 @@ def try_push_order_installation_to_google_calendar(
                             installation_calendar_provider = 'google',
                             installation_calendar_last_synced_at = NOW(),
                             updated_at = NOW()
-                        WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+                        WHERE company_id = :cid AND id = :oid AND active IS TRUE
                         """
                     ),
                     {"geid": geid, "cid": str(company_id), "oid": order_id},

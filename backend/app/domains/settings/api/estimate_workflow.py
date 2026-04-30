@@ -80,7 +80,7 @@ def _status_label(db: Session, company_id: UUID, status_id: str | None) -> str |
             SELECT se.name
             FROM status_estimate se
             INNER JOIN company_status_estimate_matrix m
-              ON m.status_estimate_id = se.id AND m.company_id = CAST(:cid AS uuid)
+              ON m.status_estimate_id = se.id AND m.company_id = :cid
             WHERE se.id = :sid
             LIMIT 1
             """
@@ -96,11 +96,11 @@ def _active_def(db: Session, company_id: UUID) -> tuple[str | None, str]:
     row = db.execute(
         text(
             """
-            SELECT wd.id::text AS id, wd.company_id
+            SELECT wd.id AS id, wd.company_id
             FROM workflow_definitions wd
             WHERE wd.is_active IS TRUE
               AND wd.entity_type = 'estimate'
-              AND (wd.company_id = CAST(:cid AS uuid) OR wd.company_id IS NULL)
+              AND (wd.company_id = :cid OR wd.company_id IS NULL)
             ORDER BY (wd.company_id IS NOT NULL) DESC, wd.version DESC, wd.created_at DESC
             LIMIT 1
             """
@@ -120,7 +120,7 @@ def _assert_status_enabled(db: Session, company_id: UUID, status_id: str) -> Non
             SELECT 1
             FROM status_estimate se
             INNER JOIN company_status_estimate_matrix m
-              ON m.status_estimate_id = se.id AND m.company_id = CAST(:cid AS uuid)
+              ON m.status_estimate_id = se.id AND m.company_id = :cid
             WHERE se.id = :sid AND se.active IS TRUE
             LIMIT 1
             """
@@ -133,7 +133,7 @@ def _assert_status_enabled(db: Session, company_id: UUID, status_id: str) -> Non
 
 def _replace_transition_actions(db: Session, transition_id: str, actions: list[EstimateWorkflowActionIn]) -> None:
     db.execute(
-        text("DELETE FROM workflow_transition_actions WHERE transition_id = CAST(:tid AS uuid)"),
+        text("DELETE FROM workflow_transition_actions WHERE transition_id = :tid"),
         {"tid": transition_id},
     )
     for idx, a in enumerate(actions):
@@ -147,7 +147,7 @@ def _replace_transition_actions(db: Session, transition_id: str, actions: list[E
             text(
                 """
                 INSERT INTO workflow_transition_actions (transition_id, type, config, sort_order, is_required)
-                VALUES (CAST(:tid AS uuid), :typ, CAST(:cfg AS jsonb), :so, TRUE)
+                VALUES (:tid, :typ, CAST(:cfg AS jsonb), :so, TRUE)
                 """
             ),
             {"tid": transition_id, "typ": typ, "cfg": json.dumps(cfg), "so": idx},
@@ -171,13 +171,13 @@ def get_estimate_workflow(
         text(
             """
             SELECT
-              t.id::text AS id,
-              NULLIF(btrim(t.from_status_id::text), '') AS from_status_id,
-              t.to_status_id::text AS to_status_id,
+              t.id AS id,
+              NULLIF(trim(t.from_status_id), '') AS from_status_id,
+              t.to_status_id AS to_status_id,
               t.sort_order,
               t.deleted_at AS deleted_at
             FROM workflow_transitions t
-            WHERE t.workflow_definition_id = CAST(:wid AS uuid)
+            WHERE t.workflow_definition_id = :wid
               AND (:inc_del OR t.deleted_at IS NULL)
             ORDER BY t.sort_order ASC, t.created_at ASC, t.id ASC
             """
@@ -195,7 +195,7 @@ def get_estimate_workflow(
                 """
                 SELECT type, config, sort_order
                 FROM workflow_transition_actions
-                WHERE transition_id = CAST(:tid AS uuid)
+                WHERE transition_id = :tid
                 ORDER BY sort_order ASC, created_at ASC, id ASC
                 """
             ),
@@ -237,9 +237,9 @@ def put_estimate_workflow(
     row = db.execute(
         text(
             """
-            SELECT id::text AS id
+            SELECT id AS id
             FROM workflow_definitions
-            WHERE company_id = CAST(:cid AS uuid)
+            WHERE company_id = :cid
               AND entity_type = 'estimate'
               AND code = 'default_estimate'
               AND is_active IS TRUE
@@ -256,8 +256,8 @@ def put_estimate_workflow(
             text(
                 """
                 INSERT INTO workflow_definitions (company_id, entity_type, code, name, version, is_active)
-                VALUES (CAST(:cid AS uuid), 'estimate', 'default_estimate', 'Company estimate workflow', 1, TRUE)
-                RETURNING id::text AS id
+                VALUES (:cid, 'estimate', 'default_estimate', 'Company estimate workflow', 1, TRUE)
+                RETURNING id
                 """
             ),
             {"cid": str(cid)},
@@ -283,9 +283,9 @@ def put_estimate_workflow(
     existing_rows = db.execute(
         text(
             """
-            SELECT id::text AS id
+            SELECT id AS id
             FROM workflow_transitions
-            WHERE workflow_definition_id = CAST(:wid AS uuid)
+            WHERE workflow_definition_id = :wid
             """
         ),
         {"wid": def_id},
@@ -311,9 +311,9 @@ def put_estimate_workflow(
             chk = db.execute(
                 text(
                     """
-                    SELECT id::text AS id
+                    SELECT id AS id
                     FROM workflow_transitions
-                    WHERE id = CAST(:tid AS uuid) AND workflow_definition_id = CAST(:wid AS uuid)
+                    WHERE id = :tid AND workflow_definition_id = :wid
                     """
                 ),
                 {"tid": id_param, "wid": def_id},
@@ -325,9 +325,9 @@ def put_estimate_workflow(
             nkrow = db.execute(
                 text(
                     """
-                    SELECT id::text AS id
+                    SELECT id AS id
                     FROM workflow_transitions
-                    WHERE workflow_definition_id = CAST(:wid AS uuid)
+                    WHERE workflow_definition_id = :wid
                       AND COALESCE(from_status_id, '') = COALESCE(:from_sid, '')
                       AND to_status_id = :to_sid
                     ORDER BY (deleted_at IS NULL) DESC, created_at ASC
@@ -350,7 +350,7 @@ def put_estimate_workflow(
                       to_status_id = :to_sid,
                       sort_order = :so,
                       deleted_at = NULL
-                    WHERE id = CAST(:tid AS uuid)
+                    WHERE id = :tid
                     """
                 ),
                 {"tid": tid_to_use, "from_sid": from_sid, "to_sid": to_sid, "so": so},
@@ -365,9 +365,9 @@ def put_estimate_workflow(
                       workflow_definition_id, from_status_id, to_status_id, sort_order, deleted_at
                     )
                     VALUES (
-                      CAST(:wid AS uuid), :from_sid, :to_sid, :so, NULL
+                      :wid, :from_sid, :to_sid, :so, NULL
                     )
-                    RETURNING id::text AS id
+                    RETURNING id
                     """
                 ),
                 {"wid": def_id, "from_sid": from_sid, "to_sid": to_sid, "so": so},
@@ -378,7 +378,7 @@ def put_estimate_workflow(
 
     for eid in existing_ids - matched_ids:
         db.execute(
-            text("UPDATE workflow_transitions SET deleted_at = NOW() WHERE id = CAST(:id AS uuid)"),
+            text("UPDATE workflow_transitions SET deleted_at = NOW() WHERE id = :id"),
             {"id": eid},
         )
 

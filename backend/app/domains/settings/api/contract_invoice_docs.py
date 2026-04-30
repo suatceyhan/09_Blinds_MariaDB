@@ -50,7 +50,7 @@ def _company_document_templates_has_preset_key(db: Session) -> bool:
             SELECT EXISTS (
               SELECT 1
               FROM information_schema.columns
-              WHERE table_catalog = current_database()
+              WHERE TABLE_SCHEMA = DATABASE()
                 AND table_name = 'company_document_templates'
                 AND column_name = 'preset_key'
             )
@@ -73,7 +73,7 @@ def seed_default_contract_invoice_templates_for_company(db: Session, company_id:
         text(
             """
             SELECT kind FROM company_document_templates
-            WHERE company_id = CAST(:cid AS uuid) AND is_deleted IS NOT TRUE
+            WHERE company_id = :cid AND is_deleted IS NOT TRUE
             """
         ),
         {"cid": cid},
@@ -88,7 +88,7 @@ def seed_default_contract_invoice_templates_for_company(db: Session, company_id:
                     """
                     INSERT INTO company_document_templates
                       (company_id, kind, subject, body_html, preset_key, created_at, updated_at, is_deleted)
-                    VALUES (CAST(:cid AS uuid), 'deposit_contract', '', '', :pk, NOW(), NOW(), FALSE)
+                    VALUES (:cid, 'deposit_contract', '', '', :pk, NOW(), NOW(), FALSE)
                     ON CONFLICT (company_id, kind) DO NOTHING
                     """
                 ),
@@ -101,7 +101,7 @@ def seed_default_contract_invoice_templates_for_company(db: Session, company_id:
                     """
                     INSERT INTO company_document_templates
                       (company_id, kind, subject, body_html, created_at, updated_at, is_deleted)
-                    VALUES (CAST(:cid AS uuid), 'deposit_contract', :subj, :html, NOW(), NOW(), FALSE)
+                    VALUES (:cid, 'deposit_contract', :subj, :html, NOW(), NOW(), FALSE)
                     ON CONFLICT (company_id, kind) DO NOTHING
                     """
                 ),
@@ -115,7 +115,7 @@ def seed_default_contract_invoice_templates_for_company(db: Session, company_id:
                     """
                     INSERT INTO company_document_templates
                       (company_id, kind, subject, body_html, preset_key, created_at, updated_at, is_deleted)
-                    VALUES (CAST(:cid AS uuid), 'final_invoice', :subj, :html, NULL, NOW(), NOW(), FALSE)
+                    VALUES (:cid, 'final_invoice', :subj, :html, NULL, NOW(), NOW(), FALSE)
                     ON CONFLICT (company_id, kind) DO NOTHING
                     """
                 ),
@@ -127,7 +127,7 @@ def seed_default_contract_invoice_templates_for_company(db: Session, company_id:
                     """
                     INSERT INTO company_document_templates
                       (company_id, kind, subject, body_html, created_at, updated_at, is_deleted)
-                    VALUES (CAST(:cid AS uuid), 'final_invoice', :subj, :html, NOW(), NOW(), FALSE)
+                    VALUES (:cid, 'final_invoice', :subj, :html, NOW(), NOW(), FALSE)
                     ON CONFLICT (company_id, kind) DO NOTHING
                     """
                 ),
@@ -498,7 +498,7 @@ def _fetch_order_doc_context(db: Session, company_id: str, order_id: str) -> dic
         text(
             """
             SELECT
-              o.id::text AS order_id,
+              o.id AS order_id,
               o.agreement_date,
               o.created_at,
               o.total_amount,
@@ -518,7 +518,7 @@ def _fetch_order_doc_context(db: Session, company_id: str, order_id: str) -> dic
             FROM orders o
             JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
             JOIN companies co ON co.id = o.company_id
-            WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid AND o.active IS TRUE
+            WHERE o.company_id = :cid AND o.id = :oid AND o.active IS TRUE
             LIMIT 1
             """
         ),
@@ -536,7 +536,7 @@ def _fetch_order_extra_payments_summary(db: Session, company_id: str, order_id: 
               COALESCE(SUM(amount), 0) AS total,
               COUNT(1) AS cnt
             FROM order_payment_entries
-            WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid
+            WHERE company_id = :cid AND order_id = :oid
               AND COALESCE(is_deleted, FALSE) = FALSE
             """
         ),
@@ -591,14 +591,14 @@ def _load_template(db: Session, company_id: str, kind: str) -> TemplateOut:
         """
             SELECT subject, body_html, preset_key
             FROM company_document_templates
-            WHERE company_id = CAST(:cid AS uuid) AND kind = :k AND is_deleted IS NOT TRUE
+            WHERE company_id = :cid AND kind = :k AND is_deleted IS NOT TRUE
             LIMIT 1
             """
         if has_pk
         else """
             SELECT subject, body_html
             FROM company_document_templates
-            WHERE company_id = CAST(:cid AS uuid) AND kind = :k AND is_deleted IS NOT TRUE
+            WHERE company_id = :cid AND kind = :k AND is_deleted IS NOT TRUE
             LIMIT 1
             """
     )
@@ -651,7 +651,7 @@ def _upsert_legacy_template(db: Session, company_id: str, kind: str, payload: Te
                 """
                 INSERT INTO company_document_templates
                   (company_id, kind, subject, body_html, preset_key, created_at, updated_at, is_deleted)
-                VALUES (CAST(:cid AS uuid), :k, :subj, :html, NULL, NOW(), NOW(), FALSE)
+                VALUES (:cid, :k, :subj, :html, NULL, NOW(), NOW(), FALSE)
                 ON CONFLICT (company_id, kind) DO UPDATE
                   SET subject = EXCLUDED.subject,
                       body_html = EXCLUDED.body_html,
@@ -668,7 +668,7 @@ def _upsert_legacy_template(db: Session, company_id: str, kind: str, payload: Te
                 """
                 INSERT INTO company_document_templates
                   (company_id, kind, subject, body_html, created_at, updated_at, is_deleted)
-                VALUES (CAST(:cid AS uuid), :k, :subj, :html, NOW(), NOW(), FALSE)
+                VALUES (:cid, :k, :subj, :html, NOW(), NOW(), FALSE)
                 ON CONFLICT (company_id, kind) DO UPDATE
                   SET subject = EXCLUDED.subject,
                       body_html = EXCLUDED.body_html,
@@ -695,7 +695,7 @@ def _upsert_deposit_preset(db: Session, company_id: str, preset_key: str) -> Non
             """
             INSERT INTO company_document_templates
               (company_id, kind, subject, body_html, preset_key, created_at, updated_at, is_deleted)
-            VALUES (CAST(:cid AS uuid), 'deposit_contract', '', '', :pk, NOW(), NOW(), FALSE)
+            VALUES (:cid, 'deposit_contract', '', '', :pk, NOW(), NOW(), FALSE)
             ON CONFLICT (company_id, kind) DO UPDATE
               SET subject = '',
                   body_html = '',

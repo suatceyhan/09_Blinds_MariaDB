@@ -128,15 +128,15 @@ def customers_lookup(
     if not cid:
         raise HTTPException(status_code=403, detail="No active company.")
     term = (search or "").strip()
-    where = ["c.company_id = CAST(:cid AS uuid)", "c.active IS TRUE"]
+    where = ["c.company_id = :cid", "c.active IS TRUE"]
     params: dict[str, Any] = {"cid": str(cid), "limit": limit}
     if term:
         params["term"] = f"%{term}%"
         where.append(
             "("
-            "c.name ILIKE :term OR COALESCE(c.surname,'') ILIKE :term OR COALESCE(c.phone,'') ILIKE :term OR "
-            "COALESCE(c.email,'') ILIKE :term OR COALESCE(c.address,'') ILIKE :term OR "
-            "COALESCE(c.postal_code,'') ILIKE :term"
+            "LOWER(c.name) LIKE LOWER(:term) OR LOWER(COALESCE(c.surname,'')) LIKE LOWER(:term) OR LOWER(COALESCE(c.phone,'')) LIKE LOWER(:term) OR "
+            "LOWER(COALESCE(c.email,'')) LIKE LOWER(:term) OR LOWER(COALESCE(c.address,'')) LIKE LOWER(:term) OR "
+            "LOWER(COALESCE(c.postal_code,'')) LIKE LOWER(:term)"
             ")"
         )
     where_sql = " AND ".join(where)
@@ -167,7 +167,7 @@ def list_customers(
     tenant_cid = resolve_tenant_company_id(db, current_user, company_id_param=company_id)
 
     term = (search or "").strip()
-    where = ["c.company_id = CAST(:tenant_cid AS uuid)"]
+    where = ["c.company_id = :tenant_cid"]
     params: dict[str, Any] = {"limit": limit, "tenant_cid": str(tenant_cid)}
     if not include_inactive:
         where.append("c.active IS TRUE")
@@ -175,9 +175,9 @@ def list_customers(
         params["term"] = f"%{term}%"
         where.append(
             "("
-            "c.name ILIKE :term OR COALESCE(c.surname,'') ILIKE :term OR COALESCE(c.phone,'') ILIKE :term OR "
-            "COALESCE(c.email,'') ILIKE :term OR COALESCE(c.address,'') ILIKE :term OR "
-            "COALESCE(c.postal_code,'') ILIKE :term"
+            "LOWER(c.name) LIKE LOWER(:term) OR LOWER(COALESCE(c.surname,'')) LIKE LOWER(:term) OR LOWER(COALESCE(c.phone,'')) LIKE LOWER(:term) OR "
+            "LOWER(COALESCE(c.email,'')) LIKE LOWER(:term) OR LOWER(COALESCE(c.address,'')) LIKE LOWER(:term) OR "
+            "LOWER(COALESCE(c.postal_code,'')) LIKE LOWER(:term)"
             ")"
         )
 
@@ -199,7 +199,7 @@ def list_customers(
               c.updated_at
             FROM customers c
             {where_sql}
-            ORDER BY c.created_at DESC NULLS LAST
+            ORDER BY (c.created_at IS NULL) ASC, c.created_at DESC
             LIMIT :limit
             """
         ),
@@ -293,20 +293,19 @@ def get_customer(
               COALESCE(NULLIF(trim(se.name), ''), '—') AS status_label,
               COALESCE(
                 (
-                  SELECT string_agg(
+                  SELECT GROUP_CONCAT(
                     CASE
-                      WHEN eb.perde_sayisi IS NOT NULL THEN bt.name || ' (' || eb.perde_sayisi::text || ')'
+                      WHEN eb.perde_sayisi IS NOT NULL THEN CONCAT(bt.name, ' (', CAST(eb.perde_sayisi AS CHAR), ')')
                       ELSE bt.name
-                    END,
-                    ', ' ORDER BY eb.sort_order, bt.name
-                  )
+                    END
+                    ORDER BY eb.sort_order, bt.name SEPARATOR ', ')
                   FROM estimate_blinds eb
                   JOIN blinds_type bt ON bt.id = eb.blinds_id
                   WHERE eb.company_id = e.company_id AND eb.estimate_id = e.id
                 ),
                 (
                   SELECT CASE
-                    WHEN e.perde_sayisi IS NOT NULL THEN bt.name || ' (' || e.perde_sayisi::text || ')'
+                    WHEN e.perde_sayisi IS NOT NULL THEN CONCAT(bt.name, ' (', CAST(e.perde_sayisi AS CHAR), ')')
                     ELSE bt.name
                   END
                   FROM blinds_type bt
@@ -317,7 +316,7 @@ def get_customer(
             FROM estimate e
             LEFT JOIN status_estimate se ON se.id = e.status_esti_id
             WHERE e.company_id = :company_id AND e.customer_id = :cid AND e.is_deleted IS NOT TRUE
-            ORDER BY COALESCE(e.scheduled_start_at, e.tarih_saat) DESC NULLS LAST
+            ORDER BY (COALESCE(e.scheduled_start_at, e.tarih_saat) IS NULL) ASC, COALESCE(e.scheduled_start_at, e.tarih_saat) DESC
             LIMIT 50
             """
         ),
@@ -329,7 +328,7 @@ def get_customer(
             SELECT id, created_at, status_code, status_orde_id, total_amount, balance
             FROM orders
             WHERE company_id = :company_id AND customer_id = :cid
-            ORDER BY created_at DESC NULLS LAST
+            ORDER BY (created_at IS NULL) ASC, created_at DESC
             LIMIT 50
             """
         ),
@@ -402,9 +401,9 @@ def deactivate_customer(
     active_orders = db.execute(
         text(
             """
-            SELECT COUNT(*)::int AS c
+            SELECT COUNT(*) AS c
             FROM orders
-            WHERE company_id = CAST(:company_id AS uuid) AND customer_id = :customer_id AND active IS TRUE
+            WHERE company_id = :company_id AND customer_id = :customer_id AND active IS TRUE
             """
         ),
         {"company_id": str(cid), "customer_id": cust},
@@ -420,10 +419,10 @@ def deactivate_customer(
     open_estimates = db.execute(
         text(
             """
-            SELECT COUNT(*)::int AS c
+            SELECT COUNT(*) AS c
             FROM estimate e
             JOIN status_estimate se ON se.id = e.status_esti_id
-            WHERE e.company_id = CAST(:company_id AS uuid)
+            WHERE e.company_id = :company_id
               AND e.customer_id = :customer_id
               AND e.is_deleted IS NOT TRUE
               AND se.builtin_kind IN ('new', 'pending')

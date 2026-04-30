@@ -89,6 +89,10 @@ def put_role_permission_matrix(
     db: Session = Depends(get_db),
     current_user: Users = Depends(require_superadmin),
 ):
+    # `apply_role_permission_matrix` commits; capture primitives before ORM instance expires.
+    actor_id = current_user.id
+    actor_email = current_user.email
+
     normalized: dict[str, bool] = {}
     for k, v in body.items():
         if isinstance(v, dict):
@@ -100,7 +104,7 @@ def put_role_permission_matrix(
             db,
             role_id=role_id,
             updates=normalized,
-            actor_id=current_user.id,
+            actor_id=actor_id,
         )
     except ValueError as e:
         if str(e) == "role_not_found":
@@ -112,7 +116,7 @@ def put_role_permission_matrix(
         action="put_role_permission_matrix",
         status="success",
         details={"role_id": str(role_id), "n": len(normalized)},
-        executed_by=current_user.email,
-        ip_address=request.client.host if request.client else None    
+        executed_by=actor_email,
+        ip_address=request.client.host if request.client else None,
     )
     return {"status": "success"}

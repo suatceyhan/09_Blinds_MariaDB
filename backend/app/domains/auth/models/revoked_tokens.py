@@ -1,16 +1,16 @@
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, UniqueConstraint, text
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+from app.core.sqlalchemy_types import MariaUuid
 
 
 class RevokedTokens(Base):
     __tablename__ = "revoked_tokens"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id = Column(MariaUuid(), primary_key=True, server_default=text("(UUID())"))
     token = Column(String, nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    user_id = Column(MariaUuid(), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
     revoked_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
     is_used = Column(Boolean, default=False)

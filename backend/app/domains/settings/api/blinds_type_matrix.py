@@ -73,7 +73,7 @@ def get_blinds_type_matrix(
             matrix_rows = db.execute(
                 text(
                     """
-                    SELECT company_id::text AS company_id, blinds_type_id AS status_id
+                    SELECT company_id AS company_id, blinds_type_id AS status_id
                     FROM company_blinds_type_matrix
                     """
                 )
@@ -84,9 +84,9 @@ def get_blinds_type_matrix(
                 db.execute(
                     text(
                         """
-                        SELECT company_id::text AS company_id, blinds_type_id AS status_id
+                        SELECT company_id AS company_id, blinds_type_id AS status_id
                         FROM company_blinds_type_matrix
-                        WHERE company_id = CAST(:cid AS uuid)
+                        WHERE company_id = :cid
                         """
                     ),
                     {"cid": str(ec)},
@@ -132,7 +132,7 @@ def put_blinds_type_matrix(
                 text(
                     """
                     INSERT INTO company_blinds_type_matrix (company_id, blinds_type_id)
-                    VALUES (CAST(:cid AS uuid), :tid)
+                    VALUES (:cid, :tid)
                     ON CONFLICT (company_id, blinds_type_id) DO NOTHING
                     """
                 ),
@@ -143,7 +143,7 @@ def put_blinds_type_matrix(
                 text(
                     """
                     DELETE FROM company_blinds_type_matrix
-                    WHERE company_id = CAST(:cid AS uuid) AND blinds_type_id = :tid
+                    WHERE company_id = :cid AND blinds_type_id = :tid
                     """
                 ),
                 {"cid": str(cell.company_id), "tid": tid},

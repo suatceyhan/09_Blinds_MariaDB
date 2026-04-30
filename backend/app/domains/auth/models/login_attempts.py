@@ -1,15 +1,15 @@
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, UniqueConstraint, text
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+from app.core.sqlalchemy_types import MariaUuid
 
 
 class LoginAttempts(Base):
     __tablename__ = "login_attempts"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    id = Column(MariaUuid(), primary_key=True, server_default=text("(UUID())"))
+    user_id = Column(MariaUuid(), ForeignKey("users.id"))
     ip_address = Column(String(45))
     user_agent = Column(String)
     success = Column(Boolean, default=False)
