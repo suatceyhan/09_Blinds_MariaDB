@@ -1,6 +1,5 @@
 from uuid import UUID
 
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.domains.lookup.models.permissions import Permissions
@@ -8,33 +7,17 @@ from app.domains.lookup.models.roles import Roles
 from app.domains.user.models.role_permissions import RolePermissions
 
 
-def _uuid_candidates(u: UUID) -> tuple[str, str]:
-    return (str(u), u.hex)
-
-
-def _resolve_user_id_string(db: Session, user_id: UUID) -> str | None:
-    """Resolve users.id to the exact stored CHAR text (dashed vs hex)."""
-    d, h = _uuid_candidates(user_id)
-    row = db.execute(
-        text("SELECT id FROM users WHERE id=:d OR id=:h LIMIT 1"),
-        {"d": d, "h": h},
-    ).first()
-    return row[0] if row else None
-
-
 def get_permission_matrix_for_role(db: Session, role_id: UUID) -> dict[str, bool]:
     """DWP uyumu: permission_id (str) -> is_granted (yalnızca kayıtlı satırlar)."""
-    # MariaDB: role_id may be stored as hex32 text; read by both candidates.
-    d, h = _uuid_candidates(role_id)
-    rows = db.execute(
-        text(
-            "SELECT permission_id, COALESCE(is_granted,0) "
-            "FROM role_permissions "
-            "WHERE COALESCE(is_deleted,0)=0 AND (role_id=:d OR role_id=:h)"
-        ),
-        {"d": d, "h": h},
-    ).fetchall()
-    return {str(pid): bool(granted) for (pid, granted) in rows}
+    rows = (
+        db.query(RolePermissions)
+        .filter(
+            RolePermissions.role_id == role_id,
+            RolePermissions.is_deleted.is_(False),
+        )
+        .all()
+    )
+    return {str(r.permission_id): bool(r.is_granted) for r in rows}
 
 
 def apply_role_permission_matrix(
@@ -45,18 +28,9 @@ def apply_role_permission_matrix(
     actor_id: UUID,
 ) -> None:
     """Matrix kaydı: her permission_id için granted True/False (DWP PUT matrisi)."""
-    # Resolve role id string as stored.
-    rd, rh = _uuid_candidates(role_id)
-    role_row = db.execute(
-        text(
-            "SELECT id FROM roles WHERE COALESCE(is_deleted,0)=0 AND (id=:d OR id=:h) LIMIT 1"
-        ),
-        {"d": rd, "h": rh},
-    ).first()
-    if not role_row:
+    role = db.query(Roles).filter(Roles.id == role_id, Roles.is_deleted.is_(False)).first()
+    if not role:
         raise ValueError("role_not_found")
-    role_id_str = role_row[0]
-    actor_id_str = _resolve_user_id_string(db, actor_id)
 
     for perm_id_str, granted in updates.items():
         try:
@@ -69,55 +43,50 @@ def apply_role_permission_matrix(
             .first()
         ):
             continue
-        row = db.execute(
-            text(
-                "SELECT role_id, permission_id, COALESCE(is_deleted,0) AS is_deleted "
-                "FROM role_permissions WHERE role_id=:r AND permission_id=:p LIMIT 1"
-            ),
-            {"r": role_id_str, "p": str(pid)},
-        ).first()
+        row = (
+            db.query(RolePermissions)
+            .filter(
+                RolePermissions.role_id == role_id,
+                RolePermissions.permission_id == pid,
+            )
+            .first()
+        )
         if granted:
             if row:
-                db.execute(
-                    text(
-                        "UPDATE role_permissions SET is_deleted=FALSE, is_granted=TRUE, updated_by=:a "
-                        "WHERE role_id=:r AND permission_id=:p"
-                    ),
-                    {"a": actor_id_str, "r": role_id_str, "p": str(pid)},
-                )
+                row.is_deleted = False
+                row.is_granted = True
+                row.updated_by = actor_id
             else:
-                db.execute(
-                    text(
-                        "INSERT INTO role_permissions "
-                        "(role_id, permission_id, is_granted, is_deleted, created_by, updated_by) "
-                        "VALUES (:r, :p, TRUE, FALSE, :a, :a)"
-                    ),
-                    {"r": role_id_str, "p": str(pid), "a": actor_id_str},
+                db.add(
+                    RolePermissions(
+                        role_id=role_id,
+                        permission_id=pid,
+                        is_granted=True,
+                        is_deleted=False,
+                        created_by=actor_id,
+                        updated_by=actor_id,
+                    )
                 )
         else:
-            if row:
-                db.execute(
-                    text(
-                        "UPDATE role_permissions SET is_deleted=TRUE, is_granted=FALSE, updated_by=:a "
-                        "WHERE role_id=:r AND permission_id=:p"
-                    ),
-                    {"a": actor_id_str, "r": role_id_str, "p": str(pid)},
-                )
+            if row and (not row.is_deleted or row.is_granted):
+                row.is_deleted = True
+                row.is_granted = False
+                row.updated_by = actor_id
 
     db.commit()
 
 
 def list_granted_permission_ids(db: Session, role_id: UUID) -> list[UUID]:
-    d, h = _uuid_candidates(role_id)
-    rows = db.execute(
-        text(
-            "SELECT permission_id FROM role_permissions "
-            "WHERE COALESCE(is_deleted,0)=0 AND COALESCE(is_granted,0)=1 "
-            "AND (role_id=:d OR role_id=:h)"
-        ),
-        {"d": d, "h": h},
-    ).fetchall()
-    return [UUID(str(r[0])) for r in rows]
+    rows = (
+        db.query(RolePermissions.permission_id)
+        .filter(
+            RolePermissions.role_id == role_id,
+            RolePermissions.is_deleted.is_(False),
+            RolePermissions.is_granted.is_(True),
+        )
+        .all()
+    )
+    return [r[0] for r in rows]
 
 
 def sync_role_grants(
@@ -127,16 +96,9 @@ def sync_role_grants(
     permission_ids: list[UUID],
     actor_id: UUID,
 ) -> list[UUID]:
-    rd, rh = _uuid_candidates(role_id)
-    role_row = db.execute(
-        text(
-            "SELECT id FROM roles WHERE COALESCE(is_deleted,0)=0 AND (id=:d OR id=:h) LIMIT 1"
-        ),
-        {"d": rd, "h": rh},
-    ).first()
-    if not role_row:
+    role = db.query(Roles).filter(Roles.id == role_id, Roles.is_deleted.is_(False)).first()
+    if not role:
         raise ValueError("role_not_found")
-    role_id_str = role_row[0]
 
     wanted = list(dict.fromkeys(permission_ids))  # dedupe, order preserved
     valid_ids = (
@@ -148,46 +110,33 @@ def sync_role_grants(
     if len(valid_set) != len(wanted):
         raise ValueError("invalid_permission")
 
-    existing = db.execute(
-        text(
-            "SELECT permission_id, COALESCE(is_deleted,0) AS is_deleted, COALESCE(is_granted,0) AS is_granted "
-            "FROM role_permissions WHERE role_id=:r"
-        ),
-        {"r": role_id_str},
-    ).fetchall()
-    by_perm = {UUID(str(pid)): (is_del, is_gr) for (pid, is_del, is_gr) in existing}
+    existing = db.query(RolePermissions).filter(RolePermissions.role_id == role_id).all()
+    by_perm = {row.permission_id: row for row in existing}
     wanted_set = set(wanted)
 
-    for pid, is_del, is_gr in existing:
-        pid_u = UUID(str(pid))
-        if pid_u in wanted_set:
-            if bool(is_del) or not bool(is_gr):
-                db.execute(
-                    text(
-                        "UPDATE role_permissions SET is_deleted=FALSE, is_granted=TRUE, updated_by=:a "
-                        "WHERE role_id=:r AND permission_id=:p"
-                    ),
-                    {"a": str(actor_id), "r": role_id_str, "p": str(pid_u)},
-                )
+    for row in existing:
+        if row.permission_id in wanted_set:
+            if row.is_deleted or not row.is_granted:
+                row.is_deleted = False
+                row.is_granted = True
+                row.updated_by = actor_id
         else:
-            if (not bool(is_del)) or bool(is_gr):
-                db.execute(
-                    text(
-                        "UPDATE role_permissions SET is_deleted=TRUE, is_granted=FALSE, updated_by=:a "
-                        "WHERE role_id=:r AND permission_id=:p"
-                    ),
-                    {"a": str(actor_id), "r": role_id_str, "p": str(pid_u)},
-                )
+            if not row.is_deleted or row.is_granted:
+                row.is_deleted = True
+                row.is_granted = False
+                row.updated_by = actor_id
 
     for pid in wanted:
         if pid not in by_perm:
-            db.execute(
-                text(
-                    "INSERT INTO role_permissions "
-                    "(role_id, permission_id, is_granted, is_deleted, created_by, updated_by) "
-                    "VALUES (:r, :p, TRUE, FALSE, :a, :a)"
-                ),
-                {"r": role_id_str, "p": str(pid), "a": str(actor_id)},
+            db.add(
+                RolePermissions(
+                    role_id=role_id,
+                    permission_id=pid,
+                    is_granted=True,
+                    is_deleted=False,
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
             )
 
     db.commit()

@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
@@ -100,8 +100,8 @@ def _active_def(db: Session, company_id: UUID) -> tuple[str | None, str]:
             FROM workflow_definitions wd
             WHERE wd.is_active IS TRUE
               AND wd.entity_type = 'estimate'
-              AND (wd.company_id = :cid OR wd.company_id IS NULL)
-            ORDER BY (wd.company_id IS NOT NULL) DESC, wd.version DESC, wd.created_at DESC
+              AND (wd.company_id = :cid OR wd.is_global IS TRUE)
+            ORDER BY (wd.is_global IS FALSE) DESC, wd.version DESC, wd.created_at DESC
             LIMIT 1
             """
         ),
@@ -147,7 +147,7 @@ def _replace_transition_actions(db: Session, transition_id: str, actions: list[E
             text(
                 """
                 INSERT INTO workflow_transition_actions (transition_id, type, config, sort_order, is_required)
-                VALUES (:tid, :typ, CAST(:cfg AS jsonb), :so, TRUE)
+                VALUES (:tid, :typ, CAST(:cfg AS JSON), :so, TRUE)
                 """
             ),
             {"tid": transition_id, "typ": typ, "cfg": json.dumps(cfg), "so": idx},
@@ -172,7 +172,7 @@ def get_estimate_workflow(
             """
             SELECT
               t.id AS id,
-              NULLIF(trim(t.from_status_id), '') AS from_status_id,
+              NULLIF(TRIM(COALESCE(t.from_status_id, '')), '') AS from_status_id,
               t.to_status_id AS to_status_id,
               t.sort_order,
               t.deleted_at AS deleted_at
@@ -252,17 +252,16 @@ def put_estimate_workflow(
     if row:
         def_id = str(row["id"])
     else:
-        ins = db.execute(
+        def_id = str(uuid4())
+        db.execute(
             text(
                 """
-                INSERT INTO workflow_definitions (company_id, entity_type, code, name, version, is_active)
-                VALUES (:cid, 'estimate', 'default_estimate', 'Company estimate workflow', 1, TRUE)
-                RETURNING id
+                INSERT INTO workflow_definitions (id, company_id, entity_type, code, name, version, is_active)
+                VALUES (:id, :cid, 'estimate', 'default_estimate', 'Company estimate workflow', 1, TRUE)
                 """
             ),
-            {"cid": str(cid)},
-        ).mappings().first()
-        def_id = str(ins["id"])
+            {"id": def_id, "cid": str(cid)},
+        )
 
     bootstrap_company_workflow_transitions_from_global_if_empty(
         db,
@@ -358,21 +357,20 @@ def put_estimate_workflow(
             _replace_transition_actions(db, tid_to_use, t.actions)
             matched_ids.add(tid_to_use)
         else:
-            ins = db.execute(
+            tid_new = str(uuid4())
+            db.execute(
                 text(
                     """
                     INSERT INTO workflow_transitions (
-                      workflow_definition_id, from_status_id, to_status_id, sort_order, deleted_at
+                      id, workflow_definition_id, from_status_id, to_status_id, sort_order, deleted_at
                     )
                     VALUES (
-                      :wid, :from_sid, :to_sid, :so, NULL
+                      :id, :wid, :from_sid, :to_sid, :so, NULL
                     )
-                    RETURNING id
                     """
                 ),
-                {"wid": def_id, "from_sid": from_sid, "to_sid": to_sid, "so": so},
-            ).mappings().first()
-            tid_new = str(ins["id"])
+                {"id": tid_new, "wid": def_id, "from_sid": from_sid, "to_sid": to_sid, "so": so},
+            )
             _replace_transition_actions(db, tid_new, t.actions)
             matched_ids.add(tid_new)
 

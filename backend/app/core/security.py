@@ -4,7 +4,6 @@ from uuid import UUID
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -122,29 +121,13 @@ def revoke_token(
                     uid = UUID(str(raw))
                 except (ValueError, TypeError):
                     uid = None
-    # MariaDB: users.id may be stored as hex32 or dashed36 text; inserting with ORM can break FK checks.
-    # Resolve the exact stored id string and insert via raw SQL (user_id is optional anyway).
-    raw_uid: Optional[str] = None
-    if uid is not None:
-        dashed = str(uid)
-        hex32 = uid.hex
-        for candidate in (dashed, hex32):
-            row = db.execute(text("SELECT id FROM users WHERE id = :x LIMIT 1"), {"x": candidate}).first()
-            if row:
-                raw_uid = row[0]
-                break
-
-    db.execute(
-        text(
-            "INSERT INTO revoked_tokens (token, user_id, revoked_at, is_used) "
-            "VALUES (:t, :uid, :revoked_at, TRUE) "
-            "ON DUPLICATE KEY UPDATE "
-            "is_used = TRUE, "
-            "revoked_at = VALUES(revoked_at), "
-            "user_id = COALESCE(user_id, VALUES(user_id))"
-        ),
-        {"t": token, "uid": raw_uid, "revoked_at": datetime.now(timezone.utc)},
+    revoked_entry = revoked_model(
+        token=token,
+        user_id=uid,
+        revoked_at=datetime.now(timezone.utc),
+        is_used=True,
     )
+    db.add(revoked_entry)
     db.commit()
 
 

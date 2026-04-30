@@ -2,14 +2,14 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, U
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
-from app.core.sqlalchemy_types import MariaUuid
+from app.core.db_types import GUID
 
 
 class PasswordResetTokens(Base):
     __tablename__ = "password_reset_tokens"
 
-    id = Column(MariaUuid(), primary_key=True, server_default=text("(UUID())"))
-    user_id = Column(MariaUuid(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    id = Column(GUID(), primary_key=True, server_default=text("UUID()"))
+    user_id = Column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     token = Column(String(100), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
     expires_at = Column(DateTime(timezone=True), nullable=False)

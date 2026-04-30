@@ -1,18 +1,17 @@
-from sqlalchemy import Column, DateTime, String, UniqueConstraint, text
-from sqlalchemy import JSON
+from sqlalchemy import JSON, Column, DateTime, String, UniqueConstraint, text
 
 from app.core.database import Base
-from app.core.sqlalchemy_types import MariaUuid
+from app.core.db_types import GUID
 
 
 class UserAuditLogs(Base):
     __tablename__ = "user_audit_logs"
 
-    id = Column(MariaUuid(), primary_key=True, server_default=text("(UUID())"))
-    executed_by = Column(MariaUuid(), nullable=True)
+    id = Column(GUID(), primary_key=True, server_default=text("UUID()"))
+    executed_by = Column(GUID(), nullable=True)
     action = Column(String(50), nullable=False)
     table_name = Column(String(100), nullable=False)
-    table_id = Column(MariaUuid())
+    table_id = Column(GUID())
     before_data = Column(JSON)
     after_data = Column(JSON)
     ip_address = Column(String(45))

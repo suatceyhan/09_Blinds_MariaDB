@@ -1,14 +1,14 @@
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Text, text
 
 from app.core.database import Base
-from app.core.sqlalchemy_types import MariaUuid
+from app.core.db_types import GUID
 
 
 class Customers(Base):
     __tablename__ = "customers"
 
     company_id = Column(
-        MariaUuid(),
+        GUID(),
         ForeignKey("companies.id", onupdate="CASCADE", ondelete="CASCADE"),
         primary_key=True,
         nullable=False,

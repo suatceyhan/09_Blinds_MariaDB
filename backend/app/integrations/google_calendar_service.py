@@ -593,7 +593,7 @@ def try_push_order_installation_to_google_calendar(
                   o.installation_scheduled_end_at,
                   o.installation_google_event_id,
                   o.blinds_lines,
-                  o.status_orde_id,
+                  o.status_order_id,
                   trim(concat_ws(' ', c.name, c.surname)) AS customer_display,
                   c.address AS customer_address
                 FROM orders o
@@ -608,7 +608,7 @@ def try_push_order_installation_to_google_calendar(
             reset_connection_rls_gucs(db)
             return
 
-        sid = ord_row.get("status_orde_id")
+        sid = ord_row.get("status_order_id")
         if sid is None or str(sid).strip() == "":
             reset_connection_rls_gucs(db)
             return

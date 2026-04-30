@@ -50,7 +50,7 @@ def _company_document_templates_has_preset_key(db: Session) -> bool:
             SELECT EXISTS (
               SELECT 1
               FROM information_schema.columns
-              WHERE TABLE_SCHEMA = DATABASE()
+              WHERE table_schema = DATABASE()
                 AND table_name = 'company_document_templates'
                 AND column_name = 'preset_key'
             )
@@ -86,10 +86,9 @@ def seed_default_contract_invoice_templates_for_company(db: Session, company_id:
             db.execute(
                 text(
                     """
-                    INSERT INTO company_document_templates
+                    INSERT IGNORE INTO company_document_templates
                       (company_id, kind, subject, body_html, preset_key, created_at, updated_at, is_deleted)
                     VALUES (:cid, 'deposit_contract', '', '', :pk, NOW(), NOW(), FALSE)
-                    ON CONFLICT (company_id, kind) DO NOTHING
                     """
                 ),
                 {"cid": cid, "pk": default_deposit_preset()[0]},
@@ -99,10 +98,9 @@ def seed_default_contract_invoice_templates_for_company(db: Session, company_id:
             db.execute(
                 text(
                     """
-                    INSERT INTO company_document_templates
+                    INSERT IGNORE INTO company_document_templates
                       (company_id, kind, subject, body_html, created_at, updated_at, is_deleted)
                     VALUES (:cid, 'deposit_contract', :subj, :html, NOW(), NOW(), FALSE)
-                    ON CONFLICT (company_id, kind) DO NOTHING
                     """
                 ),
                 {"cid": cid, "subj": preset.subject, "html": preset.body_html},
@@ -113,10 +111,9 @@ def seed_default_contract_invoice_templates_for_company(db: Session, company_id:
             db.execute(
                 text(
                     """
-                    INSERT INTO company_document_templates
+                    INSERT IGNORE INTO company_document_templates
                       (company_id, kind, subject, body_html, preset_key, created_at, updated_at, is_deleted)
                     VALUES (:cid, 'final_invoice', :subj, :html, NULL, NOW(), NOW(), FALSE)
-                    ON CONFLICT (company_id, kind) DO NOTHING
                     """
                 ),
                 {"cid": cid, "subj": "Final invoice", "html": FINAL_INVOICE_DEFAULT_HTML},
@@ -125,10 +122,9 @@ def seed_default_contract_invoice_templates_for_company(db: Session, company_id:
             db.execute(
                 text(
                     """
-                    INSERT INTO company_document_templates
+                    INSERT IGNORE INTO company_document_templates
                       (company_id, kind, subject, body_html, created_at, updated_at, is_deleted)
                     VALUES (:cid, 'final_invoice', :subj, :html, NOW(), NOW(), FALSE)
-                    ON CONFLICT (company_id, kind) DO NOTHING
                     """
                 ),
                 {"cid": cid, "subj": "Final invoice", "html": FINAL_INVOICE_DEFAULT_HTML},
@@ -498,7 +494,7 @@ def _fetch_order_doc_context(db: Session, company_id: str, order_id: str) -> dic
         text(
             """
             SELECT
-              o.id AS order_id,
+              o.id::text AS order_id,
               o.agreement_date,
               o.created_at,
               o.total_amount,
@@ -652,12 +648,12 @@ def _upsert_legacy_template(db: Session, company_id: str, kind: str, payload: Te
                 INSERT INTO company_document_templates
                   (company_id, kind, subject, body_html, preset_key, created_at, updated_at, is_deleted)
                 VALUES (:cid, :k, :subj, :html, NULL, NOW(), NOW(), FALSE)
-                ON CONFLICT (company_id, kind) DO UPDATE
-                  SET subject = EXCLUDED.subject,
-                      body_html = EXCLUDED.body_html,
-                      preset_key = NULL,
-                      updated_at = NOW(),
-                      is_deleted = FALSE
+                ON DUPLICATE KEY UPDATE
+                  subject = VALUES(subject),
+                  body_html = VALUES(body_html),
+                  preset_key = NULL,
+                  updated_at = NOW(),
+                  is_deleted = FALSE
                 """
             ),
             {"cid": company_id, "k": kind, "subj": payload.subject.strip(), "html": payload.body_html},
@@ -669,11 +665,11 @@ def _upsert_legacy_template(db: Session, company_id: str, kind: str, payload: Te
                 INSERT INTO company_document_templates
                   (company_id, kind, subject, body_html, created_at, updated_at, is_deleted)
                 VALUES (:cid, :k, :subj, :html, NOW(), NOW(), FALSE)
-                ON CONFLICT (company_id, kind) DO UPDATE
-                  SET subject = EXCLUDED.subject,
-                      body_html = EXCLUDED.body_html,
-                      updated_at = NOW(),
-                      is_deleted = FALSE
+                ON DUPLICATE KEY UPDATE
+                  subject = VALUES(subject),
+                  body_html = VALUES(body_html),
+                  updated_at = NOW(),
+                  is_deleted = FALSE
                 """
             ),
             {"cid": company_id, "k": kind, "subj": payload.subject.strip(), "html": payload.body_html},
@@ -696,12 +692,12 @@ def _upsert_deposit_preset(db: Session, company_id: str, preset_key: str) -> Non
             INSERT INTO company_document_templates
               (company_id, kind, subject, body_html, preset_key, created_at, updated_at, is_deleted)
             VALUES (:cid, 'deposit_contract', '', '', :pk, NOW(), NOW(), FALSE)
-            ON CONFLICT (company_id, kind) DO UPDATE
-              SET subject = '',
-                  body_html = '',
-                  preset_key = EXCLUDED.preset_key,
-                  updated_at = NOW(),
-                  is_deleted = FALSE
+            ON DUPLICATE KEY UPDATE
+              subject = '',
+              body_html = '',
+              preset_key = VALUES(preset_key),
+              updated_at = NOW(),
+              is_deleted = FALSE
             """
         ),
         {"cid": company_id, "pk": preset_key},

@@ -1,18 +1,19 @@
-# Starter şablonu: web (nginx + SPA) + API + PostgreSQL
+# Starter şablonu: web (nginx + SPA) + API + MariaDB
 # Çalıştırma: docker compose up --build
 # Arayüz: http://localhost:8080  |  API doğrudan: http://localhost:8000
 
 services:
   db:
-    image: postgres:16-alpine
+    image: mariadb:11.4
     environment:
-      POSTGRES_USER: starter
-      POSTGRES_PASSWORD: starter
-      POSTGRES_DB: starter
+      MARIADB_USER: starter
+      MARIADB_PASSWORD: starter
+      MARIADB_DATABASE: starter
+      MARIADB_ROOT_PASSWORD: starter-root
     volumes:
-      - starter_pgdata:/var/lib/postgresql/data
+      - starter_mariadb_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U starter -d starter"]
+      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -u starter -pstarter --silent"]
       interval: 5s
       timeout: 5s
       retries: 8
@@ -22,7 +23,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: postgresql://starter:starter@db:5432/starter
+      DATABASE_URL: mysql+pymysql://starter:starter@db:3306/starter
       # Üretimde mutlaka güçlü bir değer verin: örn. openssl rand -hex 32
       SECRET_KEY: ${SECRET_KEY:-docker-compose-dev-only-replace-in-production-please}
       DEBUG: "false"
@@ -51,4 +52,4 @@ services:
       - api
 
 volumes:
-  starter_pgdata:
+  starter_mariadb_data:

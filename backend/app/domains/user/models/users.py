@@ -2,7 +2,7 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, T
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
-from app.core.sqlalchemy_types import MariaUuid
+from app.core.db_types import GUID
 
 
 class Users(Base):
@@ -10,16 +10,16 @@ class Users(Base):
 
     __tablename__ = "users"
 
-    id = Column(MariaUuid(), primary_key=True, server_default=text("(UUID())"))
+    id = Column(GUID(), primary_key=True, server_default=text("UUID()"))
     first_name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
     phone = Column(String, nullable=False)
     password = Column(String, nullable=False)
     email = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
-    created_by = Column(MariaUuid(), ForeignKey("users.id"))
+    created_by = Column(GUID(), ForeignKey("users.id"))
     updated_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
-    updated_by = Column(MariaUuid(), ForeignKey("users.id"))
+    updated_by = Column(GUID(), ForeignKey("users.id"))
     is_deleted = Column(Boolean, default=False)
     last_login = Column(TIMESTAMP)
     failed_login_attempts = Column(Integer, default=0)
@@ -28,10 +28,10 @@ class Users(Base):
     is_first_login = Column(Boolean, default=True)
     must_change_password = Column(Boolean, default=False)
 
-    role_group_id = Column(MariaUuid(), ForeignKey("role_groups.id"), nullable=True)
+    role_group_id = Column(GUID(), ForeignKey("role_groups.id"), nullable=True)
     role_group = relationship("RoleGroups", foreign_keys=[role_group_id])
 
-    company_id = Column(MariaUuid(), ForeignKey("companies.id"), nullable=True)
+    company_id = Column(GUID(), ForeignKey("companies.id"), nullable=True)
     company = relationship("Companies", back_populates="users", foreign_keys=[company_id])
     company_memberships = relationship(
         "UserCompanyMembership",
@@ -39,7 +39,8 @@ class Users(Base):
         foreign_keys="UserCompanyMembership.user_id",
     )
 
-    default_role = Column(MariaUuid(), ForeignKey("roles.id"), nullable=True)
+    # DB column is `default_role_id` (legacy code uses attribute name `default_role`).
+    default_role = Column("default_role_id", GUID(), ForeignKey("roles.id"), nullable=True)
     photo_url = Column(String, nullable=True)
 
     user_roles = relationship("UserRoles", foreign_keys="UserRoles.user_id", back_populates="user")

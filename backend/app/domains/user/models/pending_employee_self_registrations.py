@@ -2,19 +2,19 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Text, text
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
-from app.core.sqlalchemy_types import MariaUuid
+from app.core.db_types import GUID
 
 
 class PendingEmployeeSelfRegistrations(Base):
     __tablename__ = "pending_employee_self_registrations"
 
-    id = Column(MariaUuid(), primary_key=True, server_default=text("(UUID())"))
+    id = Column(GUID(), primary_key=True, server_default=text("UUID()"))
     first_name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
     email = Column(String, nullable=False)
     phone = Column(String, nullable=False)
     password = Column(String, nullable=False)
-    role_group_id = Column(MariaUuid(), ForeignKey("role_groups.id"), nullable=True)
+    role_group_id = Column(GUID(), ForeignKey("role_groups.id"), nullable=True)
     request_note = Column(Text)
     verification_token = Column(String, nullable=False)
     token_sent_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
@@ -25,7 +25,7 @@ class PendingEmployeeSelfRegistrations(Base):
         nullable=False,
         default="EMAIL_NOT_VERIFIED",
     )
-    approved_by = Column(MariaUuid(), ForeignKey("users.id"))
+    approved_by = Column(GUID(), ForeignKey("users.id"))
     approved_at = Column(DateTime(timezone=True))
     requested_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
     is_deleted = Column(Boolean, default=False, nullable=False)

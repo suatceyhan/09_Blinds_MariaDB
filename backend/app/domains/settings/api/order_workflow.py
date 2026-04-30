@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
@@ -35,9 +35,11 @@ class OrderWorkflowActionOut(BaseModel):
 
 class OrderWorkflowTransitionOut(BaseModel):
     id: str
+    from_status_order_id: str | None = None
     from_status_orde_id: str | None = None
     from_status_label: str | None = None
-    to_status_orde_id: str
+    to_status_order_id: str
+    to_status_orde_id: str | None = None
     to_status_label: str
     actions: list[OrderWorkflowActionOut] = Field(default_factory=list)
     sort_order: int = 0
@@ -61,10 +63,18 @@ class OrderWorkflowTransitionIn(BaseModel):
     """Optional id matches an existing transition row when updating/restoring."""
 
     id: str | None = Field(None, max_length=48)
+    from_status_order_id: str | None = Field(None, max_length=32)
     from_status_orde_id: str | None = Field(None, max_length=32)
-    to_status_orde_id: str = Field(..., min_length=1, max_length=32)
+    to_status_order_id: str | None = Field(None, min_length=1, max_length=32)
+    to_status_orde_id: str | None = Field(None, min_length=1, max_length=32)
     sort_order: int = Field(0, ge=-999, le=9_999_999)
     actions: list[OrderWorkflowActionIn] = Field(default_factory=list)
+
+    def coalesced_from(self) -> str | None:
+        return (self.from_status_order_id or "").strip() or (self.from_status_orde_id or "").strip() or None
+
+    def coalesced_to(self) -> str:
+        return (self.to_status_order_id or "").strip() or (self.to_status_orde_id or "").strip()
 
 
 class OrderWorkflowPutIn(BaseModel):
@@ -101,8 +111,8 @@ def _active_def(db: Session, company_id: UUID) -> tuple[str | None, str]:
             FROM workflow_definitions wd
             WHERE wd.is_active IS TRUE
               AND wd.entity_type = 'order'
-              AND (wd.company_id = :cid OR wd.company_id IS NULL)
-            ORDER BY (wd.company_id IS NOT NULL) DESC, wd.version DESC, wd.created_at DESC
+              AND (wd.company_id = :cid OR wd.is_global IS TRUE)
+            ORDER BY (wd.is_global IS FALSE) DESC, wd.version DESC, wd.created_at DESC
             LIMIT 1
             """
         ),
@@ -130,7 +140,7 @@ def _replace_transition_actions(db: Session, transition_id: str, actions: list[O
             text(
                 """
                 INSERT INTO workflow_transition_actions (transition_id, type, config, sort_order, is_required)
-                VALUES (:tid, :typ, CAST(:cfg AS jsonb), :so, TRUE)
+                VALUES (:tid, :typ, CAST(:cfg AS JSON), :so, TRUE)
                 """
             ),
             {"tid": transition_id, "typ": typ, "cfg": json.dumps(cfg), "so": idx},
@@ -172,7 +182,7 @@ def get_order_workflow(
             """
             SELECT
               t.id AS id,
-              NULLIF(trim(t.from_status_id), '') AS from_status_id,
+              NULLIF(TRIM(COALESCE(t.from_status_id, '')), '') AS from_status_id,
               t.to_status_id AS to_status_id,
               t.sort_order,
               t.deleted_at AS deleted_at
@@ -209,8 +219,10 @@ def get_order_workflow(
         out.append(
             OrderWorkflowTransitionOut(
                 id=tid,
+                from_status_order_id=from_sid,
                 from_status_orde_id=from_sid,
                 from_status_label=_status_label(db, cid, from_sid),
+                to_status_order_id=to_sid,
                 to_status_orde_id=to_sid,
                 to_status_label=_status_label(db, cid, to_sid) or to_sid,
                 actions=actions,
@@ -250,17 +262,16 @@ def put_order_workflow(
     if row:
         def_id = str(row["id"])
     else:
-        ins = db.execute(
+        def_id = str(uuid4())
+        db.execute(
             text(
                 """
-                INSERT INTO workflow_definitions (company_id, entity_type, code, name, version, is_active)
-                VALUES (:cid, 'order', 'default_order', 'Company order workflow', 1, TRUE)
-                RETURNING id
+                INSERT INTO workflow_definitions (id, company_id, entity_type, code, name, version, is_active)
+                VALUES (:id, :cid, 'order', 'default_order', 'Company order workflow', 1, TRUE)
                 """
             ),
-            {"cid": str(cid)},
-        ).mappings().first()
-        def_id = str(ins["id"])
+            {"id": def_id, "cid": str(cid)},
+        )
 
     bootstrap_company_workflow_transitions_from_global_if_empty(
         db,
@@ -296,8 +307,10 @@ def put_order_workflow(
 
     seen_keys: set[tuple[str, str]] = set()
     for t in body.transitions:
-        to_sid = t.to_status_orde_id.strip()
-        from_sid = (t.from_status_orde_id or "").strip() or None
+        to_sid = t.coalesced_to()
+        from_sid = t.coalesced_from()
+        if not to_sid:
+            raise HTTPException(status_code=400, detail="to_status_order_id is required.")
         _assert_status_enabled(db, cid, to_sid)
         if from_sid:
             _assert_status_enabled(db, cid, from_sid)
@@ -359,21 +372,20 @@ def put_order_workflow(
             _replace_transition_actions(db, tid_to_use, t.actions)
             matched_ids.add(tid_to_use)
         else:
-            ins = db.execute(
+            tid_new = str(uuid4())
+            db.execute(
                 text(
                     """
                     INSERT INTO workflow_transitions (
-                      workflow_definition_id, from_status_id, to_status_id, sort_order, deleted_at
+                      id, workflow_definition_id, from_status_id, to_status_id, sort_order, deleted_at
                     )
                     VALUES (
-                      :wid, :from_sid, :to_sid, :so, NULL
+                      :id, :wid, :from_sid, :to_sid, :so, NULL
                     )
-                    RETURNING id
                     """
                 ),
-                {"wid": def_id, "from_sid": from_sid, "to_sid": to_sid, "so": so},
-            ).mappings().first()
-            tid_new = str(ins["id"])
+                {"id": tid_new, "wid": def_id, "from_sid": from_sid, "to_sid": to_sid, "so": so},
+            )
             _replace_transition_actions(db, tid_new, t.actions)
             matched_ids.add(tid_new)
 

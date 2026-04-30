@@ -135,7 +135,7 @@ def _assert_status_unused_for_deactivate(db: Session, *, status_table: str, stat
                 detail="This status is used in a workflow transition. Remove it from workflows first.",
             )
         used = db.execute(
-            text("SELECT 1 FROM orders o WHERE o.status_orde_id = :sid AND o.active IS TRUE LIMIT 1"),
+            text("SELECT 1 FROM orders o WHERE o.status_order_id = :sid AND o.active IS TRUE LIMIT 1"),
             {"sid": sid},
         ).first()
         if used:
@@ -334,9 +334,8 @@ def put_estimate_status_matrix(
             db.execute(
                 text(
                     """
-                    INSERT INTO company_status_estimate_matrix (company_id, status_estimate_id)
+                    INSERT IGNORE INTO company_status_estimate_matrix (company_id, status_estimate_id)
                     VALUES (:cid, :sid)
-                    ON CONFLICT (company_id, status_estimate_id) DO NOTHING
                     """
                 ),
                 {"cid": str(cell.company_id), "sid": cell.status_id.strip()},
@@ -435,9 +434,8 @@ def put_order_status_matrix(
             db.execute(
                 text(
                     """
-                    INSERT INTO company_status_order_matrix (company_id, status_order_id)
+                    INSERT IGNORE INTO company_status_order_matrix (company_id, status_order_id)
                     VALUES (:cid, :sid)
-                    ON CONFLICT (company_id, status_order_id) DO NOTHING
                     """
                 ),
                 {"cid": str(cell.company_id), "sid": cell.status_id.strip()},
@@ -469,7 +467,7 @@ def create_global_estimate_status(
             """
             SELECT 1
             FROM status_estimate
-            WHERE lower(trim(name)) = lower(trim(:name))
+            WHERE lower(TRIM(name)) = lower(TRIM(:name))
             LIMIT 1
             """
         ),
@@ -541,7 +539,7 @@ def patch_global_estimate_status(
                 """
                 SELECT 1
                 FROM status_estimate
-                WHERE lower(trim(name)) = lower(trim(:name))
+                WHERE lower(btrim(name)) = lower(btrim(:name))
                   AND id <> :id
                 LIMIT 1
                 """
@@ -589,7 +587,7 @@ def create_global_order_status(
             """
             SELECT 1
             FROM status_order
-            WHERE lower(trim(name)) = lower(trim(:name))
+            WHERE lower(btrim(name)) = lower(btrim(:name))
             LIMIT 1
             """
         ),
@@ -657,7 +655,7 @@ def patch_global_order_status(
                 """
                 SELECT 1
                 FROM status_order
-                WHERE lower(trim(name)) = lower(trim(:name))
+                WHERE lower(btrim(name)) = lower(btrim(:name))
                   AND id <> :id
                 LIMIT 1
                 """

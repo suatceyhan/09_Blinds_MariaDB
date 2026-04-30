@@ -111,7 +111,7 @@ def list_blinds_product_categories(
         where.append("pc.active IS TRUE")
     if term:
         params["term"] = f"%{term}%"
-        where.append("(LOWER(pc.name) LIKE LOWER(:term) OR LOWER(pc.code) LIKE LOWER(:term))")
+        where.append("(pc.name ILIKE :term OR pc.code ILIKE :term)")
     wh_clause = f"WHERE {' AND '.join(where)}" if where else ""
 
     if catalog_scope == "global":
@@ -127,7 +127,7 @@ def list_blinds_product_categories(
             SELECT pc.code, pc.name, pc.sort_order, pc.active, pc.created_at, pc.updated_at
             FROM blinds_product_category pc
             INNER JOIN company_blinds_product_category_matrix m
-              ON m.category_code = pc.code AND m.company_id = :cid
+              ON m.category_code = pc.code AND m.company_id = CAST(:cid AS uuid)
             {wh_clause}
             ORDER BY pc.active DESC, pc.sort_order ASC, pc.name ASC
             LIMIT :limit
@@ -176,7 +176,7 @@ def create_blinds_product_category(
             """
             SELECT 1
             FROM blinds_product_category
-            WHERE lower(trim(name)) = lower(trim(:name))
+            WHERE lower(btrim(name)) = lower(btrim(:name))
             LIMIT 1
             """
         ),
@@ -239,7 +239,7 @@ def patch_blinds_product_category(
                 """
                 SELECT 1
                 FROM blinds_product_category
-                WHERE lower(trim(name)) = lower(trim(:name))
+                WHERE lower(btrim(name)) = lower(btrim(:name))
                   AND code <> :code
                 LIMIT 1
                 """

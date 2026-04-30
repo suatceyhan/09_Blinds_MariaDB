@@ -2,14 +2,14 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, UniqueCons
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
-from app.core.sqlalchemy_types import MariaUuid
+from app.core.db_types import GUID
 
 
 class LoginAttempts(Base):
     __tablename__ = "login_attempts"
 
-    id = Column(MariaUuid(), primary_key=True, server_default=text("(UUID())"))
-    user_id = Column(MariaUuid(), ForeignKey("users.id"))
+    id = Column(GUID(), primary_key=True, server_default=text("UUID()"))
+    user_id = Column(GUID(), ForeignKey("users.id"))
     ip_address = Column(String(45))
     user_agent = Column(String)
     success = Column(Boolean, default=False)

@@ -56,7 +56,7 @@ def get_blinds_category_matrix(
             SELECT bt.id, bt.name
             FROM blinds_type bt
             INNER JOIN company_blinds_type_matrix m
-              ON m.blinds_type_id = bt.id AND m.company_id = :cid
+              ON m.blinds_type_id = bt.id AND m.company_id = CAST(:cid AS uuid)
             WHERE bt.active IS TRUE
             ORDER BY bt.sort_order ASC, bt.name ASC
             """
@@ -70,7 +70,7 @@ def get_blinds_category_matrix(
             SELECT pc.code AS id, pc.name, pc.sort_order
             FROM blinds_product_category pc
             INNER JOIN company_blinds_product_category_matrix m
-              ON m.category_code = pc.code AND m.company_id = :cid
+              ON m.category_code = pc.code AND m.company_id = CAST(:cid AS uuid)
             WHERE pc.active IS TRUE
             ORDER BY pc.sort_order ASC, pc.name ASC
             """
@@ -83,7 +83,7 @@ def get_blinds_category_matrix(
             """
             SELECT blinds_type_id, category_code
             FROM blinds_type_category_allowed
-            WHERE company_id = :cid
+            WHERE company_id = CAST(:cid AS uuid)
             ORDER BY blinds_type_id, category_code
             """
         ),
@@ -134,7 +134,7 @@ def put_blinds_category_matrix(
                 SELECT bt.id
                 FROM blinds_type bt
                 INNER JOIN company_blinds_type_matrix m
-                  ON m.blinds_type_id = bt.id AND m.company_id = :cid
+                  ON m.blinds_type_id = bt.id AND m.company_id = CAST(:cid AS uuid)
                 WHERE bt.id = :tid AND bt.active IS TRUE
                 """
             ),
@@ -160,7 +160,7 @@ def put_blinds_category_matrix(
             )
 
     db.execute(
-        text("DELETE FROM blinds_type_category_allowed WHERE company_id = :cid"),
+        text("DELETE FROM blinds_type_category_allowed WHERE company_id = CAST(:cid AS uuid)"),
         {"cid": str(cid)},
     )
     for tid, ccode in cleaned:
@@ -168,7 +168,7 @@ def put_blinds_category_matrix(
             text(
                 """
                 INSERT INTO blinds_type_category_allowed (company_id, blinds_type_id, category_code)
-                VALUES (:cid, :tid, :ccode)
+                VALUES (CAST(:cid AS uuid), :tid, :ccode)
                 """
             ),
             {"cid": str(cid), "tid": tid, "ccode": ccode},

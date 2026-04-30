@@ -131,12 +131,12 @@ def customers_lookup(
     where = ["c.company_id = :cid", "c.active IS TRUE"]
     params: dict[str, Any] = {"cid": str(cid), "limit": limit}
     if term:
-        params["term"] = f"%{term}%"
+        params["term"] = f"%{term.lower()}%"
         where.append(
             "("
-            "LOWER(c.name) LIKE LOWER(:term) OR LOWER(COALESCE(c.surname,'')) LIKE LOWER(:term) OR LOWER(COALESCE(c.phone,'')) LIKE LOWER(:term) OR "
-            "LOWER(COALESCE(c.email,'')) LIKE LOWER(:term) OR LOWER(COALESCE(c.address,'')) LIKE LOWER(:term) OR "
-            "LOWER(COALESCE(c.postal_code,'')) LIKE LOWER(:term)"
+            "LOWER(c.name) LIKE :term OR LOWER(COALESCE(c.surname,'')) LIKE :term OR LOWER(COALESCE(c.phone,'')) LIKE :term OR "
+            "LOWER(COALESCE(c.email,'')) LIKE :term OR LOWER(COALESCE(c.address,'')) LIKE :term OR "
+            "LOWER(COALESCE(c.postal_code,'')) LIKE :term"
             ")"
         )
     where_sql = " AND ".join(where)
@@ -172,12 +172,12 @@ def list_customers(
     if not include_inactive:
         where.append("c.active IS TRUE")
     if term:
-        params["term"] = f"%{term}%"
+        params["term"] = f"%{term.lower()}%"
         where.append(
             "("
-            "LOWER(c.name) LIKE LOWER(:term) OR LOWER(COALESCE(c.surname,'')) LIKE LOWER(:term) OR LOWER(COALESCE(c.phone,'')) LIKE LOWER(:term) OR "
-            "LOWER(COALESCE(c.email,'')) LIKE LOWER(:term) OR LOWER(COALESCE(c.address,'')) LIKE LOWER(:term) OR "
-            "LOWER(COALESCE(c.postal_code,'')) LIKE LOWER(:term)"
+            "LOWER(c.name) LIKE :term OR LOWER(COALESCE(c.surname,'')) LIKE :term OR LOWER(COALESCE(c.phone,'')) LIKE :term OR "
+            "LOWER(COALESCE(c.email,'')) LIKE :term OR LOWER(COALESCE(c.address,'')) LIKE :term OR "
+            "LOWER(COALESCE(c.postal_code,'')) LIKE :term"
             ")"
         )
 
@@ -297,8 +297,9 @@ def get_customer(
                     CASE
                       WHEN eb.perde_sayisi IS NOT NULL THEN CONCAT(bt.name, ' (', CAST(eb.perde_sayisi AS CHAR), ')')
                       ELSE bt.name
-                    END
-                    ORDER BY eb.sort_order, bt.name SEPARATOR ', ')
+                    END,
+                    ', ' ORDER BY eb.sort_order, bt.name SEPARATOR ', '
+                  )
                   FROM estimate_blinds eb
                   JOIN blinds_type bt ON bt.id = eb.blinds_id
                   WHERE eb.company_id = e.company_id AND eb.estimate_id = e.id
@@ -325,7 +326,7 @@ def get_customer(
     orders = db.execute(
         text(
             """
-            SELECT id, created_at, status_code, status_orde_id, total_amount, balance
+            SELECT id, created_at, status_code, status_order_id, total_amount, balance
             FROM orders
             WHERE company_id = :company_id AND customer_id = :cid
             ORDER BY (created_at IS NULL) ASC, created_at DESC

@@ -3,7 +3,6 @@ from uuid import UUID
 
 from fastapi import Depends, HTTPException, Path, Request, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.authorization import has_permission
@@ -78,20 +77,7 @@ def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid user ID in token",
             )
-    # MariaDB: UUIDs may exist in mixed stored representations (legacy hex32 vs dashed36 text).
-    # Prefer email (also embedded in token) to locate the user row reliably.
-    raw_email = payload.get("email")
-    if raw_email:
-        user = (
-            db.query(Users)
-            .filter(
-                func.lower(Users.email) == str(raw_email).strip().lower(),
-                Users.is_deleted.is_(False),
-            )
-            .first()
-        )
-    else:
-        user = db.query(Users).filter(Users.id == user_id, Users.is_deleted.is_(False)).first()
+    user = db.query(Users).filter(Users.id == user_id, Users.is_deleted.is_(False)).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -189,18 +175,7 @@ def get_current_user_optional(
         user_id = payload["user_id"]
         if not isinstance(user_id, UUID):
             user_id = UUID(str(user_id))
-        raw_email = payload.get("email")
-        if raw_email:
-            user = (
-                db.query(Users)
-                .filter(
-                    func.lower(Users.email) == str(raw_email).strip().lower(),
-                    Users.is_deleted.is_(False),
-                )
-                .first()
-            )
-        else:
-            user = db.query(Users).filter(Users.id == user_id, Users.is_deleted.is_(False)).first()
+        user = db.query(Users).filter(Users.id == user_id, Users.is_deleted.is_(False)).first()
         if not user:
             return None
         user.roles = payload.get("roles", [])

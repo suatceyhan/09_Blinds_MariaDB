@@ -2,15 +2,15 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, UniqueCons
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
-from app.core.sqlalchemy_types import MariaUuid
+from app.core.db_types import GUID
 
 
 class RevokedTokens(Base):
     __tablename__ = "revoked_tokens"
 
-    id = Column(MariaUuid(), primary_key=True, server_default=text("(UUID())"))
+    id = Column(GUID(), primary_key=True, server_default=text("UUID()"))
     token = Column(String, nullable=False)
-    user_id = Column(MariaUuid(), ForeignKey("users.id"), nullable=True)
+    user_id = Column(GUID(), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
     revoked_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
     is_used = Column(Boolean, default=False)

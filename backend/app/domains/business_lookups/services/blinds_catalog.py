@@ -26,7 +26,7 @@ def ensure_company_product_category_matrix_defaults(db: Session, company_id: UUI
             """
             SELECT 1
             FROM company_blinds_product_category_matrix
-            WHERE company_id = :cid
+            WHERE company_id = CAST(:cid AS uuid)
             LIMIT 1
             """
         ),
@@ -38,7 +38,7 @@ def ensure_company_product_category_matrix_defaults(db: Session, company_id: UUI
         text(
             """
             INSERT INTO company_blinds_product_category_matrix (company_id, category_code)
-            SELECT :cid, pc.code
+            SELECT CAST(:cid AS uuid), pc.code
             FROM blinds_product_category pc
             WHERE pc.active IS TRUE
             ON CONFLICT (company_id, category_code) DO NOTHING
@@ -58,7 +58,7 @@ def load_allowed_category_ids_by_type(db: Session, company_id: UUID) -> dict[str
               ON m.company_id = a.company_id AND m.category_code = a.category_code
             INNER JOIN company_blinds_type_matrix tm
               ON tm.company_id = a.company_id AND tm.blinds_type_id = a.blinds_type_id
-            WHERE a.company_id = :cid
+            WHERE a.company_id = CAST(:cid AS uuid)
             ORDER BY a.blinds_type_id, a.category_code
             """
         ),
@@ -94,10 +94,10 @@ def assert_blinds_types_enabled_for_company(
     rows = db.execute(
         text(
             """
-            SELECT bt.id
+            SELECT bt.id::text
             FROM blinds_type bt
             INNER JOIN company_blinds_type_matrix m
-              ON m.blinds_type_id = bt.id AND m.company_id = :cid
+              ON m.blinds_type_id = bt.id AND m.company_id = CAST(:cid AS uuid)
             WHERE bt.active IS TRUE AND bt.id IN :ids
             """
         ).bindparams(bindparam("ids", expanding=True)),

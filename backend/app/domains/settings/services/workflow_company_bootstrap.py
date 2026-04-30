@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from typing import Literal
+from uuid import uuid4
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -39,9 +40,9 @@ def bootstrap_company_workflow_transitions_from_global_if_empty(
             """
             SELECT id AS id
             FROM workflow_definitions
-            WHERE company_id IS NULL
-              AND entity_type = CAST(:et AS text)
-              AND code = CAST(:code AS text)
+            WHERE is_global IS TRUE
+              AND entity_type = :et
+              AND code = :code
               AND is_active IS TRUE
             ORDER BY version DESC, created_at DESC
             LIMIT 1
@@ -74,29 +75,27 @@ def bootstrap_company_workflow_transitions_from_global_if_empty(
         so = int(tr.get("sort_order") or 0)
         del_at = tr.get("deleted_at")
 
-        ins = db.execute(
+        new_tid = str(uuid4())
+        db.execute(
             text(
                 """
                 INSERT INTO workflow_transitions (
-                  workflow_definition_id, from_status_id, to_status_id, sort_order, deleted_at
+                  id, workflow_definition_id, from_status_id, to_status_id, sort_order, deleted_at
                 )
                 VALUES (
-                  :wid, :from_sid, CAST(:to_sid AS varchar), :so, :del_at
+                  :id, :wid, :from_sid, :to_sid, :so, :del_at
                 )
-                RETURNING id
                 """
             ),
             {
+                "id": new_tid,
                 "wid": company_definition_id,
                 "from_sid": from_sid,
                 "to_sid": to_sid,
                 "so": so,
                 "del_at": del_at,
             },
-        ).mappings().first()
-        if not ins:
-            continue
-        new_tid = str(ins["id"])
+        )
 
         actions = db.execute(
             text(
@@ -128,7 +127,7 @@ def bootstrap_company_workflow_transitions_from_global_if_empty(
                 text(
                     """
                     INSERT INTO workflow_transition_actions (transition_id, type, config, sort_order, is_required)
-                    VALUES (:tid, :typ, CAST(:cfg AS jsonb), :so, :req)
+                    VALUES (:tid, :typ, CAST(:cfg AS JSON), :so, :req)
                     """
                 ),
                 {

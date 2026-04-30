@@ -2,15 +2,15 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, UniqueConstraint, 
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
-from app.core.sqlalchemy_types import MariaUuid
+from app.core.db_types import GUID
 
 
 class UserCompanyMembership(Base):
     __tablename__ = "user_company_memberships"
 
-    id = Column(MariaUuid(), primary_key=True, server_default=text("(UUID())"))
-    user_id = Column(MariaUuid(), ForeignKey("users.id"), nullable=False)
-    company_id = Column(MariaUuid(), ForeignKey("companies.id"), nullable=False)
+    id = Column(GUID(), primary_key=True, server_default=text("UUID()"))
+    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    company_id = Column(GUID(), ForeignKey("companies.id"), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
 

@@ -8,20 +8,20 @@ from app.core.config import settings
 Base = declarative_base()
 
 
-def _engine_connect_args(url: str) -> dict:
-    low = (url or "").lower()
-    if low.startswith("postgresql"):
+def _connect_args(url: str) -> dict:
+    if url.startswith("postgresql"):
         # Havuzdan yeni bağlantı: bootstrap/login RLS'ten muaf (FORCE RLS + owner için gerekli)
         return {"options": "-c app.rls_bypass=1"}
-    if low.startswith("mysql") or low.startswith("mariadb"):
-        return {"charset": "utf8mb4"}
+    if url.startswith("mysql"):
+        # MariaDB: allow `||` string concatenation in legacy SQL snippets.
+        return {"init_command": "SET SESSION sql_mode = CONCAT(@@sql_mode, ',PIPES_AS_CONCAT')"}
     return {}
 
 
 engine = create_engine(
     settings.database_url,
     echo=False,
-    connect_args=_engine_connect_args(settings.database_url),
+    connect_args=_connect_args(settings.database_url),
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -68,7 +68,7 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         # Hatalı isteklerde transaction "aborted" kalır; reset öncesi rollback yoksa
-        # PostgreSQL: aborted txn blocks sonraki set_config; MariaDB için zararsız rollback.
+        # PostgreSQL bir sonraki set_config'te InFailedSqlTransaction verir.
         try:
             db.rollback()
         except Exception:

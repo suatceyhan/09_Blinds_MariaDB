@@ -73,7 +73,7 @@ def get_product_category_matrix(
             matrix_rows = db.execute(
                 text(
                     """
-                    SELECT company_id AS company_id, category_code AS status_id
+                    SELECT company_id::text AS company_id, category_code AS status_id
                     FROM company_blinds_product_category_matrix
                     """
                 )
@@ -84,9 +84,9 @@ def get_product_category_matrix(
                 db.execute(
                     text(
                         """
-                        SELECT company_id AS company_id, category_code AS status_id
+                        SELECT company_id::text AS company_id, category_code AS status_id
                         FROM company_blinds_product_category_matrix
-                        WHERE company_id = :cid
+                        WHERE company_id = CAST(:cid AS uuid)
                         """
                     ),
                     {"cid": str(ec)},
@@ -135,7 +135,7 @@ def put_product_category_matrix(
                 text(
                     """
                     INSERT INTO company_blinds_product_category_matrix (company_id, category_code)
-                    VALUES (:cid, :code)
+                    VALUES (CAST(:cid AS uuid), :code)
                     ON CONFLICT (company_id, category_code) DO NOTHING
                     """
                 ),
@@ -146,7 +146,7 @@ def put_product_category_matrix(
                 text(
                     """
                     DELETE FROM company_blinds_product_category_matrix
-                    WHERE company_id = :cid AND category_code = :code
+                    WHERE company_id = CAST(:cid AS uuid) AND category_code = :code
                     """
                 ),
                 {"cid": str(cell.company_id), "code": code},

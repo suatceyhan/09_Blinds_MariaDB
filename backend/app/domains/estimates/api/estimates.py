@@ -85,8 +85,8 @@ def _active_workflow_definition_id(db: Session, company_id: UUID, entity_type: s
             FROM workflow_definitions wd
             WHERE wd.is_active IS TRUE
               AND wd.entity_type = :et
-              AND (wd.company_id = :cid OR wd.company_id IS NULL)
-            ORDER BY (wd.company_id IS NOT NULL) DESC, wd.version DESC, wd.created_at DESC
+              AND (wd.company_id = :cid OR wd.is_global IS TRUE)
+            ORDER BY (wd.is_global IS FALSE) DESC, wd.version DESC, wd.created_at DESC
             LIMIT 1
             """
         ),
@@ -206,7 +206,7 @@ _SQL_BLINDS_TYPES_JSON = """
     (
       SELECT JSON_ARRAYAGG(
         JSON_OBJECT(
-          'id', CAST(bt.id AS CHAR),
+          'id', bt.id,
           'name', bt.name,
           'window_count', eb.perde_sayisi,
           'line_amount', eb.line_amount
@@ -221,7 +221,7 @@ _SQL_BLINDS_TYPES_JSON = """
       WHEN e.blinds_id IS NOT NULL THEN
         (SELECT JSON_ARRAY(
           JSON_OBJECT(
-            'id', CAST(bt.id AS CHAR),
+            'id', bt.id,
             'name', bt.name,
             'window_count', e.perde_sayisi,
             'line_amount', NULL
@@ -748,15 +748,16 @@ def list_estimate_statuses_for_estimates(
                 SELECT
                   a.*,
                   ROW_NUMBER() OVER (
-                    PARTITION BY a.builtin_kind ORDER BY a.sort_order ASC, a.name ASC, a.id ASC
+                    PARTITION BY a.builtin_kind
+                    ORDER BY a.sort_order ASC, a.name ASC, a.id ASC
                   ) AS rn
                 FROM active a
                 WHERE a.builtin_kind IS NOT NULL
-              ) z
-              WHERE rn = 1
+              ) x
+              WHERE x.rn = 1
             ),
             custom AS (
-              SELECT a.id, a.name, a.sort_order, CAST(NULL AS CHAR) AS code
+              SELECT a.id, a.name, a.sort_order, NULL AS code
               FROM active a
               WHERE a.builtin_kind IS NULL
                 AND NOT EXISTS (
@@ -808,24 +809,18 @@ def estimate_create_context(
     mem_rows = db.execute(
         text(
             """
-            SELECT email, first_name, last_name
-            FROM (
-              SELECT
-                trim(u.email) AS email,
-                u.first_name AS first_name,
-                u.last_name AS last_name,
-                ROW_NUMBER() OVER (
-                  PARTITION BY lower(trim(u.email)) ORDER BY u.first_name, u.last_name, u.email
-                ) AS rn
-              FROM user_company_memberships m
-              JOIN users u ON u.id = m.user_id
-              WHERE m.company_id = :cid
-                AND COALESCE(m.is_deleted, 0) = 0
-                AND COALESCE(u.is_deleted, 0) = 0
-                AND u.email IS NOT NULL
-                AND trim(u.email) <> ''
-            ) q
-            WHERE rn = 1
+            SELECT
+              TRIM(u.email) AS email,
+              u.first_name,
+              u.last_name
+            FROM user_company_memberships m
+            JOIN users u ON u.id = m.user_id
+            WHERE m.company_id = :cid
+              AND COALESCE(m.is_deleted, FALSE) IS NOT TRUE
+              AND COALESCE(u.is_deleted, FALSE) IS NOT TRUE
+              AND u.email IS NOT NULL
+              AND TRIM(u.email) <> ''
+            ORDER BY LOWER(TRIM(u.email)), u.first_name, u.last_name, u.email
             """
         ),
         {"cid": str(cid)},
@@ -879,7 +874,7 @@ def list_estimates(
     term = (search or "").strip()
     where = ["e.company_id = :company_id"]
     if not include_deleted:
-        where.append("COALESCE(e.is_deleted, 0) = 0")
+        where.append("e.is_deleted IS NOT TRUE")
     params: dict[str, Any] = {"company_id": str(cid), "limit": limit}
     if sf_raw == "upcoming":
         where.append("COALESCE(e.scheduled_start_at, e.tarih_saat) >= NOW()")
@@ -902,19 +897,19 @@ def list_estimates(
         params["term"] = f"%{term}%"
         where.append(
             "("
-            "LOWER(COALESCE(c.name,'')) LIKE LOWER(:term) OR LOWER(COALESCE(c.surname,'')) LIKE LOWER(:term) OR "
-            "LOWER(COALESCE(c.address,'')) LIKE LOWER(:term) OR "
-            "LOWER(COALESCE(e.prospect_name,'')) LIKE LOWER(:term) OR LOWER(COALESCE(e.prospect_surname,'')) LIKE LOWER(:term) OR "
-            "LOWER(COALESCE(e.prospect_phone,'')) LIKE LOWER(:term) OR LOWER(COALESCE(e.prospect_email,'')) LIKE LOWER(:term) OR "
-            "LOWER(COALESCE(e.prospect_address,'')) LIKE LOWER(:term) OR "
+            "COALESCE(c.name,'') ILIKE :term OR COALESCE(c.surname,'') ILIKE :term OR "
+            "COALESCE(c.address,'') ILIKE :term OR "
+            "COALESCE(e.prospect_name,'') ILIKE :term OR COALESCE(e.prospect_surname,'') ILIKE :term OR "
+            "COALESCE(e.prospect_phone,'') ILIKE :term OR COALESCE(e.prospect_email,'') ILIKE :term OR "
+            "COALESCE(e.prospect_address,'') ILIKE :term OR "
             "EXISTS ("
             "  SELECT 1 FROM estimate_blinds eb2"
             "  JOIN blinds_type btx ON btx.id = eb2.blinds_id"
-            "  WHERE eb2.company_id = e.company_id AND eb2.estimate_id = e.id AND LOWER(btx.name) LIKE LOWER(:term)"
+            "  WHERE eb2.company_id = e.company_id AND eb2.estimate_id = e.id AND btx.name ILIKE :term"
             ") OR "
             "EXISTS ("
             "  SELECT 1 FROM blinds_type bty"
-            "  WHERE bty.id = e.blinds_id AND LOWER(bty.name) LIKE LOWER(:term)"
+            "  WHERE bty.id = e.blinds_id AND bty.name ILIKE :term"
             "))"
         )
     where_sql = " AND ".join(where)
@@ -947,14 +942,16 @@ def list_estimates(
                 WHERE o.company_id = e.company_id
                   AND o.estimate_id IS NOT NULL
                   AND trim(o.estimate_id) = trim(e.id)
-                ORDER BY CASE WHEN o.active IS TRUE THEN 0 ELSE 1 END, (o.created_at IS NULL) ASC, o.created_at DESC
+                ORDER BY CASE WHEN o.active IS TRUE THEN 0 ELSE 1 END, o.created_at DESC
                 LIMIT 1
               ) AS linked_order_id
             FROM estimate e
             LEFT JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
             LEFT JOIN status_estimate se ON se.id = e.status_esti_id
             WHERE {where_sql}
-            ORDER BY (COALESCE(e.scheduled_start_at, e.tarih_saat) IS NULL) ASC, COALESCE(e.scheduled_start_at, e.tarih_saat) DESC, e.created_at DESC
+            ORDER BY (COALESCE(e.scheduled_start_at, e.tarih_saat) IS NULL) ASC,
+                     COALESCE(e.scheduled_start_at, e.tarih_saat) DESC,
+                     e.created_at DESC
             LIMIT :limit
             """
         ),
@@ -1070,7 +1067,7 @@ def create_estimate(
                       :company_id, :id, :customer_id, NULL, :perde_sayisi,
                       :sched, :sched, NULL,
                       :vtz, :vaddr, :vpostal, :vnotes,
-                      :org_name, :org_email, CAST(:guests AS jsonb),
+                      :org_name, :org_email, CAST(:guests AS JSON),
                       :status_esti_id,
                       :lead_source,
                       :pname, :psurname, :pphone, :pemail, :paddress, :ppostal,
@@ -1210,7 +1207,7 @@ def get_estimate(
                 WHERE o.company_id = e.company_id
                   AND o.estimate_id IS NOT NULL
                   AND trim(o.estimate_id) = trim(e.id)
-                ORDER BY CASE WHEN o.active IS TRUE THEN 0 ELSE 1 END, (o.created_at IS NULL) ASC, o.created_at DESC
+                ORDER BY CASE WHEN o.active IS TRUE THEN 0 ELSE 1 END, o.created_at DESC
                 LIMIT 1
               ) AS linked_order_id
             FROM estimate e
@@ -1308,7 +1305,7 @@ def patch_estimate(
         sets.append("visit_organizer_email = :orge")
         params["orge"] = str(payload.visit_organizer_email)
     if payload.visit_guest_emails is not None:
-        sets.append("visit_guest_emails = CAST(:guests AS jsonb)")
+        sets.append("visit_guest_emails = CAST(:guests AS JSON)")
         params["guests"] = json.dumps([str(x) for x in payload.visit_guest_emails])
 
     patch_dump = payload.model_dump(exclude_unset=True)

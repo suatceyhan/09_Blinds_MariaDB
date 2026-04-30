@@ -1,7 +1,5 @@
 """PostgreSQL session GUC'ları ile RLS bağlamı (DB/03_migrate_tenant_rls.sql).
 
-MariaDB/MySQL bağlantılarında no-op; kiracı filtresi uygulama katmanında kalır.
-
 Bağlantı havuzunda sızıntı olmaması için get_db finally içinde sıfırlanır.
 """
 

@@ -1,14 +1,13 @@
-from sqlalchemy import Column, DateTime, String, UniqueConstraint, text
-from sqlalchemy import JSON
+from sqlalchemy import JSON, Column, DateTime, String, UniqueConstraint, text
 
 from app.core.database import Base
-from app.core.sqlalchemy_types import MariaUuid
+from app.core.db_types import GUID
 
 
 class SystemAuditLogs(Base):
     __tablename__ = "system_audit_logs"
 
-    id = Column(MariaUuid(), primary_key=True, server_default=text("(UUID())"))
+    id = Column(GUID(), primary_key=True, server_default=text("UUID()"))
     service_name = Column(String(100), nullable=False)
     action = Column(String(100), nullable=False)
     status = Column(String(20), nullable=False)
