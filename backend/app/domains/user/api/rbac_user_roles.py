@@ -52,12 +52,15 @@ def create_user_role_assignment(
     db: Session = Depends(get_db),
     current_user: Users = Depends(require_superadmin),
 ):
+    # CRUD commits; capture primitives before ORM instance expires.
+    actor_id = current_user.id
+    actor_email = current_user.email
     try:
         created, reactivated, before_snap = rbac_crud.assign_role(
             db,
             user_id=body.user_id,
             role_id=body.role_id,
-            actor_id=current_user.id,
+            actor_id=actor_id,
         )
     except ValueError as e:
         code = str(e)
@@ -66,7 +69,7 @@ def create_user_role_assignment(
         raise HTTPException(status_code=404, detail="User or role not found.") from e
     log_user_action(
         db=db,
-        executed_by=current_user.id,
+        executed_by=actor_id,
         action="update" if reactivated else "create",
         table_name="user_roles",
         table_id=created["id"],
@@ -81,7 +84,7 @@ def create_user_role_assignment(
         action="reactivate_role" if reactivated else "assign_role",
         status="success",
         details={"user_role_id": str(created["id"]), "user_id": str(body.user_id), "role_id": str(body.role_id)},
-        executed_by=current_user.email,
+        executed_by=actor_email,
         ip_address=request.client.host if request.client else None,
     )
     response.status_code = status.HTTP_200_OK if reactivated else status.HTTP_201_CREATED
@@ -95,6 +98,8 @@ def delete_user_role_assignment(
     db: Session = Depends(get_db),
     current_user: Users = Depends(require_superadmin),
 ):
+    actor_id = current_user.id
+    actor_email = current_user.email
     row = rbac_crud.get_assignment(db, assignment_id)
     if not row:
         raise HTTPException(status_code=404, detail="Assignment not found.")
@@ -104,12 +109,12 @@ def delete_user_role_assignment(
             detail="The bootstrap superadmin role assignment cannot be removed.",
         )
     before = jsonable_encoder(row)
-    deleted = rbac_crud.soft_delete_assignment(db, assignment_id, actor_id=current_user.id)
+    deleted = rbac_crud.soft_delete_assignment(db, assignment_id, actor_id=actor_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Assignment not found.")
     log_user_action(
         db=db,
-        executed_by=current_user.id,
+        executed_by=actor_id,
         action="soft_delete",
         table_name="user_roles",
         table_id=assignment_id,
@@ -124,7 +129,7 @@ def delete_user_role_assignment(
         action="unassign_role",
         status="success",
         details={"user_role_id": str(assignment_id)},
-        executed_by=current_user.email,
+        executed_by=actor_email,
         ip_address=request.client.host if request.client else None,
     )
     return deleted
