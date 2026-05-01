@@ -101,7 +101,7 @@ def ensure_company_estimate_matrix_defaults(db: Session, company_id: UUID) -> No
             """
             SELECT 1
             FROM company_status_estimate_matrix
-            WHERE company_id = CAST(:cid AS uuid)
+            WHERE company_id = :cid
             LIMIT 1
             """
         ),
@@ -112,11 +112,10 @@ def ensure_company_estimate_matrix_defaults(db: Session, company_id: UUID) -> No
     db.execute(
         text(
             """
-            INSERT INTO company_status_estimate_matrix (company_id, status_estimate_id)
-            SELECT CAST(:cid AS uuid), se.id
+            INSERT IGNORE INTO company_status_estimate_matrix (company_id, status_estimate_id)
+            SELECT :cid, se.id
             FROM status_estimate se
             WHERE se.active IS TRUE AND se.builtin_kind IS NOT NULL
-            ON CONFLICT (company_id, status_estimate_id) DO NOTHING
             """
         ),
         {"cid": cid},
@@ -133,7 +132,7 @@ def ensure_company_order_matrix_defaults(db: Session, company_id: UUID) -> None:
             """
             SELECT 1
             FROM company_status_order_matrix
-            WHERE company_id = CAST(:cid AS uuid)
+            WHERE company_id = :cid
             LIMIT 1
             """
         ),
@@ -144,11 +143,10 @@ def ensure_company_order_matrix_defaults(db: Session, company_id: UUID) -> None:
     db.execute(
         text(
             """
-            INSERT INTO company_status_order_matrix (company_id, status_order_id)
-            SELECT CAST(:cid AS uuid), so.id
+            INSERT IGNORE INTO company_status_order_matrix (company_id, status_order_id)
+            SELECT :cid, so.id
             FROM status_order so
             WHERE so.active IS TRUE AND so.builtin_kind IN ('new', 'ready_for_install', 'in_production', 'done')
-            ON CONFLICT (company_id, status_order_id) DO NOTHING
             """
         ),
         {"cid": cid},
@@ -168,7 +166,7 @@ def ensure_company_blinds_type_matrix_defaults(db: Session, company_id: UUID) ->
             """
             SELECT 1
             FROM company_blinds_type_matrix
-            WHERE company_id = CAST(:cid AS uuid)
+            WHERE company_id = :cid
             LIMIT 1
             """
         ),
@@ -179,11 +177,10 @@ def ensure_company_blinds_type_matrix_defaults(db: Session, company_id: UUID) ->
     db.execute(
         text(
             """
-            INSERT INTO company_blinds_type_matrix (company_id, blinds_type_id)
-            SELECT CAST(:cid AS uuid), bt.id
+            INSERT IGNORE INTO company_blinds_type_matrix (company_id, blinds_type_id)
+            SELECT :cid, bt.id
             FROM blinds_type bt
             WHERE bt.active IS TRUE
-            ON CONFLICT (company_id, blinds_type_id) DO NOTHING
             """
         ),
         {"cid": cid},

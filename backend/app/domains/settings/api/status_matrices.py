@@ -539,7 +539,7 @@ def patch_global_estimate_status(
                 """
                 SELECT 1
                 FROM status_estimate
-                WHERE lower(btrim(name)) = lower(btrim(:name))
+                WHERE lower(trim(name)) = lower(trim(:name))
                   AND id <> :id
                 LIMIT 1
                 """
@@ -587,7 +587,7 @@ def create_global_order_status(
             """
             SELECT 1
             FROM status_order
-            WHERE lower(btrim(name)) = lower(btrim(:name))
+            WHERE lower(trim(name)) = lower(trim(:name))
             LIMIT 1
             """
         ),
@@ -655,7 +655,7 @@ def patch_global_order_status(
                 """
                 SELECT 1
                 FROM status_order
-                WHERE lower(btrim(name)) = lower(btrim(:name))
+                WHERE lower(trim(name)) = lower(trim(:name))
                   AND id <> :id
                 LIMIT 1
                 """

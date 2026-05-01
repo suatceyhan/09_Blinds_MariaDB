@@ -11,3 +11,18 @@ Yeni migration eklerken mevcut en büyük numaradan bir sonrakini kullanın ve g
 
 - `39_estimate_lead_source.sql`: `estimate.lead_source` (referral / advertising) alanı ekler; ay-ay müşteri kaynağı analizleri için.
 - **40–45 (PostgreSQL):** Artık **`blinds-postgresql.sql`** içinde (`Migration 40` … `Migration 45`). Özet: workflow tabloları + RLS (global Order/Estimate geçiş seed’i yok); order workflow izinleri; `workflow_transitions.deleted_at`; migration 43 no-op; estimate workflow izinleri; `status_order.builtin_kind` backfill.
+- `46_revoked_tokens_token_sha256_mariadb.sql` (MariaDB): `revoked_tokens.token` → `CHAR(64)` (JWT fingerprint). Detay: aşağıdaki “MariaDB notları” bölümü.
+
+## MariaDB notları (JWT blacklist / `revoked_tokens`)
+
+- Uzun JWT’ler `VARCHAR(255)` içine sığmayabilir. Bu repo artık `revoked_tokens.token` alanında **JWT’nin SHA-256 hex fingerprint’ini (64 char)** saklar.
+- **Yeni kurulum:** `blinds-mariadb.clean.sql` güncel şemayı içerir.
+- **Mevcut DB (manuel backfill):** Eski şemada `token` kolonu JWT’nin tamamını tutuyorsa, kolonu genişletip uygulamayı güncelledikten sonra eski satırları temizlemeniz gerekir (fingerprint ile uyumsuz olurlar):
+
+```sql
+ALTER TABLE revoked_tokens
+  MODIFY COLUMN token CHAR(64) NOT NULL;
+
+-- Opsiyonel: eski full-JWT satırlarını temizle (logout blacklist yeniden oluşur)
+-- DELETE FROM revoked_tokens;
+```

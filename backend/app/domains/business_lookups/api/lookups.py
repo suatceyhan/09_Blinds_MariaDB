@@ -87,8 +87,8 @@ def list_blinds_types(
         if not include_inactive:
             where.append("bt.active IS TRUE")
         if term:
-            params["term"] = f"%{term}%"
-            where.append("(bt.name ILIKE :term OR COALESCE(bt.aciklama,'') ILIKE :term)")
+            params["term"] = f"%{term.lower()}%"
+            where.append("(LOWER(bt.name) LIKE :term OR LOWER(COALESCE(bt.aciklama,'')) LIKE :term)")
         w = " AND ".join(where)
         rows = db.execute(
             text(
@@ -106,14 +106,14 @@ def list_blinds_types(
         where = [
             "EXISTS (",
             "  SELECT 1 FROM company_blinds_type_matrix m",
-            "  WHERE m.blinds_type_id = bt.id AND m.company_id = CAST(:company_id AS uuid)",
+            "  WHERE m.blinds_type_id = bt.id AND m.company_id = :company_id",
             ")",
         ]
         if not include_inactive:
             where.append("bt.active IS TRUE")
         if term:
-            params["term"] = f"%{term}%"
-            where.append("(bt.name ILIKE :term OR COALESCE(bt.aciklama,'') ILIKE :term)")
+            params["term"] = f"%{term.lower()}%"
+            where.append("(LOWER(bt.name) LIKE :term OR LOWER(COALESCE(bt.aciklama,'')) LIKE :term)")
         w = " AND ".join(where)
         rows = db.execute(
             text(
@@ -145,7 +145,7 @@ def create_blinds_type(
             """
             SELECT 1
             FROM blinds_type
-            WHERE lower(btrim(name)) = lower(btrim(:name))
+            WHERE lower(trim(name)) = lower(trim(:name))
             LIMIT 1
             """
         ),
@@ -224,7 +224,7 @@ def patch_blinds_type(
                 """
                 SELECT 1
                 FROM blinds_type
-                WHERE lower(btrim(name)) = lower(btrim(:name))
+                WHERE lower(trim(name)) = lower(trim(:name))
                   AND id <> :id
                 LIMIT 1
                 """
@@ -277,8 +277,13 @@ def patch_blinds_type(
                 WHERE COALESCE(o.active, TRUE) IS TRUE
                   AND EXISTS (
                     SELECT 1
-                    FROM jsonb_array_elements(o.blinds_lines) AS x(elem)
-                    WHERE (x.elem->>'id') = :tid
+                    FROM JSON_TABLE(
+                      o.blinds_lines,
+                      '$[*]' COLUMNS (
+                        blinds_type_id VARCHAR(64) PATH '$.id'
+                      )
+                    ) jt
+                    WHERE jt.blinds_type_id = :tid
                   )
                 LIMIT 1
                 """
@@ -353,7 +358,7 @@ def list_order_statuses(
         """
         EXISTS (
           SELECT 1 FROM company_status_order_matrix m
-          WHERE m.company_id = CAST(:company_id AS uuid)
+          WHERE m.company_id = :company_id
             AND m.status_order_id = so.id
         )
         """.strip(),
@@ -362,8 +367,8 @@ def list_order_statuses(
     if not include_inactive:
         where.append("so.active IS TRUE")
     if term:
-        params["term"] = f"%{term}%"
-        where.append("so.name ILIKE :term")
+        params["term"] = f"%{term.lower()}%"
+        where.append("LOWER(so.name) LIKE :term")
     w = " AND ".join(where)
     rows = db.execute(
         text(
@@ -425,7 +430,7 @@ def list_estimate_statuses(
         """
         EXISTS (
           SELECT 1 FROM company_status_estimate_matrix m
-          WHERE m.company_id = CAST(:company_id AS uuid)
+          WHERE m.company_id = :company_id
             AND m.status_estimate_id = se.id
         )
         """.strip(),
@@ -434,8 +439,8 @@ def list_estimate_statuses(
     if not include_inactive:
         where.append("se.active IS TRUE")
     if term:
-        params["term"] = f"%{term}%"
-        where.append("se.name ILIKE :term")
+        params["term"] = f"%{term.lower()}%"
+        where.append("LOWER(se.name) LIKE :term")
     w = " AND ".join(where)
     rows = db.execute(
         text(

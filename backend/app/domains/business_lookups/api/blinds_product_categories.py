@@ -110,8 +110,8 @@ def list_blinds_product_categories(
     if not include_inactive:
         where.append("pc.active IS TRUE")
     if term:
-        params["term"] = f"%{term}%"
-        where.append("(pc.name ILIKE :term OR pc.code ILIKE :term)")
+        params["term"] = f"%{term.lower()}%"
+        where.append("(LOWER(pc.name) LIKE :term OR LOWER(pc.code) LIKE :term)")
     wh_clause = f"WHERE {' AND '.join(where)}" if where else ""
 
     if catalog_scope == "global":
@@ -127,7 +127,7 @@ def list_blinds_product_categories(
             SELECT pc.code, pc.name, pc.sort_order, pc.active, pc.created_at, pc.updated_at
             FROM blinds_product_category pc
             INNER JOIN company_blinds_product_category_matrix m
-              ON m.category_code = pc.code AND m.company_id = CAST(:cid AS uuid)
+              ON m.category_code = pc.code AND m.company_id = :cid
             {wh_clause}
             ORDER BY pc.active DESC, pc.sort_order ASC, pc.name ASC
             LIMIT :limit
@@ -148,16 +148,27 @@ def _insert_category(
     name: str,
     sort_order: int,
 ) -> dict[str, Any] | None:
-    return db.execute(
+    res = db.execute(
         text(
             """
-            INSERT INTO blinds_product_category (code, name, sort_order, active, created_at, updated_at)
+            INSERT IGNORE INTO blinds_product_category (code, name, sort_order, active, created_at, updated_at)
             VALUES (:code, :name, :ord, TRUE, NOW(), NOW())
-            ON CONFLICT (code) DO NOTHING
-            RETURNING code, name, sort_order, active, created_at, updated_at
             """
         ),
         {"code": code, "name": name, "ord": sort_order},
+    )
+    if (res.rowcount or 0) == 0:
+        return None
+    return db.execute(
+        text(
+            """
+            SELECT code, name, sort_order, active, created_at, updated_at
+            FROM blinds_product_category
+            WHERE code = :code
+            LIMIT 1
+            """
+        ),
+        {"code": code},
     ).mappings().first()
 
 
@@ -176,7 +187,7 @@ def create_blinds_product_category(
             """
             SELECT 1
             FROM blinds_product_category
-            WHERE lower(btrim(name)) = lower(btrim(:name))
+            WHERE lower(trim(name)) = lower(trim(:name))
             LIMIT 1
             """
         ),
@@ -239,7 +250,7 @@ def patch_blinds_product_category(
                 """
                 SELECT 1
                 FROM blinds_product_category
-                WHERE lower(btrim(name)) = lower(btrim(:name))
+                WHERE lower(trim(name)) = lower(trim(:name))
                   AND code <> :code
                 LIMIT 1
                 """
@@ -277,8 +288,13 @@ def patch_blinds_product_category(
                 WHERE COALESCE(o.active, TRUE) IS TRUE
                   AND EXISTS (
                     SELECT 1
-                    FROM jsonb_array_elements(o.blinds_lines) AS x(elem)
-                    WHERE lower(COALESCE(x.elem->>'category','')) = :code
+                    FROM JSON_TABLE(
+                      o.blinds_lines,
+                      '$[*]' COLUMNS (
+                        category VARCHAR(64) PATH '$.category'
+                      )
+                    ) jt
+                    WHERE LOWER(COALESCE(jt.category, '')) = :code
                   )
                 LIMIT 1
                 """
@@ -368,8 +384,13 @@ def delete_blinds_product_category(
             WHERE COALESCE(o.active, TRUE) IS TRUE
               AND EXISTS (
                 SELECT 1
-                FROM jsonb_array_elements(o.blinds_lines) AS x(elem)
-                WHERE lower(COALESCE(x.elem->>'category','')) = :code
+                FROM JSON_TABLE(
+                  o.blinds_lines,
+                  '$[*]' COLUMNS (
+                    category VARCHAR(64) PATH '$.category'
+                  )
+                ) jt
+                WHERE LOWER(COALESCE(jt.category, '')) = :code
               )
             LIMIT 1
             """

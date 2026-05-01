@@ -144,7 +144,8 @@ CREATE TABLE IF NOT EXISTS user_permissions (
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS revoked_tokens (
   id          CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-  token       VARCHAR(255) NOT NULL,
+  -- Store a stable fingerprint of the JWT (full JWTs can exceed 255 chars).
+  token       CHAR(64) NOT NULL,
   user_id     CHAR(36) NULL,
   created_at  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   revoked_at  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),

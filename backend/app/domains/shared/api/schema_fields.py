@@ -58,19 +58,19 @@ _SKIP_COLUMNS: frozenset[str] = frozenset(
 )
 
 
-def _kind_for_column(col: str, data_type: str, udt_name: str) -> FieldKind:
+def _kind_for_column(col: str, data_type: str, column_type: str) -> FieldKind:
     n = col.strip().lower()
     dt = (data_type or "").strip().lower()
-    udt = (udt_name or "").strip().lower()
-    if dt in ("timestamp without time zone", "timestamp with time zone") or udt in ("timestamptz", "timestamp"):
+    ct = (column_type or "").strip().lower()
+    if dt in ("timestamp", "datetime") or "timestamp" in ct or "datetime" in ct:
         return "datetime"
     if dt == "date":
         return "date"
-    if dt in ("numeric", "decimal", "real", "double precision") or udt in ("numeric", "float4", "float8"):
+    if dt in ("numeric", "decimal", "float", "double", "real"):
         return "number"
-    if dt in ("integer", "smallint", "bigint") or udt in ("int2", "int4", "int8"):
+    if dt in ("int", "integer", "smallint", "bigint", "mediumint", "tinyint"):
         return "number"
-    if dt == "boolean" or udt == "bool":
+    if dt == "boolean" or dt == "bool" or ct == "tinyint(1)":
         return "boolean"
     if "note" in n or "address" in n or "description" in n or n.endswith("_html"):
         return "textarea"
@@ -98,7 +98,7 @@ def list_schema_fields(
     rows = db.execute(
         text(
             """
-            SELECT table_name, column_name, data_type, udt_name
+            SELECT table_name, column_name, data_type, column_type
             FROM information_schema.columns
             WHERE table_schema = DATABASE()
             ORDER BY table_name ASC, ordinal_position ASC
@@ -116,7 +116,7 @@ def list_schema_fields(
             {
                 "column_name": cname,
                 "data_type": str(r.get("data_type") or ""),
-                "udt_name": str(r.get("udt_name") or ""),
+                "column_type": str(r.get("column_type") or ""),
             }
         )
 
@@ -150,7 +150,7 @@ def list_schema_fields(
                     type=_kind_for_column(
                         col=cname,
                         data_type=str(c.get("data_type") or ""),
-                        udt_name=str(c.get("udt_name") or ""),
+                        column_type=str(c.get("column_type") or ""),
                     ),
                 )
             )

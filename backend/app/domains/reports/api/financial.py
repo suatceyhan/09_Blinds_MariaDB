@@ -114,24 +114,24 @@ def get_financial_summary(
               SELECT
                 o.id,
                 o.company_id,
-                COALESCE(o.agreement_date::date, o.created_at::date) AS d,
-                COALESCE(o.total_amount, 0)::numeric AS subtotal_ex_tax,
-                COALESCE(o.tax_amount, 0)::numeric AS tax_amount,
-                COALESCE(o.tax_uygulanacak_miktar, 0)::numeric AS taxable_base,
-                COALESCE(o.downpayment, 0)::numeric AS downpayment,
-                COALESCE(o.balance, 0)::numeric AS balance
+                DATE(COALESCE(o.agreement_date, o.created_at)) AS d,
+                COALESCE(o.total_amount, 0) AS subtotal_ex_tax,
+                COALESCE(o.tax_amount, 0) AS tax_amount,
+                COALESCE(o.tax_uygulanacak_miktar, 0) AS taxable_base,
+                COALESCE(o.downpayment, 0) AS downpayment,
+                COALESCE(o.balance, 0) AS balance
               FROM orders o
-              WHERE o.company_id = CAST(:cid AS uuid)
+              WHERE o.company_id = :cid
                 AND o.active IS TRUE
                 AND o.parent_order_id IS NULL
-                AND COALESCE(o.agreement_date::date, o.created_at::date) >= :start
-                AND COALESCE(o.agreement_date::date, o.created_at::date) < :end
+                AND DATE(COALESCE(o.agreement_date, o.created_at)) >= :start
+                AND DATE(COALESCE(o.agreement_date, o.created_at)) < :end
             ),
             payments AS (
               SELECT
                 p.company_id,
                 p.order_id,
-                COALESCE(SUM(p.amount), 0)::numeric AS pay_sum
+                COALESCE(SUM(p.amount), 0) AS pay_sum
               FROM order_payment_entries p
               JOIN base_orders b ON b.company_id = p.company_id AND b.id = p.order_id
               WHERE COALESCE(p.is_deleted, FALSE) = FALSE
@@ -141,21 +141,21 @@ def get_financial_summary(
               SELECT
                 e.company_id,
                 e.order_id,
-                COALESCE(SUM(e.amount), 0)::numeric AS exp_sum
+                COALESCE(SUM(e.amount), 0) AS exp_sum
               FROM order_expense_entries e
               JOIN base_orders b ON b.company_id = e.company_id AND b.id = e.order_id
               WHERE COALESCE(e.is_deleted, FALSE) = FALSE
               GROUP BY 1, 2
             )
             SELECT
-              COUNT(*)::int AS orders_count,
-              COALESCE(SUM(b.subtotal_ex_tax + b.tax_amount), 0)::numeric AS revenue_total,
-              COALESCE(SUM(b.downpayment + COALESCE(pm.pay_sum, 0)), 0)::numeric AS collected_total,
-              COALESCE(SUM(GREATEST(b.balance, 0)), 0)::numeric AS balance_total,
-              COALESCE(SUM(b.tax_amount), 0)::numeric AS tax_total,
-              COALESCE(SUM(b.taxable_base), 0)::numeric AS taxable_base_total,
-              COALESCE(SUM(COALESCE(ex.exp_sum, 0)), 0)::numeric AS expense_total,
-              COALESCE(SUM((b.subtotal_ex_tax + b.tax_amount) - COALESCE(ex.exp_sum, 0)), 0)::numeric AS profit_total
+              CAST(COUNT(*) AS SIGNED) AS orders_count,
+              COALESCE(SUM(b.subtotal_ex_tax + b.tax_amount), 0) AS revenue_total,
+              COALESCE(SUM(b.downpayment + COALESCE(pm.pay_sum, 0)), 0) AS collected_total,
+              COALESCE(SUM(GREATEST(b.balance, 0)), 0) AS balance_total,
+              COALESCE(SUM(b.tax_amount), 0) AS tax_total,
+              COALESCE(SUM(b.taxable_base), 0) AS taxable_base_total,
+              COALESCE(SUM(COALESCE(ex.exp_sum, 0)), 0) AS expense_total,
+              COALESCE(SUM((b.subtotal_ex_tax + b.tax_amount) - COALESCE(ex.exp_sum, 0)), 0) AS profit_total
             FROM base_orders b
             LEFT JOIN payments pm ON pm.company_id = b.company_id AND pm.order_id = b.id
             LEFT JOIN expenses ex ON ex.company_id = b.company_id AND ex.order_id = b.id
@@ -207,14 +207,14 @@ def get_ar_summary(
         text(
             """
             SELECT
-              COALESCE(SUM(GREATEST(COALESCE(o.balance, 0), 0)), 0)::numeric AS balance_total,
-              COALESCE(SUM(CASE WHEN COALESCE(o.balance, 0) > 0 THEN 1 ELSE 0 END), 0)::int AS positive_balance_orders
+              COALESCE(SUM(GREATEST(COALESCE(o.balance, 0), 0)), 0) AS balance_total,
+              CAST(COALESCE(SUM(CASE WHEN COALESCE(o.balance, 0) > 0 THEN 1 ELSE 0 END), 0) AS SIGNED) AS positive_balance_orders
             FROM orders o
-            WHERE o.company_id = CAST(:cid AS uuid)
+            WHERE o.company_id = :cid
               AND o.active IS TRUE
               AND o.parent_order_id IS NULL
-              AND COALESCE(o.agreement_date::date, o.created_at::date) >= :start
-              AND COALESCE(o.agreement_date::date, o.created_at::date) < :end
+              AND DATE(COALESCE(o.agreement_date, o.created_at)) >= :start
+              AND DATE(COALESCE(o.agreement_date, o.created_at)) < :end
             """
         ),
         {"cid": str(cid), "start": start, "end": end},
@@ -226,15 +226,15 @@ def get_ar_summary(
             SELECT
               o.id AS order_id,
               trim(concat_ws(' ', c.name, c.surname)) AS customer_display,
-              COALESCE(o.balance, 0)::numeric AS balance
+              COALESCE(o.balance, 0) AS balance
             FROM orders o
             JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
-            WHERE o.company_id = CAST(:cid AS uuid)
+            WHERE o.company_id = :cid
               AND o.active IS TRUE
               AND o.parent_order_id IS NULL
               AND COALESCE(o.balance, 0) > 0
-              AND COALESCE(o.agreement_date::date, o.created_at::date) >= :start
-              AND COALESCE(o.agreement_date::date, o.created_at::date) < :end
+              AND DATE(COALESCE(o.agreement_date, o.created_at)) >= :start
+              AND DATE(COALESCE(o.agreement_date, o.created_at)) < :end
             ORDER BY COALESCE(o.balance, 0) DESC
             LIMIT 10
             """
@@ -278,11 +278,13 @@ def get_financial_timeseries(
     start, end = _parse_range(from_date or from_q, to_date or to_q)
 
     # Revenue: order date; Collected: payment entry date + downpayment on order date.
-    # Use timestamp-based generate_series for compatibility across PG versions.
-    bucket_expr = "d" if group == "daily" else "date_trunc('week', d)::date"
-    pay_bucket_expr = "d" if group == "daily" else "date_trunc('week', d)::date"
-    series_step = "1 day" if group == "daily" else "1 week"
-    series_bucket = "bucket_ts::date" if group == "daily" else "date_trunc('week', bucket_ts)::date"
+    # MariaDB doesn't support generate_series/date_trunc/::date casts, so we use
+    # WITH RECURSIVE for series and WEEKDAY() for week bucketing (Monday-start).
+    bucket_expr = "d" if group == "daily" else "DATE_SUB(d, INTERVAL WEEKDAY(d) DAY)"
+    pay_bucket_expr = "d" if group == "daily" else "DATE_SUB(d, INTERVAL WEEKDAY(d) DAY)"
+    series_start = ":start" if group == "daily" else "DATE_SUB(:start, INTERVAL WEEKDAY(:start) DAY)"
+    series_end = "DATE_SUB(:end, INTERVAL 1 DAY)" if group == "daily" else "DATE_SUB(DATE_SUB(:end, INTERVAL 1 DAY), INTERVAL WEEKDAY(DATE_SUB(:end, INTERVAL 1 DAY)) DAY)"
+    series_step = "1 DAY" if group == "daily" else "7 DAY"
 
     rows = db.execute(
         text(
@@ -291,60 +293,62 @@ def get_financial_timeseries(
               SELECT
                 o.id,
                 o.company_id,
-                COALESCE(o.agreement_date::date, o.created_at::date) AS d,
-                (COALESCE(o.total_amount, 0) + COALESCE(o.tax_amount, 0))::numeric AS revenue,
-                COALESCE(o.downpayment, 0)::numeric AS downpayment
+                DATE(COALESCE(o.agreement_date, o.created_at)) AS d,
+                (COALESCE(o.total_amount, 0) + COALESCE(o.tax_amount, 0)) AS revenue,
+                COALESCE(o.downpayment, 0) AS downpayment
               FROM orders o
-              WHERE o.company_id = CAST(:cid AS uuid)
+              WHERE o.company_id = :cid
                 AND o.active IS TRUE
                 AND o.parent_order_id IS NULL
-                AND COALESCE(o.agreement_date::date, o.created_at::date) >= :start
-                AND COALESCE(o.agreement_date::date, o.created_at::date) < :end
+                AND DATE(COALESCE(o.agreement_date, o.created_at)) >= :start
+                AND DATE(COALESCE(o.agreement_date, o.created_at)) < :end
             ),
             order_roll AS (
               SELECT
                 {bucket_expr} AS bucket,
-                COALESCE(SUM(revenue), 0)::numeric AS revenue,
-                COALESCE(SUM(downpayment), 0)::numeric AS downpayment
+                COALESCE(SUM(revenue), 0) AS revenue,
+                COALESCE(SUM(downpayment), 0) AS downpayment
               FROM base_orders
               GROUP BY 1
             ),
             payment_roll AS (
               SELECT
-                date_trunc('day', p.created_at)::date AS d,
-                COALESCE(SUM(p.amount), 0)::numeric AS payments
+                DATE(p.created_at) AS d,
+                COALESCE(SUM(p.amount), 0) AS payments
               FROM order_payment_entries p
               JOIN orders o ON o.company_id = p.company_id AND o.id = p.order_id
-              WHERE p.company_id = CAST(:cid AS uuid)
+              WHERE p.company_id = :cid
                 AND o.active IS TRUE
                 AND o.parent_order_id IS NULL
                 AND COALESCE(p.is_deleted, FALSE) = FALSE
-                AND date_trunc('day', p.created_at)::date >= :start
-                AND date_trunc('day', p.created_at)::date < :end
+                AND DATE(p.created_at) >= :start
+                AND DATE(p.created_at) < :end
               GROUP BY 1
             ),
             pay_bucket AS (
               SELECT
                 {pay_bucket_expr} AS bucket,
-                COALESCE(SUM(payments), 0)::numeric AS payments
+                COALESCE(SUM(payments), 0) AS payments
               FROM payment_roll
               GROUP BY 1
             ),
             series AS (
-              SELECT
-                generate_series(
-                  CAST(:start AS timestamp),
-                  (CAST(:end AS timestamp) - INTERVAL '1 day'),
-                  INTERVAL '{series_step}'
-                ) AS bucket_ts
+              WITH RECURSIVE s AS (
+                SELECT {series_start} AS d
+                UNION ALL
+                SELECT DATE_ADD(d, INTERVAL {series_step})
+                FROM s
+                WHERE d < {series_end}
+              )
+              SELECT d FROM s
             )
             SELECT
-              {series_bucket} AS d,
-              COALESCE(o.revenue, 0)::numeric AS revenue,
-              (COALESCE(o.downpayment, 0) + COALESCE(p.payments, 0))::numeric AS collected
+              s.d AS d,
+              COALESCE(o.revenue, 0) AS revenue,
+              (COALESCE(o.downpayment, 0) + COALESCE(p.payments, 0)) AS collected
             FROM series s
-            LEFT JOIN order_roll o ON o.bucket = {series_bucket}
-            LEFT JOIN pay_bucket p ON p.bucket = {series_bucket}
+            LEFT JOIN order_roll o ON o.bucket = s.d
+            LEFT JOIN pay_bucket p ON p.bucket = s.d
             ORDER BY d ASC
             """
         ),
@@ -419,26 +423,26 @@ def list_financial_orders(
               SELECT
                 o.id,
                 o.company_id,
-                COALESCE(o.agreement_date::date, o.created_at::date) AS d,
-                COALESCE(o.total_amount, 0)::numeric AS subtotal_ex_tax,
-                COALESCE(o.tax_amount, 0)::numeric AS tax_amount,
-                COALESCE(o.downpayment, 0)::numeric AS downpayment,
-                COALESCE(o.balance, 0)::numeric AS balance,
+                DATE(COALESCE(o.agreement_date, o.created_at)) AS d,
+                COALESCE(o.total_amount, 0) AS subtotal_ex_tax,
+                COALESCE(o.tax_amount, 0) AS tax_amount,
+                COALESCE(o.downpayment, 0) AS downpayment,
+                COALESCE(o.balance, 0) AS balance,
                 trim(concat_ws(' ', c.name, c.surname)) AS customer_display
               FROM orders o
               JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
-              WHERE o.company_id = CAST(:cid AS uuid)
+              WHERE o.company_id = :cid
                 AND o.active IS TRUE
                 AND o.parent_order_id IS NULL
                 {where_extra}
-                AND COALESCE(o.agreement_date::date, o.created_at::date) >= :start
-                AND COALESCE(o.agreement_date::date, o.created_at::date) < :end
+                AND DATE(COALESCE(o.agreement_date, o.created_at)) >= :start
+                AND DATE(COALESCE(o.agreement_date, o.created_at)) < :end
             ),
             payments AS (
               SELECT
                 p.company_id,
                 p.order_id,
-                COALESCE(SUM(p.amount), 0)::numeric AS pay_sum
+                COALESCE(SUM(p.amount), 0) AS pay_sum
               FROM order_payment_entries p
               JOIN base_orders b ON b.company_id = p.company_id AND b.id = p.order_id
               WHERE COALESCE(p.is_deleted, FALSE) = FALSE
@@ -448,22 +452,22 @@ def list_financial_orders(
               SELECT
                 e.company_id,
                 e.order_id,
-                COALESCE(SUM(e.amount), 0)::numeric AS exp_sum
+                COALESCE(SUM(e.amount), 0) AS exp_sum
               FROM order_expense_entries e
               JOIN base_orders b ON b.company_id = e.company_id AND b.id = e.order_id
               WHERE COALESCE(e.is_deleted, FALSE) = FALSE
               GROUP BY 1, 2
             )
             SELECT
-              b.id::text AS order_id,
+              b.id AS order_id,
               b.d,
               b.customer_display,
-              (b.subtotal_ex_tax + b.tax_amount)::numeric AS revenue,
-              (b.downpayment + COALESCE(pm.pay_sum, 0))::numeric AS collected,
-              GREATEST(b.balance, 0)::numeric AS balance,
-              b.tax_amount::numeric AS tax,
-              COALESCE(ex.exp_sum, 0)::numeric AS expense,
-              ((b.subtotal_ex_tax + b.tax_amount) - COALESCE(ex.exp_sum, 0))::numeric AS profit
+              (b.subtotal_ex_tax + b.tax_amount) AS revenue,
+              (b.downpayment + COALESCE(pm.pay_sum, 0)) AS collected,
+              GREATEST(b.balance, 0) AS balance,
+              b.tax_amount AS tax,
+              COALESCE(ex.exp_sum, 0) AS expense,
+              ((b.subtotal_ex_tax + b.tax_amount) - COALESCE(ex.exp_sum, 0)) AS profit
             FROM base_orders b
             LEFT JOIN payments pm ON pm.company_id = b.company_id AND pm.order_id = b.id
             LEFT JOIN expenses ex ON ex.company_id = b.company_id AND ex.order_id = b.id
@@ -537,21 +541,21 @@ def get_financial_monthly(
               SELECT
                 o.id,
                 o.company_id,
-                date_trunc('month', COALESCE(o.agreement_date::date, o.created_at::date))::date AS m,
-                COALESCE(o.total_amount, 0)::numeric AS subtotal_ex_tax,
-                COALESCE(o.tax_amount, 0)::numeric AS tax_amount
+                STR_TO_DATE(DATE_FORMAT(DATE(COALESCE(o.agreement_date, o.created_at)), '%Y-%m-01'), '%Y-%m-%d') AS m,
+                COALESCE(o.total_amount, 0) AS subtotal_ex_tax,
+                COALESCE(o.tax_amount, 0) AS tax_amount
               FROM orders o
-              WHERE o.company_id = CAST(:cid AS uuid)
+              WHERE o.company_id = :cid
                 AND o.active IS TRUE
                 AND o.parent_order_id IS NULL
-                AND COALESCE(o.agreement_date::date, o.created_at::date) >= :start
-                AND COALESCE(o.agreement_date::date, o.created_at::date) < :end
+                AND DATE(COALESCE(o.agreement_date, o.created_at)) >= :start
+                AND DATE(COALESCE(o.agreement_date, o.created_at)) < :end
             ),
             expenses AS (
               SELECT
                 e.company_id,
                 e.order_id,
-                COALESCE(SUM(e.amount), 0)::numeric AS exp_sum
+                COALESCE(SUM(e.amount), 0) AS exp_sum
               FROM order_expense_entries e
               JOIN base_orders b ON b.company_id = e.company_id AND b.id = e.order_id
               WHERE COALESCE(e.is_deleted, FALSE) = FALSE
@@ -560,27 +564,30 @@ def get_financial_monthly(
             roll AS (
               SELECT
                 b.m AS month,
-                COALESCE(SUM(b.subtotal_ex_tax + b.tax_amount), 0)::numeric AS revenue,
-                COALESCE(SUM(COALESCE(ex.exp_sum, 0)), 0)::numeric AS expense,
-                COALESCE(SUM(b.tax_amount), 0)::numeric AS tax,
-                COALESCE(SUM((b.subtotal_ex_tax + b.tax_amount) - COALESCE(ex.exp_sum, 0)), 0)::numeric AS profit
+                COALESCE(SUM(b.subtotal_ex_tax + b.tax_amount), 0) AS revenue,
+                COALESCE(SUM(COALESCE(ex.exp_sum, 0)), 0) AS expense,
+                COALESCE(SUM(b.tax_amount), 0) AS tax,
+                COALESCE(SUM((b.subtotal_ex_tax + b.tax_amount) - COALESCE(ex.exp_sum, 0)), 0) AS profit
               FROM base_orders b
               LEFT JOIN expenses ex ON ex.company_id = b.company_id AND ex.order_id = b.id
               GROUP BY 1
             ),
             series AS (
-              SELECT generate_series(
-                date_trunc('month', CAST(:start AS date))::date,
-                date_trunc('month', CAST(:end AS date) - INTERVAL '1 day')::date,
-                INTERVAL '1 month'
-              )::date AS month
+              WITH RECURSIVE s AS (
+                SELECT DATE_SUB(:start, INTERVAL DAY(:start) - 1 DAY) AS month
+                UNION ALL
+                SELECT DATE_ADD(month, INTERVAL 1 MONTH)
+                FROM s
+                WHERE month < DATE_SUB(DATE_SUB(:end, INTERVAL 1 DAY), INTERVAL DAY(DATE_SUB(:end, INTERVAL 1 DAY)) - 1 DAY)
+              )
+              SELECT month FROM s
             )
             SELECT
               s.month,
-              COALESCE(r.revenue, 0)::numeric AS revenue,
-              COALESCE(r.expense, 0)::numeric AS expense,
-              COALESCE(r.tax, 0)::numeric AS tax,
-              COALESCE(r.profit, 0)::numeric AS profit
+              COALESCE(r.revenue, 0) AS revenue,
+              COALESCE(r.expense, 0) AS expense,
+              COALESCE(r.tax, 0) AS tax,
+              COALESCE(r.profit, 0) AS profit
             FROM series s
             LEFT JOIN roll r ON r.month = s.month
             ORDER BY s.month ASC

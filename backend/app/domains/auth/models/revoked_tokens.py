@@ -9,7 +9,8 @@ class RevokedTokens(Base):
     __tablename__ = "revoked_tokens"
 
     id = Column(GUID(), primary_key=True, server_default=text("UUID()"))
-    token = Column(String, nullable=False)
+    # Persist SHA-256 hex digest of the JWT string (MariaDB-friendly + indexable).
+    token = Column(String(64), nullable=False)
     user_id = Column(GUID(), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
     revoked_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
