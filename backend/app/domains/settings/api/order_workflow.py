@@ -140,7 +140,7 @@ def _replace_transition_actions(db: Session, transition_id: str, actions: list[O
             text(
                 """
                 INSERT INTO workflow_transition_actions (transition_id, type, config, sort_order, is_required)
-                VALUES (:tid, :typ, CAST(:cfg AS JSON), :so, TRUE)
+                VALUES (:tid, :typ, :cfg, :so, TRUE)
                 """
             ),
             {"tid": transition_id, "typ": typ, "cfg": json.dumps(cfg), "so": idx},

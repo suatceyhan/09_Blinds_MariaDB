@@ -759,6 +759,8 @@ export function BlindsTypesGrid(props: {
   renderLinePhotoCell?: (typeId: string, checked: boolean) => ReactNode
   /** When true, lines are read-only (completed paid job). */
   disabled?: boolean
+  /** Hide the line-note column (e.g. compact embeds). Estimates persist line_note like orders. */
+  hideLineNote?: boolean
 }) {
   const {
     blindsTypes: bt,
@@ -772,6 +774,7 @@ export function BlindsTypesGrid(props: {
     keyPrefix = '',
     renderLinePhotoCell,
     disabled = false,
+    hideLineNote = false,
   } = props
   const attrRows = lineAttributeRows(blindsOrderOptions)
 
@@ -823,12 +826,14 @@ export function BlindsTypesGrid(props: {
               >
                 Amount
               </th>
-              <th
-                scope="col"
-                className="min-w-[9rem] px-1 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-600"
-              >
-                Line note
-              </th>
+              {!hideLineNote ? (
+                <th
+                  scope="col"
+                  className="min-w-[9rem] px-1 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-600"
+                >
+                  Line note
+                </th>
+              ) : null}
               {renderLinePhotoCell ? (
                 <th
                   scope="col"
@@ -957,19 +962,21 @@ export function BlindsTypesGrid(props: {
                       onChange={(e) => setLineAmount(b.id, e.target.value)}
                     />
                   </td>
-                  <td className="min-w-[9rem] px-1 py-1 align-top">
-                    <textarea
-                      disabled={rowDisabled || !checked}
-                      rows={2}
-                      maxLength={2000}
-                      placeholder="Optional…"
-                      title={checked ? 'Note for this line' : 'Select type first'}
-                      aria-label={`Line note for ${b.name}`}
-                      className="w-full min-w-[8rem] resize-y rounded-md border border-slate-200 px-1.5 py-1 text-xs outline-none focus:border-teal-500 disabled:bg-slate-100 disabled:text-slate-400"
-                      value={String(cur?.line_note ?? '')}
-                      onChange={(e) => setLineNote(b.id, e.target.value)}
-                    />
-                  </td>
+                  {!hideLineNote ? (
+                    <td className="min-w-[9rem] px-1 py-1 align-top">
+                      <textarea
+                        disabled={rowDisabled || !checked}
+                        rows={2}
+                        maxLength={2000}
+                        placeholder="Optional…"
+                        title={checked ? 'Note for this line' : 'Select type first'}
+                        aria-label={`Line note for ${b.name}`}
+                        className="w-full min-w-[8rem] resize-y rounded-md border border-slate-200 px-1.5 py-1 text-xs outline-none focus:border-teal-500 disabled:bg-slate-100 disabled:text-slate-400"
+                        value={String(cur?.line_note ?? '')}
+                        onChange={(e) => setLineNote(b.id, e.target.value)}
+                      />
+                    </td>
+                  ) : null}
                   {renderLinePhotoCell ? (
                     <td className="w-[6.5rem] min-w-[6.5rem] px-1 py-1 align-top">
                       {renderLinePhotoCell(b.id, checked)}

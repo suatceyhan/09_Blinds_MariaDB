@@ -20,7 +20,10 @@ from app.core.person_names import format_person_name_casing
 from app.dependencies.auth import effective_company_id, require_permissions
 from app.domains.business_lookups.services.blinds_catalog import (
     assert_blinds_types_enabled_for_company,
+    normalize_blinds_line_category_value,
+    validate_blinds_lines_categories,
 )
+from app.domains.orders.api.orders import BlindsOrderOptionsOut, build_blinds_order_options, _normalize_line_note
 from app.domains.business_lookups.services.estimate_status_defaults import (
     ensure_default_estimate_statuses_for_company,
 )
@@ -201,6 +204,27 @@ def _new_estimate_id() -> str:
     return secrets.token_hex(8)
 
 
+def _category_by_blinds_id_after_validate(
+    db: Session,
+    company_id: UUID,
+    lines: list[Any],
+) -> dict[str, str | None]:
+    """Normalize and validate product categories per line (same matrix rules as orders)."""
+    if not lines:
+        return {}
+    lines_for_val: list[dict[str, Any]] = []
+    for ln in lines:
+        tid = ln.blinds_id.strip()
+        nrow = db.execute(
+            text("SELECT name FROM blinds_type WHERE id = :id AND active IS TRUE LIMIT 1"),
+            {"id": tid},
+        ).mappings().first()
+        nm = str(nrow["name"]).strip() if nrow and nrow.get("name") is not None else tid
+        lines_for_val.append({"id": tid, "name": nm, "category": ln.category})
+    validate_blinds_lines_categories(db, company_id, lines_for_val)
+    return {str(x["id"]): x.get("category") for x in lines_for_val}
+
+
 _SQL_BLINDS_TYPES_JSON = """
   COALESCE(
     (
@@ -209,12 +233,16 @@ _SQL_BLINDS_TYPES_JSON = """
           'id', bt.id,
           'name', bt.name,
           'window_count', eb.perde_sayisi,
-          'line_amount', eb.line_amount
+          'line_amount', eb.line_amount,
+          'category', eb.product_category_code,
+          'category_label', pc.name,
+          'line_note', eb.line_note
         )
         ORDER BY eb.sort_order, bt.name
       )
       FROM estimate_blinds eb
       JOIN blinds_type bt ON bt.id = eb.blinds_id
+      LEFT JOIN blinds_product_category pc ON pc.code = eb.product_category_code
       WHERE eb.company_id = e.company_id AND eb.estimate_id = e.id
     ),
     CASE
@@ -224,7 +252,10 @@ _SQL_BLINDS_TYPES_JSON = """
             'id', bt.id,
             'name', bt.name,
             'window_count', e.perde_sayisi,
-            'line_amount', NULL
+            'line_amount', NULL,
+            'category', NULL,
+            'category_label', NULL,
+            'line_note', NULL
           )
         )
          FROM blinds_type bt
@@ -304,6 +335,10 @@ def _normalize_blinds_lines(raw: Any) -> list[dict[str, Any]]:
         }
         if line_amount is not None:
             row["line_amount"] = line_amount
+        row["category"] = normalize_blinds_line_category_value(item.get("category"))
+        lbl = item.get("category_label")
+        row["category_label"] = str(lbl).strip() if lbl is not None and str(lbl).strip() else None
+        row["line_note"] = _normalize_line_note(item.get("line_note"))
         out.append(row)
     return out
 
@@ -354,6 +389,9 @@ class EstimateBlindsLineOut(BaseModel):
     name: str
     window_count: int | None = None
     line_amount: float | None = None
+    category: str | None = None
+    category_label: str | None = None
+    line_note: str | None = None
 
 
 class EstimateListItemOut(BaseModel):
@@ -429,6 +467,18 @@ class EstimateBlindsLineIn(BaseModel):
     blinds_id: str = Field(min_length=1, max_length=16)
     window_count: int | None = Field(None, ge=1)
     line_amount: Decimal | None = Field(None, ge=0, max_digits=14, decimal_places=2)
+    category: str | None = Field(None, max_length=32)
+    line_note: str | None = Field(None, max_length=2000)
+
+    @field_validator("line_note", mode="before")
+    @classmethod
+    def strip_line_note_in(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.replace("\r\n", "\n").replace("\r", "\n").strip()
+            return s or None
+        return v
 
 
 _IANA_TZ_RE = re.compile(r"^[A-Za-z0-9_\/+\-]+$")
@@ -722,6 +772,18 @@ def list_blinds_types_for_estimates(
         {"company_id": str(cid)},
     ).mappings().all()
     return [BlindsTypeOptionOut(**dict(r)) for r in rows]
+
+
+@router.get("/lookup/blinds-order-options", response_model=BlindsOrderOptionsOut)
+def estimates_blinds_order_options(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("estimates.view"))],
+):
+    """Same category × blinds-type matrix as orders (`GET /orders/lookup/blinds-order-options`) for estimate forms."""
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    return build_blinds_order_options(db, cid)
 
 
 @router.get("/lookup/estimate-statuses", response_model=list[EstimateStatusLookupOptOut])
@@ -1037,8 +1099,10 @@ def create_estimate(
         )
     new_status_id = str(new_row["id"])
 
+    cat_by_blinds_id: dict[str, str | None] = {}
     if body.blinds_lines:
         assert_blinds_types_enabled_for_company(db, cid, [ln.blinds_id for ln in body.blinds_lines])
+        cat_by_blinds_id = _category_by_blinds_id_after_validate(db, cid, body.blinds_lines)
 
     for _ in range(5):
         new_id = _new_estimate_id()
@@ -1067,7 +1131,7 @@ def create_estimate(
                       :company_id, :id, :customer_id, NULL, :perde_sayisi,
                       :sched, :sched, NULL,
                       :vtz, :vaddr, :vpostal, :vnotes,
-                      :org_name, :org_email, CAST(:guests AS JSON),
+                      :org_name, :org_email, :guests,
                       :status_esti_id,
                       :lead_source,
                       :pname, :psurname, :pphone, :pemail, :paddress, :ppostal,
@@ -1115,10 +1179,12 @@ def create_estimate(
                     text(
                         """
                         INSERT INTO estimate_blinds (
-                          company_id, estimate_id, blinds_id, sort_order, perde_sayisi, line_amount
+                          company_id, estimate_id, blinds_id, sort_order, perde_sayisi, line_amount,
+                          product_category_code, line_note
                         )
                         VALUES (
-                          :company_id, :estimate_id, :blinds_id, :sort_order, :perde_sayisi, :line_amount
+                          :company_id, :estimate_id, :blinds_id, :sort_order, :perde_sayisi, :line_amount,
+                          :pcc, :lnote
                         )
                         """
                     ),
@@ -1129,6 +1195,8 @@ def create_estimate(
                         "sort_order": sort_i,
                         "perde_sayisi": ln.window_count,
                         "line_amount": la_val,
+                        "pcc": cat_by_blinds_id.get(ln.blinds_id.strip()),
+                        "lnote": _normalize_line_note(ln.line_note),
                     },
                 )
             db.commit()
@@ -1305,7 +1373,7 @@ def patch_estimate(
         sets.append("visit_organizer_email = :orge")
         params["orge"] = str(payload.visit_organizer_email)
     if payload.visit_guest_emails is not None:
-        sets.append("visit_guest_emails = CAST(:guests AS JSON)")
+        sets.append("visit_guest_emails = :guests")
         params["guests"] = json.dumps([str(x) for x in payload.visit_guest_emails])
 
     patch_dump = payload.model_dump(exclude_unset=True)
@@ -1372,6 +1440,7 @@ def patch_estimate(
 
     if payload.blinds_lines is not None:
         assert_blinds_types_enabled_for_company(db, cid, [ln.blinds_id for ln in payload.blinds_lines])
+        patch_cat_by_blinds_id = _category_by_blinds_id_after_validate(db, cid, payload.blinds_lines)
         counts = [ln.window_count for ln in payload.blinds_lines if ln.window_count is not None]
         estimate_perde = sum(counts) if counts else None
         db.execute(
@@ -1389,10 +1458,12 @@ def patch_estimate(
                 text(
                     """
                     INSERT INTO estimate_blinds (
-                      company_id, estimate_id, blinds_id, sort_order, perde_sayisi, line_amount
+                      company_id, estimate_id, blinds_id, sort_order, perde_sayisi, line_amount,
+                      product_category_code, line_note
                     )
                     VALUES (
-                      :cid, :estimate_id, :blinds_id, :sort_order, :perde_sayisi, :line_amount
+                      :cid, :estimate_id, :blinds_id, :sort_order, :perde_sayisi, :line_amount,
+                      :pcc, :lnote
                     )
                     """
                 ),
@@ -1403,6 +1474,8 @@ def patch_estimate(
                     "sort_order": sort_i,
                     "perde_sayisi": ln.window_count,
                     "line_amount": la_val,
+                    "pcc": patch_cat_by_blinds_id.get(ln.blinds_id.strip()),
+                    "lnote": _normalize_line_note(ln.line_note),
                 },
             )
         sets.append("perde_sayisi = :perde")

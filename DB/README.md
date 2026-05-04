@@ -9,6 +9,8 @@ Yeni migration eklerken mevcut en büyük numaradan bir sonrakini kullanın ve g
 
 ## Son eklenen migration’lar
 
+- `48_estimate_blinds_line_note_mariadb.sql`: `estimate_blinds.line_note` — tahmin satır notu; siparişe dönüşümde **`GET /orders/prefill-from-estimate`** ile order **`blinds_lines[].line_note`** olarak gelir.
+- `47_estimate_blinds_product_category_mariadb.sql`: `estimate_blinds.product_category_code` (FK → `blinds_product_category.code`, `ON DELETE SET NULL`) — tahmin perdeler satırında siparişteki gibi ürün kategorisi.
 - `39_estimate_lead_source.sql`: `estimate.lead_source` (referral / advertising) alanı ekler; ay-ay müşteri kaynağı analizleri için.
 - **40–45 (PostgreSQL):** Artık **`blinds-postgresql.sql`** içinde (`Migration 40` … `Migration 45`). Özet: workflow tabloları + RLS (global Order/Estimate geçiş seed’i yok); order workflow izinleri; `workflow_transitions.deleted_at`; migration 43 no-op; estimate workflow izinleri; `status_order.builtin_kind` backfill.
 - `46_revoked_tokens_token_sha256_mariadb.sql` (MariaDB): `revoked_tokens.token` → `CHAR(64)` (JWT fingerprint). Detay: aşağıdaki “MariaDB notları” bölümü.

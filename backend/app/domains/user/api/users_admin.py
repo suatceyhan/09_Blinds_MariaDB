@@ -318,7 +318,11 @@ def create_directory_user(
         db, current_user.id, getattr(current_user, "active_role", None)
     )
 
-    target_company: UUID | None = body.company_id if super else effective_company_id(current_user)
+    # Superadmin may explicitly choose `company_id`; if omitted, fall back to the creator's active company.
+    # Tenant admins always create users for their effective (JWT/active) company.
+    target_company: UUID | None = (
+        body.company_id if super and body.company_id is not None else effective_company_id(current_user)
+    )
     if not super and not target_company:
         raise HTTPException(
             status_code=403,

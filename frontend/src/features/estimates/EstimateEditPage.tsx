@@ -14,9 +14,27 @@ import { AddressAutocompleteInput } from '@/components/ui/AddressAutocompleteInp
 import { ADDRESS_FORMAT_HINT } from '@/components/ui/AddressMapLink'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { VisitStartQuarterPicker } from '@/components/ui/VisitStartQuarterPicker'
+import {
+  type BlindsLineState,
+  type BlindsOrderOptions,
+  BlindsTypesGrid,
+  blindsLineToPayload,
+  hydrateBlindsLinesDefaults,
+  newBlindsLineForType,
+  normalizeBlindsLineFromApi,
+  sanitizeLineAmountInput,
+  sumBlindsLineAmounts,
+} from '@/features/orders/ordersShared'
 
-type BlindsRef = { id: string; name: string; window_count?: number | null; line_amount?: number | null }
-type BlindsOpt = { id: string; name: string }
+type BlindsRef = {
+  id: string
+  name: string
+  window_count?: number | null
+  line_amount?: number | null
+  category?: string | null
+  category_label?: string | null
+  line_note?: string | null
+}
 
 type EstimateStatusOpt = {
   id: string
@@ -103,9 +121,7 @@ type EstimateEditBaseline = {
   visitPostalCode: string
   visitNotes: string
   guestEmails: string[]
-  windowCountByBlindsId: Record<string, string>
-  lineAmountByBlindsId: Record<string, string>
-  blindsIncluded: Record<string, boolean>
+  blindsLines: BlindsLineState[]
   prospectName: string
   prospectSurname: string
   prospectPhone: string
@@ -113,6 +129,43 @@ type EstimateEditBaseline = {
   prospectAddress: string
   prospectPostalCode: string
   leadSource: 'referral' | 'advertising'
+}
+
+function estimateEditLinesFromDetail(d: EstimateDetail, opts: BlindsOrderOptions | null): BlindsLineState[] {
+  const rawLines = d.blinds_types ?? []
+  if (!opts?.blinds_types?.length) {
+    return hydrateBlindsLinesDefaults(
+      rawLines
+        .filter((x) => x.window_count != null && Number(x.window_count) >= 1)
+        .map((raw) =>
+          normalizeBlindsLineFromApi({
+            id: raw.id,
+            name: raw.name,
+            window_count: raw.window_count,
+            line_amount: raw.line_amount,
+            line_note: raw.line_note != null ? String(raw.line_note) : '',
+            ...(raw.category ? { category: raw.category } : {}),
+          }),
+        ),
+      opts,
+    )
+  }
+  const out: BlindsLineState[] = []
+  for (const bt of opts.blinds_types) {
+    const raw = rawLines.find((x) => x.id === bt.id)
+    if (!raw || raw.window_count == null || Number(raw.window_count) < 1) continue
+    out.push(
+      normalizeBlindsLineFromApi({
+        id: raw.id,
+        name: raw.name ?? bt.name,
+        window_count: raw.window_count,
+        line_amount: raw.line_amount,
+        line_note: raw.line_note != null ? String(raw.line_note) : '',
+        ...(raw.category ? { category: raw.category } : {}),
+      }),
+    )
+  }
+  return hydrateBlindsLinesDefaults(out, opts)
 }
 
 export function EstimateEditPage() {
@@ -123,7 +176,7 @@ export function EstimateEditPage() {
   const isCa = ((me?.active_company_country_code ?? '').trim().toUpperCase() || '') === 'CA'
 
   const [detail, setDetail] = useState<EstimateDetail | null>(null)
-  const [blindsTypes, setBlindsTypes] = useState<BlindsOpt[] | null>(null)
+  const [blindsOrderOptions, setBlindsOrderOptions] = useState<BlindsOrderOptions | null>(null)
   const [createContext, setCreateContext] = useState<CreateContext | null>(null)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [saveErr, setSaveErr] = useState<string | null>(null)
@@ -140,9 +193,7 @@ export function EstimateEditPage() {
   const [visitPostalCode, setVisitPostalCode] = useState('')
   const [visitNotes, setVisitNotes] = useState('')
   const [guestEmails, setGuestEmails] = useState<string[]>([])
-  const [windowCountByBlindsId, setWindowCountByBlindsId] = useState<Record<string, string>>({})
-  const [lineAmountByBlindsId, setLineAmountByBlindsId] = useState<Record<string, string>>({})
-  const [blindsIncluded, setBlindsIncluded] = useState<Record<string, boolean>>({})
+  const [blindsLines, setBlindsLines] = useState<BlindsLineState[]>([])
   const [prospectName, setProspectName] = useState('')
   const [prospectSurname, setProspectSurname] = useState('')
   const [prospectPhone, setProspectPhone] = useState('')
@@ -154,7 +205,9 @@ export function EstimateEditPage() {
 
   const prospectPostalErr = isCa && prospectPostalCode.trim() !== '' && !isValidCaPostalCode(prospectPostalCode)
 
-  function hydrateEstimateFormFields(d: EstimateDetail, bt: BlindsOpt[]) {
+  const blindsTypes = useMemo(() => blindsOrderOptions?.blinds_types ?? [], [blindsOrderOptions])
+
+  function hydrateEstimateFormFields(d: EstimateDetail, opts: BlindsOrderOptions | null) {
     setSelectedStatusEstiId((d.status_esti_id ?? '').trim())
     const p0 = defaultVisitScheduleParts()
     const wallRaw = d.scheduled_wall?.trim() ?? ''
@@ -169,20 +222,7 @@ export function EstimateEditPage() {
     setVisitPostalCode('')
     setVisitNotes((d.visit_notes ?? '').trim())
     setGuestEmails((d.visit_guest_emails ?? []).map((e) => e.trim()).filter(Boolean))
-    const wc: Record<string, string> = {}
-    const la: Record<string, string> = {}
-    const inc: Record<string, boolean> = {}
-    for (const b of bt) {
-      const line = (d.blinds_types ?? []).find((x) => x.id === b.id)
-      const raw = line?.window_count != null ? String(line.window_count) : ''
-      wc[b.id] = raw
-      inc[b.id] = raw.trim() !== '' && Number.parseInt(raw.trim(), 10) >= 1
-      const lam = line?.line_amount
-      la[b.id] = lam != null && lam > 0 ? String(lam) : ''
-    }
-    setWindowCountByBlindsId(wc)
-    setLineAmountByBlindsId(la)
-    setBlindsIncluded(inc)
+    setBlindsLines(estimateEditLinesFromDetail(d, opts))
     setProspectName((d.prospect_name ?? '').trim())
     setProspectSurname((d.prospect_surname ?? '').trim())
     setProspectPhone((d.prospect_phone ?? '').trim())
@@ -200,18 +240,18 @@ export function EstimateEditPage() {
       setLoading(true)
       setLoadErr(null)
       try {
-        const [d, bt, ctx, estSt] = await Promise.all([
+        const [d, opts, ctx, estSt] = await Promise.all([
           getJson<EstimateDetail>(`/estimates/${estimateId}`),
-          getJson<BlindsOpt[]>(`/estimates/lookup/blinds-types`),
+          getJson<BlindsOrderOptions>(`/estimates/lookup/blinds-order-options`),
           getJson<CreateContext>(`/estimates/lookup/create-context`),
           getJson<EstimateStatusOpt[]>(`/lookups/estimate-statuses?limit=50&include_inactive=true`),
         ])
         if (cancelled) return
         setDetail(d)
-        setBlindsTypes(bt)
+        setBlindsOrderOptions(opts)
         setCreateContext(ctx)
         setEstimateStatuses(estSt)
-        hydrateEstimateFormFields(d, bt ?? [])
+        hydrateEstimateFormFields(d, opts)
       } catch (e) {
         if (!cancelled) {
           setDetail(null)
@@ -252,22 +292,48 @@ export function EstimateEditPage() {
     if (pending) setSelectedStatusEstiId(pending.id)
   }, [detail, estimateStatuses, selectedStatusEstiId])
 
-  function setWindowInputFor(blindsId: string, value: string) {
-    setWindowCountByBlindsId((wt) => ({ ...wt, [blindsId]: value }))
+  useEffect(() => {
+    if (!detail || !blindsOrderOptions) return
+    setBlindsLines((prev) => hydrateBlindsLinesDefaults(prev, blindsOrderOptions))
+  }, [detail?.id, blindsOrderOptions])
+
+  function toggleEditBlindsType(id: string) {
+    setBlindsLines((prev) => {
+      const exists = prev.some((x) => x.id === id)
+      if (exists) return prev.filter((x) => x.id !== id)
+      const bt = blindsTypes.find((x) => x.id === id)
+      const name = bt?.name ?? id
+      return [...prev, newBlindsLineForType(id, name, blindsOrderOptions)]
+    })
   }
 
-  const blindsAmountTotal = useMemo(() => {
-    const ids = Object.keys(blindsIncluded).filter((id) => blindsIncluded[id])
-    let amount = 0
-    for (const id of ids) {
-      const amtRaw = (lineAmountByBlindsId[id] ?? '').trim()
-      if (amtRaw) {
-        const a = Number.parseFloat(amtRaw.replace(',', '.'))
-        if (!Number.isNaN(a) && a > 0) amount += a
-      }
+  function setEditBlindsCount(id: string, v: string) {
+    const t = v.trim()
+    if (t === '') {
+      setBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, window_count: null } : x)))
+      return
     }
-    return amount
-  }, [blindsIncluded, lineAmountByBlindsId])
+    const n = Number.parseInt(t, 10)
+    if (Number.isNaN(n)) return
+    const clamped = Math.min(99, Math.max(1, n))
+    setBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, window_count: clamped } : x)))
+  }
+
+  function setEditBlindsLineField(id: string, jsonKey: string, value: string) {
+    const v = value.trim() ? value.trim().toLowerCase() : null
+    setBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, [jsonKey]: v } : x)))
+  }
+
+  function setEditBlindsLineNote(id: string, value: string) {
+    setBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, line_note: value } : x)))
+  }
+
+  function setEditBlindsLineAmount(id: string, value: string) {
+    const next = sanitizeLineAmountInput(value)
+    setBlindsLines((prev) => prev.map((x) => (x.id === id ? { ...x, line_amount: next } : x)))
+  }
+
+  const blindsAmountTotal = useMemo(() => sumBlindsLineAmounts(blindsLines), [blindsLines])
 
   const guestSelectOptions = useMemo(() => {
     const fromCtx = createContext?.guest_options ?? []
@@ -302,9 +368,7 @@ export function EstimateEditPage() {
       visitPostalCode,
       visitNotes,
       guestEmails: [...guestEmails],
-      windowCountByBlindsId: structuredClone(windowCountByBlindsId),
-      lineAmountByBlindsId: structuredClone(lineAmountByBlindsId),
-      blindsIncluded: structuredClone(blindsIncluded),
+      blindsLines: structuredClone(blindsLines),
       prospectName,
       prospectSurname,
       prospectPhone,
@@ -321,9 +385,7 @@ export function EstimateEditPage() {
     visitPostalCode,
     visitNotes,
     guestEmails,
-    windowCountByBlindsId,
-    lineAmountByBlindsId,
-    blindsIncluded,
+    blindsLines,
     prospectName,
     prospectSurname,
     prospectPhone,
@@ -359,9 +421,7 @@ export function EstimateEditPage() {
     setVisitPostalCode(b.visitPostalCode)
     setVisitNotes(b.visitNotes)
     setGuestEmails([...b.guestEmails])
-    setWindowCountByBlindsId(structuredClone(b.windowCountByBlindsId))
-    setLineAmountByBlindsId(structuredClone(b.lineAmountByBlindsId))
-    setBlindsIncluded(structuredClone(b.blindsIncluded))
+    setBlindsLines(structuredClone(b.blindsLines))
     setProspectName(b.prospectName)
     setProspectSurname(b.prospectSurname)
     setProspectPhone(b.prospectPhone)
@@ -377,10 +437,10 @@ export function EstimateEditPage() {
   }, [estimateId])
 
   useEffect(() => {
-    if (loading || !detail || !blindsTypes?.length) return
+    if (loading || !detail || !blindsOrderOptions) return
     const t = window.setTimeout(() => scheduleEstimateFormBaselineCapture(), 300)
     return () => window.clearTimeout(t)
-  }, [loading, estimateId, blindsTypes?.length, scheduleEstimateFormBaselineCapture])
+  }, [loading, estimateId, blindsOrderOptions, scheduleEstimateFormBaselineCapture])
 
   async function onSave(e: React.FormEvent) {
     e.preventDefault()
@@ -397,34 +457,36 @@ export function EstimateEditPage() {
       return
     }
 
-    const blinds_lines: { blinds_id: string; window_count: number | null; line_amount?: number }[] = []
-    for (const b of blindsTypes ?? []) {
-      if (!blindsIncluded[b.id]) continue
-      const raw = (windowCountByBlindsId[b.id] ?? '').trim()
-      if (raw === '') {
+    const blinds_lines: {
+      blinds_id: string
+      window_count: number | null
+      line_amount?: number
+      category?: string
+      line_note?: string
+    }[] = []
+    for (const b of blindsLines) {
+      const wc = b.window_count
+      if (wc == null || typeof wc !== 'number' || wc < 1) {
         setSaveErr('Enter a window count for each selected blinds type.')
         return
       }
-      const n = Number.parseInt(raw, 10)
-      if (Number.isNaN(n) || n < 1) {
-        setSaveErr('Window counts must be positive integers.')
-        return
+      const p = blindsLineToPayload(b, blindsOrderOptions)
+      const row: {
+        blinds_id: string
+        window_count: number | null
+        line_amount?: number
+        category?: string
+        line_note?: string
+      } = {
+        blinds_id: String(p.id),
+        window_count: wc,
       }
-      const amtRaw = (lineAmountByBlindsId[b.id] ?? '').trim()
-      let line_amount: number | undefined
-      if (amtRaw !== '') {
-        const a = Number.parseFloat(amtRaw.replace(',', '.'))
-        if (Number.isNaN(a) || a < 0) {
-          setSaveErr('Line amounts must be non-negative numbers.')
-          return
-        }
-        line_amount = Math.round(a * 100) / 100
-      }
-      const row: { blinds_id: string; window_count: number | null; line_amount?: number } = {
-        blinds_id: b.id,
-        window_count: n,
-      }
-      if (line_amount !== undefined) row.line_amount = line_amount
+      const la = typeof p.line_amount === 'number' ? p.line_amount : 0
+      if (la > 0) row.line_amount = la
+      const cat = p.category != null && String(p.category).trim() ? String(p.category).trim().toLowerCase() : undefined
+      if (cat) row.category = cat
+      const noteRaw = p.line_note != null ? String(p.line_note).trim() : ''
+      if (noteRaw) row.line_note = noteRaw.slice(0, 2000)
       blinds_lines.push(row)
     }
 
@@ -464,7 +526,7 @@ export function EstimateEditPage() {
         nextDetail = await getJson<EstimateDetail>(`/estimates/${estimateId}`)
       }
       setDetail(nextDetail)
-      hydrateEstimateFormFields(nextDetail, blindsTypes ?? [])
+      hydrateEstimateFormFields(nextDetail, blindsOrderOptions)
       scheduleEstimateFormBaselineCapture()
     } catch (err) {
       setSaveErr(err instanceof Error ? err.message : 'Save failed')
@@ -493,7 +555,7 @@ export function EstimateEditPage() {
       const d = await postJson<EstimateDetail>(`/estimates/${estimateId}/restore`, {})
       setDetail(d)
       setRestoreOpen(false)
-      hydrateEstimateFormFields(d, blindsTypes ?? [])
+      hydrateEstimateFormFields(d, blindsOrderOptions)
       scheduleEstimateFormBaselineCapture()
     } catch (err) {
       setSaveErr(err instanceof Error ? err.message : 'Restore failed')
@@ -850,7 +912,8 @@ export function EstimateEditPage() {
           <fieldset className="rounded-xl border border-slate-200 bg-white p-4" disabled={formDisabled}>
             <legend className="px-1 text-sm font-semibold uppercase tracking-wide text-slate-500">Blinds</legend>
             <p className="mt-1 text-xs text-slate-500">
-              Quantity required for each included type; amount is optional per line.
+              Quantity required for each included type; category matches your blinds × category matrix (same as orders).
+              Optional amount and line note per row; notes copy to the order when you convert.
             </p>
             <div className="mt-3">
               <div className="flex items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50/80 px-3 py-2">
@@ -860,60 +923,19 @@ export function EstimateEditPage() {
                 </div>
               </div>
             </div>
-            <div className="mt-2 grid max-h-56 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
-              {(blindsTypes ?? []).map((b) => {
-                const checked = Boolean(blindsIncluded[b.id])
-                return (
-                  <label
-                    key={b.id}
-                    className="grid grid-cols-[auto_minmax(0,1fr)_3.5rem_4rem] items-center gap-x-2 gap-y-1 rounded-lg border border-transparent px-2 py-2 text-sm hover:bg-slate-50/80"
-                  >
-                    <input
-                      type="checkbox"
-                      className="h-3.5 w-3.5 shrink-0 self-center rounded border-slate-300 text-teal-600"
-                      checked={checked}
-                      disabled={formDisabled}
-                      onChange={(ev) => {
-                        const on = ev.target.checked
-                        setBlindsIncluded((prev) => ({ ...prev, [b.id]: on }))
-                        if (!on) {
-                          setWindowCountByBlindsId((wt) => ({ ...wt, [b.id]: '' }))
-                          setLineAmountByBlindsId((wt) => ({ ...wt, [b.id]: '' }))
-                        }
-                      }}
-                      aria-label={`Include ${b.name}`}
-                    />
-                    <span className="min-w-0 truncate font-medium text-slate-800">{b.name}</span>
-                    <input
-                      type="number"
-                      min={1}
-                      placeholder="Qty"
-                      title="Windows"
-                      disabled={formDisabled || !checked}
-                      className="w-full min-w-0 rounded border border-slate-200 px-2 py-1 text-xs tabular-nums outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
-                      value={windowCountByBlindsId[b.id] ?? ''}
-                      onChange={(ev) => {
-                        const v = ev.target.value
-                        setWindowInputFor(b.id, v)
-                        const n = Number.parseInt(v.trim(), 10)
-                        if (!Number.isNaN(n) && n >= 1) setBlindsIncluded((prev) => ({ ...prev, [b.id]: true }))
-                      }}
-                    />
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="Amt"
-                      title="Line amount (optional)"
-                      disabled={formDisabled || !checked}
-                      className="w-full min-w-0 rounded border border-slate-200 px-2 py-1 text-xs tabular-nums outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
-                      value={lineAmountByBlindsId[b.id] ?? ''}
-                      onChange={(ev) =>
-                        setLineAmountByBlindsId((wt) => ({ ...wt, [b.id]: ev.target.value }))
-                      }
-                    />
-                  </label>
-                )
-              })}
+            <div className="mt-2 max-h-72 min-w-0 overflow-y-auto">
+              <BlindsTypesGrid
+                blindsTypes={blindsTypes}
+                blindsOrderOptions={blindsOrderOptions}
+                lines={blindsLines}
+                toggleType={toggleEditBlindsType}
+                setCount={setEditBlindsCount}
+                setLineField={setEditBlindsLineField}
+                setLineNote={setEditBlindsLineNote}
+                setLineAmount={setEditBlindsLineAmount}
+                keyPrefix="est-edit"
+                disabled={formDisabled}
+              />
             </div>
           </fieldset>
 

@@ -565,6 +565,8 @@ CREATE TABLE IF NOT EXISTS estimate_blinds (
   sort_order    INT NOT NULL DEFAULT 0,
   perde_sayisi  INT,
   line_amount   DECIMAL(14,2),
+  product_category_code VARCHAR(32) NULL,
+  line_note     TEXT NULL,
   PRIMARY KEY (company_id, estimate_id, blinds_id),
   CONSTRAINT fk_estimate_blinds_company
     FOREIGN KEY (company_id) REFERENCES companies (id) ON DELETE RESTRICT,
@@ -574,7 +576,10 @@ CREATE TABLE IF NOT EXISTS estimate_blinds (
     FOREIGN KEY (company_id, estimate_id)
     REFERENCES estimate (company_id, id)
     ON UPDATE CASCADE
-    ON DELETE RESTRICT
+    ON DELETE RESTRICT,
+  CONSTRAINT fk_estimate_blinds_product_category
+    FOREIGN KEY (product_category_code) REFERENCES blinds_product_category (code)
+    ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB;
 CREATE INDEX idx_estimate_blinds_company_estimate
   ON estimate_blinds (company_id, estimate_id);

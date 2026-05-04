@@ -127,7 +127,7 @@ def bootstrap_company_workflow_transitions_from_global_if_empty(
                 text(
                     """
                     INSERT INTO workflow_transition_actions (transition_id, type, config, sort_order, is_required)
-                    VALUES (:tid, :typ, CAST(:cfg AS JSON), :so, :req)
+                    VALUES (:tid, :typ, :cfg, :so, :req)
                     """
                 ),
                 {

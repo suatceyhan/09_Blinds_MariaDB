@@ -159,12 +159,20 @@ def _pick_fallback_order_status_leaving_done(db: Session, company_id: UUID) -> s
 
 
 def _sync_order_done_status_with_balance(db: Session, company_id: UUID, order_id: str) -> None:
-    """Keep Done status and zero balance aligned (list UI + business rule)."""
+    """Keep Done status and zero balance aligned (list UI + business rule).
+
+    Anchor orders share a job with line-item additions: promoting to Done requires the **job**
+    remaining balance (anchor + additions) to be cleared — otherwise the anchor would jump to Done
+    while unpaid additions exist (breaking workflow transitions on save).
+    """
     oid = order_id.strip()
     row = db.execute(
         text(
             """
-            SELECT o.status_order_id AS sid, o.balance
+            SELECT
+              o.status_order_id AS sid,
+              o.balance,
+              COALESCE(NULLIF(trim(o.parent_order_id), ''), o.id) AS job_anchor_id
             FROM orders o
             WHERE o.company_id = :cid AND o.id = :oid AND o.active IS TRUE
             LIMIT 1
@@ -181,8 +189,29 @@ def _sync_order_done_status_with_balance(db: Session, company_id: UUID, order_id
     bal_d = Decimal(str(bal_raw)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     is_done = _order_status_name_implies_done(db, company_id, sid)
     zero = abs(bal_d) <= _DONE_BALANCE_EPS
+    anchor_id = str(row.get("job_anchor_id") or oid).strip() or oid
+    job_rem = _job_remaining_balance_sum(db, company_id, anchor_id)
+    job_clear = abs(job_rem) <= _DONE_BALANCE_EPS
 
-    if zero and not is_done:
+    if is_done:
+        if (not zero) or (not job_clear):
+            fb = _ready_for_install_order_status_id(db, company_id) or _pick_fallback_order_status_leaving_done(
+                db, company_id
+            )
+            if fb:
+                db.execute(
+                    text(
+                        """
+                        UPDATE orders
+                        SET status_order_id = :nsid, updated_at = NOW()
+                        WHERE company_id = :cid AND id = :oid AND active IS TRUE
+                        """
+                    ),
+                    {"cid": str(company_id), "oid": oid, "nsid": fb},
+                )
+        return
+
+    if zero and job_clear:
         done_id = _pick_done_order_status_id(db, company_id)
         if done_id:
             db.execute(
@@ -194,23 +223,6 @@ def _sync_order_done_status_with_balance(db: Session, company_id: UUID, order_id
                     """
                 ),
                 {"cid": str(company_id), "oid": oid, "nsid": done_id},
-            )
-    elif not zero and is_done:
-        # Workflow: fully-paid Done → removing payments should return to Ready for installation,
-        # not the first matrix row (often "New order").
-        fb = _ready_for_install_order_status_id(db, company_id) or _pick_fallback_order_status_leaving_done(
-            db, company_id
-        )
-        if fb:
-            db.execute(
-                text(
-                    """
-                    UPDATE orders
-                    SET status_order_id = :nsid, updated_at = NOW()
-                    WHERE company_id = :cid AND id = :oid AND active IS TRUE
-                    """
-                ),
-                {"cid": str(company_id), "oid": oid, "nsid": fb},
             )
 
 
@@ -469,11 +481,15 @@ COALESCE(
         'id', bt.id,
         'name', bt.name,
         'window_count', eb.perde_sayisi,
-        'line_amount', eb.line_amount
+        'line_amount', eb.line_amount,
+        'category', eb.product_category_code,
+        'category_label', pc.name,
+        'line_note', eb.line_note
       )
     )
     FROM estimate_blinds eb
     JOIN blinds_type bt ON bt.id = eb.blinds_id
+    LEFT JOIN blinds_product_category pc ON pc.code = eb.product_category_code
     WHERE eb.company_id = e.company_id AND eb.estimate_id = e.id
   ),
   (
@@ -482,7 +498,10 @@ COALESCE(
         'id', bt2.id,
         'name', bt2.name,
         'window_count', e.perde_sayisi,
-        'line_amount', NULL
+        'line_amount', NULL,
+        'category', NULL,
+        'category_label', NULL,
+        'line_note', NULL
       )
     )
     FROM blinds_type bt2
@@ -1827,15 +1846,9 @@ def order_workflow_transition(
     return OrderWorkflowTransitionResultOut(applied=True, order=updated, pending_actions=[])
 
 
-@router.get("/lookup/blinds-order-options", response_model=BlindsOrderOptionsOut)
-def blinds_order_options(
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Users, Depends(require_permissions("orders.view"))],
-):
-    """Blinds types, product categories, and allowed type×category pairs for the order form."""
-    cid = effective_company_id(current_user)
-    if not cid:
-        raise HTTPException(status_code=403, detail="No active company.")
+def build_blinds_order_options(db: Session, company_id: UUID) -> BlindsOrderOptionsOut:
+    """Shared payload for order and estimate blinds line grids (category matrix)."""
+    cid = str(company_id)
     types_ = db.execute(
         text(
             """
@@ -1847,7 +1860,7 @@ def blinds_order_options(
             ORDER BY bt.sort_order ASC, bt.name ASC
             """
         ),
-        {"cid": str(cid)},
+        {"cid": cid},
     ).mappings().all()
     cats = db.execute(
         text(
@@ -1860,9 +1873,9 @@ def blinds_order_options(
             ORDER BY pc.sort_order ASC, pc.name ASC
             """
         ),
-        {"cid": str(cid)},
+        {"cid": cid},
     ).mappings().all()
-    allowed = load_allowed_category_ids_by_type(db, cid)
+    allowed = load_allowed_category_ids_by_type(db, company_id)
     cat_opts = [
         BlindsOrderCategoryOpt(
             id=str(r["id"]),
@@ -1887,6 +1900,18 @@ def blinds_order_options(
         allowed_category_ids_by_blinds_type=allowed,
         line_attribute_rows=rows,
     )
+
+
+@router.get("/lookup/blinds-order-options", response_model=BlindsOrderOptionsOut)
+def blinds_order_options(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Users, Depends(require_permissions("orders.view"))],
+):
+    """Blinds types, product categories, and allowed type×category pairs for the order form."""
+    cid = effective_company_id(current_user)
+    if not cid:
+        raise HTTPException(status_code=403, detail="No active company.")
+    return build_blinds_order_options(db, cid)
 
 
 @router.get("", response_model=list[OrderListItemOut])
@@ -3309,7 +3334,7 @@ def create_order(
                     SET
                       tax_uygulanacak_miktar = COALESCE(:tax_base, tax_uygulanacak_miktar),
                       tax_amount = :tax_amt,
-                      blinds_lines = CAST(:blinds_lines AS JSON),
+                      blinds_lines = :blinds_lines,
                       order_note = :order_note
                     WHERE company_id = :cid AND id = :oid
                     """
@@ -3437,7 +3462,7 @@ def create_line_item_addition(
                     SET
                       tax_uygulanacak_miktar = COALESCE(:tax_base, tax_uygulanacak_miktar),
                       tax_amount = :tax_amt,
-                      blinds_lines = CAST(:blinds_lines AS JSON),
+                      blinds_lines = :blinds_lines,
                       order_note = :order_note
                     WHERE company_id = :cid AND id = :oid
                     """
@@ -3520,7 +3545,7 @@ def patch_order(
         if not normalized_lines:
             raise HTTPException(status_code=400, detail="Choose at least one blinds type.")
         validate_blinds_lines_categories(db, cid, normalized_lines)
-        sets.append("blinds_lines = CAST(:blinds_lines_patch AS JSON)")
+        sets.append("blinds_lines = :blinds_lines_patch")
         params["blinds_lines_patch"] = json.dumps(normalized_lines)
         line_total = _sum_blinds_line_amounts(normalized_lines)
         sets.append("total_amount = :total_from_lines")

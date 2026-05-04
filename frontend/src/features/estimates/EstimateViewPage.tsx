@@ -8,7 +8,13 @@ import { AddressMapLink } from '@/components/ui/AddressMapLink'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { getAccessToken } from '@/lib/authStorage'
 
-type BlindsRef = { id: string; name: string; window_count?: number | null; line_amount?: number | null }
+type BlindsRef = {
+  id: string
+  name: string
+  window_count?: number | null
+  line_amount?: number | null
+  line_note?: string | null
+}
 
 type EstimateDetail = {
   id: string
@@ -385,6 +391,9 @@ export function EstimateViewPage() {
                             <div className="mt-0.5 text-xs font-medium text-slate-600">
                               {b.window_count != null ? `${b.window_count} windows` : '—'}
                             </div>
+                            {b.line_note?.trim() ? (
+                              <p className="mt-1 whitespace-pre-wrap text-xs text-slate-600">{b.line_note.trim()}</p>
+                            ) : null}
                           </div>
                           <div className="shrink-0 text-sm font-semibold tabular-nums text-slate-900">
                             {b.line_amount != null && Number(b.line_amount) > 0 ? `$${Number(b.line_amount).toFixed(2)}` : '—'}
