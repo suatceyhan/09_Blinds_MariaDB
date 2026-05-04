@@ -494,7 +494,7 @@ def _fetch_order_doc_context(db: Session, company_id: str, order_id: str) -> dic
         text(
             """
             SELECT
-              o.id::text AS order_id,
+              o.id AS order_id,
               o.agreement_date,
               o.created_at,
               o.total_amount,

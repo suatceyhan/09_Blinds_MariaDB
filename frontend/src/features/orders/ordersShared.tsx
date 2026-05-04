@@ -252,6 +252,49 @@ export function allowedIdsForAttributeRow(row: BlindsLineAttributeRow, typeId: s
   return row.allowed_option_ids_by_blinds_type[typeId] ?? []
 }
 
+/** Allowed ids for a blinds type, ordered by lookup sort_order then label (matches Settings / API). */
+export function sortedAllowedOptionIdsForRow(attrRow: BlindsLineAttributeRow, typeId: string): string[] {
+  const raw = allowedIdsForAttributeRow(attrRow, typeId).filter(
+    (oid): oid is string => typeof oid === 'string' && oid.trim() !== '',
+  )
+  const meta = new Map(attrRow.options.map((o) => [String(o.id).trim().toLowerCase(), o]))
+  return [...raw].sort((a, b) => {
+    const ma = meta.get(String(a).trim().toLowerCase())
+    const mb = meta.get(String(b).trim().toLowerCase())
+    const sa = ma?.sort_order ?? 0
+    const sb = mb?.sort_order ?? 0
+    if (sa !== sb) return sa - sb
+    const na = ma?.name ?? String(a)
+    const nb = mb?.name ?? String(b)
+    return na.localeCompare(nb)
+  })
+}
+
+/** Returns English message if any included line is missing a required matrix attribute (e.g. category). */
+export function blindsLinesMissingRequiredAttributesMessage(
+  lines: BlindsLineState[],
+  blindsTypes: { id: string; name: string }[],
+  opts: BlindsOrderOptions | null,
+): string | null {
+  if (!opts) return null
+  const rows = lineAttributeRows(opts)
+  for (const bt of blindsTypes) {
+    const line = lines.find((x) => x.id === bt.id)
+    if (!line || line.window_count == null || line.window_count < 1) continue
+    for (const attrRow of rows) {
+      const allowed = sortedAllowedOptionIdsForRow(attrRow, bt.id)
+      if (!allowed.length) continue
+      const v = line[attrRow.json_key]
+      const cur = v != null && String(v).trim() ? String(v).trim().toLowerCase() : ''
+      const ok = cur && allowed.some((a) => String(a).trim().toLowerCase() === cur)
+      if (!ok) {
+        return `Choose ${attributeColumnHeaderLabel(attrRow)} for ${bt.name}.`
+      }
+    }
+  }
+  return null
+}
+
 export function attributeOptionLabel(row: BlindsLineAttributeRow, optionId: string | null | undefined): string {
   if (!optionId) return ''
   const id = String(optionId).trim().toLowerCase()
@@ -268,8 +311,7 @@ export function newBlindsLineForType(id: string, name: string, opts: BlindsOrder
     line_amount: '',
   }
   for (const row of lineAttributeRows(opts)) {
-    const allowed = allowedIdsForAttributeRow(row, id)
-    line[row.json_key] = allowed.length ? String(allowed[0]).trim().toLowerCase() : null
+    line[row.json_key] = null
   }
   return line
 }
@@ -294,7 +336,7 @@ export function hydrateBlindsLinesDefaults(
       const raw = next[row.json_key]
       const cur = raw != null && String(raw).trim() ? String(raw).trim().toLowerCase() : ''
       if (!cur || !allowedLc.has(cur)) {
-        next[row.json_key] = String(allowed[0]).trim().toLowerCase()
+        next[row.json_key] = null
       }
     }
     return next
@@ -881,9 +923,7 @@ export function BlindsTypesGrid(props: {
                     />
                   </td>
                   {attrRows.map((attrRow) => {
-                    const opts = allowedIdsForAttributeRow(attrRow, b.id).filter(
-                      (oid): oid is string => typeof oid === 'string' && oid.trim() !== '',
-                    )
+                    const opts = sortedAllowedOptionIdsForRow(attrRow, b.id)
                     const cat = isCategoryAttributeRow(attrRow)
                     const wch = cat ? categoryColumnWidthCh(attrRow) : null
                     const style =
@@ -922,8 +962,8 @@ export function BlindsTypesGrid(props: {
                     }
                     const selTrim = sel.trim().toLowerCase()
                     const matchedOpt = opts.find((o) => String(o).toLowerCase() === selTrim)
-                    const selectValue = matchedOpt ?? opts[0]
-                    const selectLabel = attributeOptionLabel(attrRow, selectValue)
+                    const selectValue = matchedOpt ?? ''
+                    const selectLabel = selectValue ? attributeOptionLabel(attrRow, selectValue) : ''
 
                     return (
                       <td
@@ -939,6 +979,7 @@ export function BlindsTypesGrid(props: {
                           aria-label={`${attributeColumnHeaderLabel(attrRow)} for ${b.name}`}
                           className="h-8 w-full min-w-0 max-w-full truncate rounded-md border border-slate-200 bg-white px-0.5 text-center text-xs outline-none focus:border-teal-500 disabled:bg-slate-100 disabled:text-slate-400"
                         >
+                          <option value="">—</option>
                           {opts.map((oid) => (
                             <option key={oid} value={oid}>
                               {attributeOptionLabel(attrRow, oid)}

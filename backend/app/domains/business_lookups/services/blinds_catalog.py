@@ -57,8 +57,10 @@ def load_allowed_category_ids_by_type(db: Session, company_id: UUID) -> dict[str
               ON m.company_id = a.company_id AND m.category_code = a.category_code
             INNER JOIN company_blinds_type_matrix tm
               ON tm.company_id = a.company_id AND tm.blinds_type_id = a.blinds_type_id
+            INNER JOIN blinds_product_category pc
+              ON pc.code = a.category_code
             WHERE a.company_id = :cid
-            ORDER BY a.blinds_type_id, a.category_code
+            ORDER BY a.blinds_type_id, pc.sort_order ASC, pc.name ASC
             """
         ),
         {"cid": str(company_id)},

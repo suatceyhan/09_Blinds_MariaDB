@@ -10,6 +10,7 @@ import { snapWallToQuarterMinutes } from '@/lib/visitSchedule'
 import {
   BlindsLineState,
   blindsLineToPayload,
+  blindsLinesMissingRequiredAttributesMessage,
   BlindsOrderOptions,
   BlindsTypesGrid,
   customerLabel,
@@ -820,6 +821,15 @@ export function OrderEditPage() {
       setErr('Select a customer.')
       return
     }
+    const missAttr = blindsLinesMissingRequiredAttributesMessage(
+      editBlindsLines,
+      blindsTypes ?? [],
+      blindsOrderOptions,
+    )
+    if (missAttr) {
+      setErr(missAttr)
+      return
+    }
     const stSel = editDraft.status_orde_id.trim()
     setEditSaving(true)
     setErr(null)
@@ -834,6 +844,15 @@ export function OrderEditPage() {
         if (!isPendingAdditionOrderId(row.order_id)) continue
         if (row.blinds_lines.length === 0) {
           setErr('Choose at least one blinds type for each additional order.')
+          return
+        }
+        const missAdd = blindsLinesMissingRequiredAttributesMessage(
+          row.blinds_lines,
+          blindsTypes ?? [],
+          blindsOrderOptions,
+        )
+        if (missAdd) {
+          setErr(missAdd)
           return
         }
         const anchor = await postJson<OrderDetail>(

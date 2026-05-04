@@ -33,6 +33,7 @@ import {
   parseOptionalDecimal,
   parseTaxRatePercent,
   blindsLineToPayload,
+  blindsLinesMissingRequiredAttributesMessage,
   orderListPaidDisplay,
   orderListRowDoneSyncedHighlight,
   orderStatusWorkflowBucketFromName,
@@ -528,6 +529,15 @@ export function OrdersPage() {
     e.preventDefault()
     if (!canEdit) return
     if (!linkedEstimateId && !customerId.trim()) return
+    const missingAttr = blindsLinesMissingRequiredAttributesMessage(
+      blindsLines,
+      blindsTypes ?? [],
+      blindsOrderOptions,
+    )
+    if (missingAttr) {
+      setErr(missingAttr)
+      return
+    }
     const taxBase = taxBaseParsed
     const dp = dpParsed
     setSaving(true)

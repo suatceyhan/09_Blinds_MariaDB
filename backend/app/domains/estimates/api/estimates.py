@@ -303,8 +303,16 @@ def _scheduled_wall_for_detail(
 def _normalize_blinds_lines(raw: Any) -> list[dict[str, Any]]:
     if raw is None:
         return []
+    if isinstance(raw, bytes):
+        try:
+            raw = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return []
     if isinstance(raw, str):
-        return []
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
     if not isinstance(raw, list):
         return []
     out: list[dict[str, Any]] = []

@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing_extensions import Annotated
@@ -454,8 +454,9 @@ COALESCE(
       CASE
         WHEN eb.perde_sayisi IS NOT NULL THEN CONCAT(bt.name, ' (', eb.perde_sayisi, ')')
         ELSE bt.name
-      END,
-      ', ' ORDER BY eb.sort_order, bt.name SEPARATOR ', '
+      END
+      ORDER BY eb.sort_order, bt.name
+      SEPARATOR ', '
     )
     FROM estimate_blinds eb
     JOIN blinds_type bt ON bt.id = eb.blinds_id
@@ -486,6 +487,7 @@ COALESCE(
         'category_label', pc.name,
         'line_note', eb.line_note
       )
+      ORDER BY eb.sort_order, bt.name
     )
     FROM estimate_blinds eb
     JOIN blinds_type bt ON bt.id = eb.blinds_id
@@ -493,7 +495,7 @@ COALESCE(
     WHERE eb.company_id = e.company_id AND eb.estimate_id = e.id
   ),
   (
-    SELECT JSON_ARRAYAGG(
+    SELECT JSON_ARRAY(
       JSON_OBJECT(
         'id', bt2.id,
         'name', bt2.name,
@@ -542,8 +544,19 @@ def _normalize_line_amount_to_float(raw: Any) -> float:
 
 
 def _normalize_blinds_lines(raw: Any) -> list[dict[str, Any]]:
+    """MariaDB JSON aggregates often arrive as str/bytes via PyMySQL — decode before parsing rows."""
     if raw is None:
         return []
+    if isinstance(raw, bytes):
+        try:
+            raw = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return []
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
     if isinstance(raw, list):
         out: list[dict[str, Any]] = []
         for x in raw:
@@ -1205,7 +1218,7 @@ def _sum_expenses_for_job(db: Session, cid: UUID, anchor_order_id: str) -> Decim
             FROM order_expense_entries e
             INNER JOIN orders o
               ON o.company_id = e.company_id AND o.id = e.order_id
-            WHERE e.company_id = CAST(:cid AS uuid)
+            WHERE e.company_id = :cid
               AND COALESCE(e.is_deleted, FALSE) = FALSE
               AND o.active IS TRUE
               AND (o.id = :aid OR o.parent_order_id = :aid)
@@ -1224,7 +1237,7 @@ def _sum_expenses_for_order(db: Session, cid: UUID, order_id: str) -> Decimal:
             """
             SELECT COALESCE(SUM(amount), 0) AS s
             FROM order_expense_entries
-            WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid
+            WHERE company_id = :cid AND order_id = :oid
               AND COALESCE(is_deleted, FALSE) = FALSE
             """
         ),
@@ -1393,7 +1406,7 @@ def _active_workflow_definition_id(db: Session, company_id: UUID, entity_type: s
             FROM workflow_definitions wd
             WHERE wd.is_active IS TRUE
               AND wd.entity_type = :et
-              AND (wd.company_id = CAST(:cid AS uuid) OR wd.is_global IS TRUE)
+              AND (wd.company_id = :cid OR wd.is_global IS TRUE)
             ORDER BY (wd.is_global IS FALSE) DESC, wd.version DESC, wd.created_at DESC
             LIMIT 1
             """
@@ -1418,7 +1431,7 @@ def _first_next_order_transition_label(
             SELECT so.name AS nm
             FROM workflow_transitions wt
             INNER JOIN status_order so ON so.id = wt.to_status_id
-            WHERE wt.workflow_definition_id = CAST(:wid AS uuid)
+            WHERE wt.workflow_definition_id = :wid
               AND COALESCE(wt.from_status_id, '') = COALESCE(:from_sid, '')
               AND wt.deleted_at IS NULL
             ORDER BY wt.sort_order ASC, wt.created_at ASC, wt.id ASC
@@ -1443,7 +1456,7 @@ def _status_order_label_by_id(db: Session, company_id: UUID, status_orde_id: str
             SELECT so.name
             FROM status_order so
             INNER JOIN company_status_order_matrix m
-              ON m.status_order_id = so.id AND m.company_id = CAST(:cid AS uuid)
+              ON m.status_order_id = so.id AND m.company_id = :cid
             WHERE so.id = :sid
             LIMIT 1
             """
@@ -1460,7 +1473,7 @@ def _workflow_actions_for_transition(db: Session, transition_id: str) -> list[Wo
             """
             SELECT type, config
             FROM workflow_transition_actions
-            WHERE transition_id = CAST(:tid AS uuid)
+            WHERE transition_id = :tid
             ORDER BY sort_order ASC, created_at ASC, id ASC
             """
         ),
@@ -1589,7 +1602,7 @@ def prefill_from_estimate(
             LEFT JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
             JOIN companies co ON co.id = e.company_id
             LEFT JOIN status_estimate se ON se.id = e.status_esti_id
-            WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid
+            WHERE e.company_id = :cid AND e.id = :eid
             LIMIT 1
             """
         ),
@@ -1637,7 +1650,7 @@ def list_order_statuses_for_orders(
             SELECT so.id, so.name, so.sort_order
             FROM status_order so
             INNER JOIN company_status_order_matrix m
-              ON m.status_order_id = so.id AND m.company_id = CAST(:cid AS uuid)
+              ON m.status_order_id = so.id AND m.company_id = :cid
             WHERE so.active IS TRUE
             ORDER BY so.sort_order ASC, so.name ASC
             """
@@ -1805,7 +1818,7 @@ def order_workflow_transition(
                     text(
                         """
                         INSERT INTO order_expense_entries (company_id, order_id, amount, note, spent_at, created_by_user_id)
-                        VALUES (CAST(:cid AS uuid), :oid, :amt, :note, :spent_at, :uid)
+                        VALUES (:cid, :oid, :amt, :note, :spent_at, :uid)
                         """
                     ),
                     {
@@ -1855,7 +1868,7 @@ def build_blinds_order_options(db: Session, company_id: UUID) -> BlindsOrderOpti
             SELECT bt.id, bt.name
             FROM blinds_type bt
             INNER JOIN company_blinds_type_matrix m
-              ON m.blinds_type_id = bt.id AND m.company_id = CAST(:cid AS uuid)
+              ON m.blinds_type_id = bt.id AND m.company_id = :cid
             WHERE bt.active IS TRUE
             ORDER BY bt.sort_order ASC, bt.name ASC
             """
@@ -1868,7 +1881,7 @@ def build_blinds_order_options(db: Session, company_id: UUID) -> BlindsOrderOpti
             SELECT pc.code AS id, pc.name, pc.sort_order
             FROM blinds_product_category pc
             INNER JOIN company_blinds_product_category_matrix m
-              ON m.category_code = pc.code AND m.company_id = CAST(:cid AS uuid)
+              ON m.category_code = pc.code AND m.company_id = :cid
             WHERE pc.active IS TRUE
             ORDER BY pc.sort_order ASC, pc.name ASC
             """
@@ -2075,7 +2088,7 @@ def _anchor_status_builtin_kind(db: Session, company_id: UUID, anchor_oid: str) 
             SELECT so.builtin_kind AS bk
             FROM orders o
             LEFT JOIN status_order so ON so.id = o.status_order_id
-            WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :aid AND COALESCE(o.active, FALSE) IS TRUE
+            WHERE o.company_id = :cid AND o.id = :aid AND COALESCE(o.active, FALSE) IS TRUE
             LIMIT 1
             """
         ),
@@ -2103,7 +2116,7 @@ def _job_financial_rows_for_anchor(db: Session, company_id: UUID, anchor_oid: st
               o.final_payment,
               o.balance
             FROM orders o
-            WHERE o.company_id = CAST(:cid AS uuid)
+            WHERE o.company_id = :cid
               AND COALESCE(o.active, FALSE) IS TRUE
               AND (o.id = :aid OR o.parent_order_id = :aid)
             ORDER BY CASE WHEN o.id = :aid THEN 0 ELSE 1 END, o.created_at ASC
@@ -2153,9 +2166,9 @@ def _apply_order_record_payment(db: Session, company_id: UUID, order_id: str, pa
               o.final_payment,
               o.balance,
               o.active,
-              NULLIF(trim(o.parent_order_id::text), '') AS parent_order_id
+              NULLIF(trim(o.parent_order_id), '') AS parent_order_id
             FROM orders o
-            WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid
+            WHERE o.company_id = :cid AND o.id = :oid
             LIMIT 1
             """
         ),
@@ -2194,9 +2207,9 @@ def _apply_order_record_payment(db: Session, company_id: UUID, order_id: str, pa
     job_rows = db.execute(
         text(
             """
-            SELECT o.id::text AS id, COALESCE(o.balance, 0) AS balance, o.created_at
+            SELECT o.id AS id, COALESCE(o.balance, 0) AS balance, o.created_at
             FROM orders o
-            WHERE o.company_id = CAST(:cid AS uuid)
+            WHERE o.company_id = :cid
               AND o.active IS TRUE
               AND (o.id = :aid OR o.parent_order_id = :aid)
             ORDER BY CASE WHEN o.id = :aid THEN 0 ELSE 1 END, o.created_at ASC
@@ -2221,7 +2234,7 @@ def _apply_order_record_payment(db: Session, company_id: UUID, order_id: str, pa
             text(
                 """
                 INSERT INTO order_payment_entries (company_id, order_id, amount, payment_group_id, created_at)
-                VALUES (CAST(:cid AS uuid), :oid, :amt, CAST(:gid AS uuid), :paid_at)
+                VALUES (:cid, :oid, :amt, :gid, :paid_at)
                 """
             ),
             {"cid": str(company_id), "oid": rid, "amt": take, "gid": group_id, "paid_at": paid_at},
@@ -2272,7 +2285,7 @@ def create_order_expense(
             """
             SELECT 1
             FROM orders
-            WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+            WHERE company_id = :cid AND id = :oid AND active IS TRUE
             LIMIT 1
             """
         ),
@@ -2291,7 +2304,7 @@ def create_order_expense(
         text(
             """
             INSERT INTO order_expense_entries (company_id, order_id, amount, note, spent_at, created_by_user_id)
-            VALUES (CAST(:cid AS uuid), :oid, :amt, :note, :spent_at, :uid)
+            VALUES (:cid, :oid, :amt, :note, :spent_at, :uid)
             """
         ),
         {
@@ -2327,7 +2340,7 @@ def soft_delete_order_expense(
             """
             UPDATE order_expense_entries
             SET is_deleted = TRUE
-            WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid AND id = CAST(:xid AS uuid)
+            WHERE company_id = :cid AND order_id = :oid AND id = :xid
               AND COALESCE(is_deleted, FALSE) = FALSE
             """
         ),
@@ -2367,8 +2380,8 @@ def soft_delete_order_payment_entry(
                 """
                 UPDATE order_payment_entries
                 SET is_deleted = TRUE
-                WHERE company_id = CAST(:cid AS uuid)
-                  AND payment_group_id = CAST(:gid AS uuid)
+                WHERE company_id = :cid
+                  AND payment_group_id = :gid
                   AND COALESCE(is_deleted, FALSE) = FALSE
                 """
             ),
@@ -2384,7 +2397,7 @@ def soft_delete_order_payment_entry(
                 """
                 UPDATE order_payment_entries
                 SET is_deleted = TRUE
-                WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid AND id = CAST(:eid AS uuid)
+                WHERE company_id = :cid AND order_id = :oid AND id = :eid
                   AND COALESCE(is_deleted, FALSE) = FALSE
                 """
             ),
@@ -2416,7 +2429,7 @@ async def upload_order_attachment(
         text(
             """
             SELECT 1 FROM orders
-            WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+            WHERE company_id = :cid AND id = :oid AND active IS TRUE
             LIMIT 1
             """
         ),
@@ -2475,7 +2488,7 @@ async def upload_order_attachment(
               company_id, order_id, kind, original_filename, stored_relpath, content_type, file_size
             )
             VALUES (
-              CAST(:cid AS uuid), :oid, :kind, :oname, :spath, :ct, :fsz
+              :cid, :oid, :kind, :oname, :spath, :ct, :fsz
             )
             """
         ),
@@ -2520,7 +2533,7 @@ async def upload_order_line_photo(
             """
             SELECT o.blinds_lines AS blinds_lines_json
             FROM orders o
-            WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid AND o.active IS TRUE
+            WHERE o.company_id = :cid AND o.id = :oid AND o.active IS TRUE
             LIMIT 1
             """
         ),
@@ -2571,7 +2584,7 @@ async def upload_order_line_photo(
               original_filename, stored_relpath, content_type, file_size
             )
             VALUES (
-              CAST(:cid AS uuid), :oid, 'line_photo', :bt,
+              :cid, :oid, 'line_photo', :bt,
               :oname, :spath, :ct, :fsz
             )
             """
@@ -2615,7 +2628,7 @@ def soft_delete_order_attachment(
             """
             UPDATE order_attachments
             SET is_deleted = TRUE
-            WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid AND id = CAST(:aid AS uuid)
+            WHERE company_id = :cid AND order_id = :oid AND id = :aid
               AND COALESCE(is_deleted, FALSE) = FALSE
             """
         ),
@@ -2671,7 +2684,7 @@ def get_order(
             JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
             LEFT JOIN estimate e ON e.company_id = o.company_id AND e.id = o.estimate_id
             LEFT JOIN status_order so ON so.id = o.status_order_id
-            WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid
+            WHERE o.company_id = :cid AND o.id = :oid
             LIMIT 1
             """
         ),
@@ -2725,7 +2738,7 @@ def get_order(
                     JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
                     LEFT JOIN estimate e ON e.company_id = o.company_id AND e.id = o.estimate_id
                     LEFT JOIN status_order so ON so.id = o.status_order_id
-                    WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid
+                    WHERE o.company_id = :cid AND o.id = :oid
                     LIMIT 1
                     """
                 ),
@@ -2741,7 +2754,7 @@ def get_order(
             text(
                 """
                 SELECT
-                  o.id::text AS id,
+                  o.id AS id,
                   o.created_at,
                   o.total_amount,
                   o.tax_amount,
@@ -2752,7 +2765,7 @@ def get_order(
                   trim(so.name) AS status_order_label
                 FROM orders o
                 LEFT JOIN status_order so ON so.id = o.status_order_id
-                WHERE o.company_id = CAST(:cid AS uuid)
+                WHERE o.company_id = :cid
                   AND o.parent_order_id = :pid
                   AND o.active IS TRUE
                 ORDER BY o.created_at ASC
@@ -2789,9 +2802,9 @@ def get_order(
         job_rows = db.execute(
             text(
                 """
-                SELECT o.id::text AS oid, o.downpayment, o.agreement_date, o.created_at
+                SELECT o.id AS oid, o.downpayment, o.agreement_date, o.created_at
                 FROM orders o
-                WHERE o.company_id = CAST(:cid AS uuid)
+                WHERE o.company_id = :cid
                   AND o.active IS TRUE
                   AND (o.id = :aid OR o.parent_order_id = :aid)
                 ORDER BY CASE WHEN o.id = :aid THEN 0 ELSE 1 END, o.created_at ASC
@@ -2805,18 +2818,18 @@ def get_order(
                 text(
                     """
                     SELECT
-                      id::text AS id,
-                      order_id::text AS order_id,
+                      id AS id,
+                      order_id AS order_id,
                       amount,
                       created_at AS paid_at,
-                      payment_group_id::text AS payment_group_id
+                      payment_group_id AS payment_group_id
                     FROM order_payment_entries
-                    WHERE company_id = CAST(:cid AS uuid)
-                      AND order_id = ANY(:oids)
+                    WHERE company_id = :cid
+                      AND order_id IN :oids
                       AND COALESCE(is_deleted, FALSE) = FALSE
                     ORDER BY created_at ASC
                     """
-                ),
+                ).bindparams(bindparam("oids", expanding=True)),
                 {"cid": str(cid), "oids": oids},
             ).mappings().all()
             if oids
@@ -2862,9 +2875,9 @@ def get_order(
         pay_rows = db.execute(
             text(
                 """
-                SELECT id::text AS id, amount, created_at AS paid_at
+                SELECT id AS id, amount, created_at AS paid_at
                 FROM order_payment_entries
-                WHERE company_id = CAST(:cid AS uuid) AND order_id = :oid
+                WHERE company_id = :cid AND order_id = :oid
                   AND COALESCE(is_deleted, FALSE) = FALSE
                 ORDER BY created_at ASC
                 """
@@ -2882,8 +2895,10 @@ def get_order(
     line_photos = _fetch_order_line_photos(db, cid, oid)
     expense_entries = _fetch_order_expense_entries(db, cid, oid)
     job_locked = _job_edit_locked(db, cid, oid)
+    # Mirror list endpoint: UI reads legacy typo field `status_orde_id` on the edit form.
     return OrderDetailOut(
         **d,
+        status_orde_id=d.get("status_order_id"),
         blinds_lines=lines,
         payment_entries=payment_entries,
         expense_total=_money_q(expense_total),
@@ -2912,7 +2927,7 @@ def _fetch_order_doc_email_context(db: Session, company_id: UUID, order_id: str)
         text(
             """
             SELECT
-              o.id::text AS order_id,
+              o.id AS order_id,
               o.total_amount,
               o.tax_amount,
               o.downpayment,
@@ -2930,7 +2945,7 @@ def _fetch_order_doc_email_context(db: Session, company_id: UUID, order_id: str)
             JOIN customers c ON c.company_id = o.company_id AND c.id = o.customer_id
             JOIN companies co ON co.id = o.company_id
             LEFT JOIN status_order so ON so.id = o.status_order_id
-            WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid AND o.active IS TRUE
+            WHERE o.company_id = :cid AND o.id = :oid AND o.active IS TRUE
             LIMIT 1
             """
         ),
@@ -3097,7 +3112,7 @@ def delete_order(
             """
             SELECT NULLIF(trim(estimate_id), '') AS estimate_id
             FROM orders
-            WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+            WHERE company_id = :cid AND id = :oid AND active IS TRUE
             LIMIT 1
             """
         ),
@@ -3109,14 +3124,14 @@ def delete_order(
             """
             UPDATE orders
             SET active = FALSE, updated_at = NOW()
-            WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+            WHERE company_id = :cid AND id = :oid AND active IS TRUE
             """
         ),
         {"cid": str(cid), "oid": oid},
     )
     if res.rowcount == 0:
         exists = db.execute(
-            text("SELECT 1 FROM orders WHERE company_id = CAST(:cid AS uuid) AND id = :oid LIMIT 1"),
+            text("SELECT 1 FROM orders WHERE company_id = :cid AND id = :oid LIMIT 1"),
             {"cid": str(cid), "oid": oid},
         ).first()
         if not exists:
@@ -3129,7 +3144,7 @@ def delete_order(
             """
             UPDATE orders
             SET active = FALSE, updated_at = NOW()
-            WHERE company_id = CAST(:cid AS uuid) AND parent_order_id = :oid AND active IS TRUE
+            WHERE company_id = :cid AND parent_order_id = :oid AND active IS TRUE
             """
         ),
         {"cid": str(cid), "oid": oid},
@@ -3154,7 +3169,7 @@ def restore_order(
             """
             SELECT NULLIF(trim(estimate_id), '') AS estimate_id
             FROM orders
-            WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS FALSE
+            WHERE company_id = :cid AND id = :oid AND active IS FALSE
             LIMIT 1
             """
         ),
@@ -3166,14 +3181,14 @@ def restore_order(
             """
             UPDATE orders
             SET active = TRUE, updated_at = NOW()
-            WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS FALSE
+            WHERE company_id = :cid AND id = :oid AND active IS FALSE
             """
         ),
         {"cid": str(cid), "oid": oid},
     )
     if res.rowcount == 0:
         exists = db.execute(
-            text("SELECT 1 FROM orders WHERE company_id = CAST(:cid AS uuid) AND id = :oid LIMIT 1"),
+            text("SELECT 1 FROM orders WHERE company_id = :cid AND id = :oid LIMIT 1"),
             {"cid": str(cid), "oid": oid},
         ).first()
         if not exists:
@@ -3202,7 +3217,7 @@ def create_order(
             text(
                 """
                 SELECT 1 FROM orders
-                WHERE company_id = CAST(:cid AS uuid) AND estimate_id = :eid
+                WHERE company_id = :cid AND estimate_id = :eid
                 LIMIT 1
                 """
             ),
@@ -3227,7 +3242,7 @@ def create_order(
                   COALESCE(e.is_deleted, FALSE) AS is_deleted
                 FROM estimate e
                 LEFT JOIN status_estimate se ON se.id = e.status_esti_id
-                WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid
+                WHERE e.company_id = :cid AND e.id = :eid
                 LIMIT 1
                 """
             ),
@@ -3514,7 +3529,7 @@ def patch_order(
               o.installation_scheduled_start_at,
               o.installation_scheduled_end_at
             FROM orders o
-            WHERE o.company_id = CAST(:cid AS uuid) AND o.id = :oid AND o.active IS TRUE
+            WHERE o.company_id = :cid AND o.id = :oid AND o.active IS TRUE
             LIMIT 1
             """
         ),
@@ -3706,7 +3721,7 @@ def patch_order(
                       e.tarih_saat
                     FROM estimate e
                     LEFT JOIN customers c ON c.company_id = e.company_id AND c.id = e.customer_id
-                    WHERE e.company_id = CAST(:cid AS uuid) AND e.id = :eid
+                    WHERE e.company_id = :cid AND e.id = :eid
                     LIMIT 1
                     """
                 ),
@@ -3737,7 +3752,7 @@ def patch_order(
             f"""
             UPDATE orders
             SET {", ".join(sets)}
-            WHERE company_id = CAST(:cid AS uuid) AND id = :oid AND active IS TRUE
+            WHERE company_id = :cid AND id = :oid AND active IS TRUE
             """
         ),
         params,

@@ -21,6 +21,7 @@ import {
   type BlindsOrderOptions,
   BlindsTypesGrid,
   blindsLineToPayload,
+  blindsLinesMissingRequiredAttributesMessage,
   hydrateBlindsLinesDefaults,
   newBlindsLineForType,
   sanitizeLineAmountInput,
@@ -505,6 +506,12 @@ export function EstimatesPage() {
       return
     }
     const tz = coerceTimeZoneForApi(visitTimeZone.trim())
+
+    const missingAttr = blindsLinesMissingRequiredAttributesMessage(blindsLines, blindsTypes, blindsOrderOptions)
+    if (missingAttr) {
+      setModalErr(missingAttr)
+      return
+    }
 
     const vaddr =
       entryMode === 'customer'

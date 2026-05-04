@@ -58,6 +58,10 @@ Vite varsayılanı `http://localhost:5173`; API proxy `/api` → `127.0.0.1:8000
 
 **Sipariş / kurulum:** Global durum **Ready for installation** iken **kurulum tarih/saati** isteğe bağlıdır; girilmişse ve Google Calendar bağlıysa kurulum etkinliği oluşturulur/güncellenir.
 
+**Blinds product category (orders & estimates; UI English):** Category options follow lookup **sort_order**. The category dropdown defaults to empty. If the company blinds×category matrix assigns categories to a type, the user must select a category for each line with quantity before save (frontend message + API validation).
+
+**MariaDB backend:** Orders / related settings SQL uses MariaDB-compatible syntax (no PostgreSQL-only `::` casts / `ANY()` patterns). JSON aggregates from the DB may be returned as strings to the app; `GET /orders/prefill-from-estimate/{id}` and estimate blinds payloads decode them so **Make order** pre-fills blinds lines correctly.
+
 ## Klasör yapısı
 
 Modüler backend ve Vite React ön yüzü için bkz. [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md) (içerik proje evrimine göre güncellenebilir).

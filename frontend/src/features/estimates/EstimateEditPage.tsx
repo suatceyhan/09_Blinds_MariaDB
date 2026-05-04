@@ -19,6 +19,7 @@ import {
   type BlindsOrderOptions,
   BlindsTypesGrid,
   blindsLineToPayload,
+  blindsLinesMissingRequiredAttributesMessage,
   hydrateBlindsLinesDefaults,
   newBlindsLineForType,
   normalizeBlindsLineFromApi,
@@ -454,6 +455,12 @@ export function EstimateEditPage() {
 
     if (!(detail?.customer_id ?? '').trim() && !prospectName.trim()) {
       setSaveErr('Enter a name for the prospect.')
+      return
+    }
+
+    const missingAttr = blindsLinesMissingRequiredAttributesMessage(blindsLines, blindsTypes, blindsOrderOptions)
+    if (missingAttr) {
+      setSaveErr(missingAttr)
       return
     }
 
