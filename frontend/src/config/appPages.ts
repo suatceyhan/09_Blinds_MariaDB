@@ -58,6 +58,14 @@ export const appPages: PageConfig[] = [
     showInNav: true,
   },
   {
+    id: 'notes-root',
+    name: 'Notes',
+    basePath: '/notes',
+    module: 'notes',
+    permissions: { view: 'notes.view', edit: 'notes.edit' },
+    showInNav: true,
+  },
+  {
     id: 'lookups-root',
     name: 'Lookups',
     basePath: '/lookups',

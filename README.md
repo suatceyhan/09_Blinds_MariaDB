@@ -11,11 +11,13 @@ Bu proje, **giriş, kayıt, şifre değiştirme, şifremi unuttum / sıfırlama*
 | Şifre değiştir | `POST /auth/change_password` (JWT) | `/account/password` |
 | Şifre unuttum | `POST /password_reset/request` + e-posta | `/forgot-password` |
 | Yeni şifre (token) | `GET/POST /password_reset/validate|confirm` | `/reset-password?token=` |
+| Notes / Reminders | `GET/POST/PATCH/DELETE /notes` | `/notes` |
 
 - Açık kayıt `.env` ile kapatılabilir: `PUBLIC_REGISTRATION_ENABLED=false`
 - Bootstrap `SUPER_ADMIN_*` ile ilk yönetici (opsiyonel)
 - İlk açılışta varsayılan **`user`** rolü oluşturulur (self-service kayıt için)
 - Menü / rol matrisi: **Ana menüler** birbirinden ayrı izin anahtarları kullanır (`app_nav_permissions.APP_PERMISSION_SEEDS` + `frontend/src/config/appPages.ts`). **Lookups** hub `lookups.view` / `lookups.edit`; alt sayfalar ayrı anahtarlar (örn. `lookups.blinds_types.view`, tahmin/sipariş durum gridleri için `settings.estimate_status_matrix.*` / `settings.order_status_matrix.*`, ürün kategorisi için `lookups.product_categories.*`, …) — matriste satır başına bağımsız toggle; API **granular veya** eski geniş anahtarı kabul eder. Ürün kategorisi şirket matrisi: **`DB/31_company_blinds_product_category_matrix.sql`** + **`GET`/`PUT /permissions/product-category-matrix`**. **Companies** (`companies.*`) yalnızca şirket dizini; **Settings → Company info / Integrations** sırasıyla `settings.company_info.*`, `settings.integrations.*`; **Blinds line matrices** `settings.blinds_line_matrices.*`; **Permissions** kökü `permissions.access.*` (**`settings.access.*` değil**). API’de geçiş için bazı uçlar yeni anahtarlarla **`companies.*` / `settings.access.*` OR** kabul eder; yeni izinler bootstrap’ta `permissions` tablosuna eklenir, şirket sahibi rolünde eksik satır varsa otomatik **grant** edilir; mevcut DB’ler için **`DB/29_lookup_subpage_permissions.sql`** backfill.
+- **Notes / Reminders**: Tek menü altında not ve hatırlatıcı birlikte tutulur. Bir kayıt `due_at` doluysa “reminder” gibi davranır. Permission keys: `notes.view`, `notes.edit`. DB: `DB/49_notes_mariadb.sql` (fresh install şeması `DB/blinds-mariadb.clean.sql` içinde de vardır). Existing DB backfill: `DB/50_notes_permissions_mariadb.sql`.
 
 ## Hızlı başlangıç
 

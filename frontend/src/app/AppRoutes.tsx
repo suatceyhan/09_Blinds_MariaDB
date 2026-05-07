@@ -22,6 +22,7 @@ import { EstimateEditPage } from '@/features/estimates/EstimateEditPage'
 import { EstimateViewPage } from '@/features/estimates/EstimateViewPage'
 import { OrderEditPage } from '@/features/orders/OrderEditPage'
 import { OrderViewPage } from '@/features/orders/OrderViewPage'
+import { NotesPage } from '@/features/notes/NotesPage'
 import { BlindsProductCategoriesLookupPage } from '@/features/lookups/BlindsProductCategoriesLookupPage'
 import { BlindsTypesLookupPage } from '@/features/lookups/BlindsTypesLookupPage'
 import { LookupsHubPage } from '@/features/lookups/LookupsHubPage'
@@ -86,6 +87,7 @@ export function AppRoutes() {
         <Route path="orders/:orderId/edit" element={<OrderEditPage />} />
         <Route path="orders/:orderId" element={<OrderViewPage />} />
         <Route path="orders" element={<OrdersPage />} />
+        <Route path="notes" element={<NotesPage />} />
         <Route path="lookups/blinds-types" element={<BlindsTypesLookupPage />} />
         <Route path="lookups/blinds-extra-options/:kindId" element={<Navigate to="/lookups" replace />} />
         <Route path="lookups/blinds-product-categories" element={<BlindsProductCategoriesLookupPage />} />

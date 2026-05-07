@@ -12,6 +12,8 @@ APP_PERMISSION_SEEDS: list[tuple[str, str, str, int]] = [
     ("estimates.edit", "Estimates — edit", "estimates", 15),
     ("orders.view", "Orders — view", "orders", 16),
     ("orders.edit", "Orders — edit", "orders", 17),
+    ("notes.view", "Notes — view", "notes", 28),
+    ("notes.edit", "Notes — edit", "notes", 29),
     ("lookups.view", "Lookups — view", "lookups", 18),
     ("lookups.edit", "Lookups — edit", "lookups", 19),
     ("lookups.blinds_types.view", "Lookups / Blinds types — view", "lookups", 124),

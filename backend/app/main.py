@@ -32,6 +32,7 @@ from app.domains.reports.api.financial import router as financial_reports_router
 from app.domains.customers.api import customers_router
 from app.domains.estimates.api import estimates_router
 from app.domains.orders.api import orders_router
+from app.domains.notes.api import notes_router
 from app.integrations.google_calendar_router import router as google_calendar_router
 from app.domains.business_lookups.api import business_lookups_router
 from app.domains.settings.api.blinds_category_matrix import router as settings_blinds_matrix_router
@@ -128,6 +129,7 @@ app.include_router(financial_reports_router)
 app.include_router(customers_router)
 app.include_router(estimates_router)
 app.include_router(orders_router)
+app.include_router(notes_router)
 app.include_router(google_calendar_router)
 app.include_router(business_lookups_router)
 app.include_router(settings_blinds_matrix_router)

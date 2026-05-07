@@ -978,15 +978,22 @@ class OrderPaymentEntryOut(BaseModel):
     payment_group_id: str | None = None
 
 
+def _as_utc_aware(dt: datetime) -> datetime:
+    """Normalize DB/driver datetimes so comparisons (sort, min) never mix naive vs aware."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _down_payment_paid_at(agreement_date: Any, created_at: Any) -> datetime:
     """Display timestamp for the synthetic down-payment line (agreement date start of day, else order created)."""
     if agreement_date is not None:
         if isinstance(agreement_date, datetime):
-            return agreement_date
+            return _as_utc_aware(agreement_date)
         if isinstance(agreement_date, date):
             return datetime.combine(agreement_date, time.min, tzinfo=timezone.utc)
     if isinstance(created_at, datetime):
-        return created_at
+        return _as_utc_aware(created_at)
     return datetime.now(timezone.utc)
 
 
@@ -1080,7 +1087,7 @@ def _build_payment_entries_for_detail(
         out.append(OrderPaymentEntryOut(order_id=order_id, **d))
         if pgid:
             out[-1].payment_group_id = pgid
-    out.sort(key=lambda e: (e.paid_at, 0 if e.id == "downpayment" else 1))
+    out.sort(key=lambda e: (_as_utc_aware(e.paid_at), 0 if e.id == "downpayment" else 1))
     return out
 
 
@@ -2859,7 +2866,7 @@ def get_order(
             grp_map.setdefault(e.payment_group_id, []).append(e)
         for gid, entries in grp_map.items():
             amt = sum((x.amount for x in entries), Decimal("0.00"))
-            paid_at = min((x.paid_at for x in entries))
+            paid_at = min((_as_utc_aware(x.paid_at) for x in entries))
             collapsed.append(
                 OrderPaymentEntryOut(
                     id=f"grp:{gid}",
@@ -2870,7 +2877,7 @@ def get_order(
                 )
             )
         payment_entries = collapsed
-        payment_entries.sort(key=lambda e: (e.paid_at, 0 if e.id == "downpayment" else 1))
+        payment_entries.sort(key=lambda e: (_as_utc_aware(e.paid_at), 0 if e.id == "downpayment" else 1))
     else:
         pay_rows = db.execute(
             text(
